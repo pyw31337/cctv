@@ -2254,15 +2254,16 @@
                 video.muted = true;
                 video.playsInline = true;
                 video.setAttribute('playsinline', '');
+                video.preload = 'auto';
                 video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
 
-                // Timeout to detect stalled loading (10 seconds for HLS)
+                // Timeout to detect stalled loading (8 seconds for HLS - reduced for faster failover)
                 const loadTimeout = setTimeout(() => {
                     if (video.readyState < 3) {
                         console.log(`Slot ${slotIndex}: Load timeout, skipping...`);
                         loadNext();
                     }
-                }, 10000);
+                }, 8000);
 
                 video.onplaying = () => clearTimeout(loadTimeout);
                 video.onerror = () => {
@@ -2273,7 +2274,18 @@
                 container.insertBefore(video, container.firstChild);
 
                 if (Hls.isSupported()) {
-                    const hls = new Hls();
+                    // Optimized HLS config for fast loading
+                    const hls = new Hls({
+                        lowLatencyMode: true,
+                        maxBufferLength: 3,
+                        maxMaxBufferLength: 5,
+                        maxBufferSize: 1 * 1000 * 1000,
+                        startLevel: -1,
+                        enableWorker: true,
+                        backBufferLength: 0,
+                        liveSyncDurationCount: 1,
+                        liveMaxLatencyDurationCount: 3
+                    });
                     hls.loadSource(url);
                     hls.attachMedia(video);
                     hls.on(Hls.Events.ERROR, function (event, data) {
@@ -2516,10 +2528,22 @@
                 video.autoplay = true;
                 video.muted = false;
                 video.playsInline = true;
+                video.preload = 'auto';
                 frame.appendChild(video);
 
                 if (Hls.isSupported()) {
-                    const hls = new Hls();
+                    // Optimized HLS config for fast loading
+                    const hls = new Hls({
+                        lowLatencyMode: true,
+                        maxBufferLength: 3,
+                        maxMaxBufferLength: 5,
+                        maxBufferSize: 1 * 1000 * 1000,
+                        startLevel: -1,
+                        enableWorker: true,
+                        backBufferLength: 0,
+                        liveSyncDurationCount: 1,
+                        liveMaxLatencyDurationCount: 3
+                    });
                     hls.loadSource(cctvData.url);
                     hls.attachMedia(video);
                     hls.on(Hls.Events.MANIFEST_PARSED, function () {
