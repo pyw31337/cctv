@@ -664,31 +664,18 @@
             stroke: var(--accent);
         }
 
-        /* Ensure inner elements also expand in fullscreen */
-        .cctv-item.panel-fullscreen video,
-        .cctv-item.panel-fullscreen iframe {
-            width: 100% !important;
-            height: 100% !important;
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            object-fit: contain !important;
+        /* Ensure inner elements visual presentation in fullscreen */
+        .cctv-item.panel-fullscreen {
+            background-color: #000;
+            /* Ensure black background */
         }
 
-        .cctv-item.panel-fullscreen .placeholder {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        .cctv-item.panel-fullscreen div.cctv {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        .cctv-item.panel-fullscreen div.cctv div.player {
-            width: 100% !important;
-            height: 100% !important;
-        }
+        /* 
+           REMOVED: Forced sizing styles for video/iframe/div.cctv 
+           Reason: These !important rules conflict with the JavaScript scaleContentToFit() function
+           which calculates precise scaling transforms to fit the content to the viewport correctly.
+           The JS handles width/height/position/transform dynamically.
+        */
 
         /* Custom Dropdown */
         .custom-select-container {
@@ -1459,6 +1446,8 @@
         </div>
     </div>
 
+
+
     <script>
         // ===== Shared State =====
         const ITS_API_KEY = '8c86cb02ef2647d9a6484c47386549ae';
@@ -1475,29 +1464,39 @@
         let mapInitialized = false;
 
         // ===== Panel Fullscreen Toggle with Dynamic Scaling =====
-        function scaleContentToFit(cctvItem, isFullscreen) {
+        function scaleContentToFit(cctvItem, isFullscreen, fixedSize = null) {
             // Find the inner content that needs scaling
             const content = cctvItem.querySelector('div.cctv, iframe, video');
+
+
+
             if (!content) return;
+
+
 
             if (isFullscreen) {
                 // Get viewport dimensions
                 const viewportWidth = window.innerWidth;
                 const viewportHeight = window.innerHeight;
 
-                // Fixed base size for CCTV players (internal players are typically 320x245)
-                let contentWidth = 320;
-                let contentHeight = 245;
 
-                // For video elements, try to use actual dimensions
-                if (content.tagName === 'VIDEO') {
+                // Use captured size if available, otherwise fallback to defaults
+                let contentWidth = fixedSize ? fixedSize.width : 320;
+                let contentHeight = fixedSize ? fixedSize.height : 245;
+
+                // Fallback: For video elements, try to use actual dimensions if not passed
+                if (!fixedSize && content.tagName === 'VIDEO') {
                     contentWidth = content.videoWidth || 320;
                     contentHeight = content.videoHeight || 245;
                 }
 
+                // Apply fixed dimensions IMMEDIATELY to prevent layout thrashing
+                content.style.width = `${contentWidth}px`;
+                content.style.height = `${contentHeight}px`;
+
                 // CRITICAL: For iframes, we must explicitly set fixed dimensions
                 // because CSS 100% would make offsetWidth return viewport size
-                if (content.tagName === 'IFRAME') {
+                if (!fixedSize && content.tagName === 'IFRAME') {
                     content.style.width = `${contentWidth}px`;
                     content.style.height = `${contentHeight}px`;
                 }
@@ -1507,14 +1506,20 @@
                 const scaleY = (viewportHeight - 80) / contentHeight; // Account for header/controls
                 const scale = Math.min(scaleX, scaleY) * 0.95; // 95% to leave margin
 
+
+
                 // Apply scale transform and center
                 content.style.transform = `scale(${scale})`;
                 content.style.transformOrigin = 'center center';
                 content.style.position = 'absolute';
-                content.style.top = '55%';
+                content.style.top = '55%'; // Slightly lower to clear header
                 content.style.left = '50%';
                 content.style.marginTop = `-${contentHeight / 2}px`;
                 content.style.marginLeft = `-${contentWidth / 2}px`;
+                content.style.zIndex = '1000'; // FORCE HIGH Z-INDEX
+
+
+
             } else {
                 // Reset all styles
                 content.style.transform = '';
@@ -1524,12 +1529,16 @@
                 content.style.left = '';
                 content.style.marginTop = '';
                 content.style.marginLeft = '';
+                content.style.zIndex = '';
                 // Reset dimensions for non-fullscreen mode
                 if (content.tagName === 'IFRAME') {
                     content.style.width = '100%';
                     content.style.height = '100%';
                 }
+
             }
+
+
         }
 
         document.querySelectorAll('.cctv-zoom-btn').forEach(btn => {
@@ -1544,13 +1553,36 @@
                             scaleContentToFit(panel, false);
                         }
                     });
-                    // Toggle fullscreen on clicked panel
-                    const isNowFullscreen = !cctvItem.classList.contains('panel-fullscreen');
+
+                    // Check if we are ENTERING fullscreen
+                    const isEnteringFullscreen = !cctvItem.classList.contains('panel-fullscreen');
+
+                    let currentSize = null;
+                    if (isEnteringFullscreen) {
+                        // CAPTURE CURRENT SIZE BEFORE IT EXPANDS
+                        const content = cctvItem.querySelector('div.cctv, iframe, video');
+                        if (content) {
+                            currentSize = {
+                                width: content.offsetWidth || 320,
+                                height: content.offsetHeight || 245
+                            };
+                            // Also adjust for video intrinsic size if avail
+                            if (content.tagName === 'VIDEO' && content.videoWidth) {
+                                currentSize.width = content.videoWidth;
+                                currentSize.height = content.videoHeight;
+                            }
+                        }
+                    }
+
+                    // Toggle fullscreen class
                     cctvItem.classList.toggle('panel-fullscreen');
-                    scaleContentToFit(cctvItem, isNowFullscreen);
+
+                    // Apply scaling with captured size
+                    scaleContentToFit(cctvItem, isEnteringFullscreen, currentSize);
                 }
             });
         });
+
 
         // Close fullscreen panel with Escape key
         document.addEventListener('keydown', (e) => {
