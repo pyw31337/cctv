@@ -606,10 +606,68 @@
             }
         }
 
+        /* CCTV Label Wrapper */
+        .cctv-label-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .cctv-zoom-btn {
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            transition: all 0.2s;
+            padding: 0;
+        }
+
+        .cctv-zoom-btn:hover {
+            background: rgba(0, 0, 0, 0.8);
+            border-color: var(--accent);
+        }
+
+        .cctv-zoom-btn:active {
+            transform: scale(0.95);
+        }
+
+        .cctv-zoom-btn svg {
+            width: 18px;
+            height: 18px;
+            stroke: white;
+        }
+
+        /* Panel Fullscreen Mode */
+        .cctv-item.panel-fullscreen {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 3000 !important;
+            border-radius: 0 !important;
+        }
+
+        .cctv-item.panel-fullscreen .cctv-label {
+            opacity: 1;
+        }
+
+        .cctv-item.panel-fullscreen .cctv-zoom-btn svg {
+            stroke: var(--accent);
+        }
+
         /* Custom Dropdown */
         .custom-select-container {
             position: relative;
-            width: 100%;
+            flex: 1;
             z-index: 20;
         }
 
@@ -1173,36 +1231,92 @@
                 <div class="cctv-item" id="cctv-1">
                     <div class="placeholder">Loading...</div>
                     <div class="cctv-label">
-                        <div class="custom-select-container" data-slot="1">
-                            <div class="custom-select-trigger">CCTV 선택</div>
-                            <div class="custom-select-options"></div>
+                        <div class="cctv-label-wrapper">
+                            <button class="cctv-zoom-btn" title="전체보기">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M4 8v-2a2 2 0 0 1 2 -2h2" />
+                                    <path d="M4 16v2a2 2 0 0 0 2 2h2" />
+                                    <path d="M16 4h2a2 2 0 0 1 2 2v2" />
+                                    <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
+                                    <path d="M8 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+                                    <path d="M16 16l-2.5 -2.5" />
+                                </svg>
+                            </button>
+                            <div class="custom-select-container" data-slot="1">
+                                <div class="custom-select-trigger">CCTV 선택</div>
+                                <div class="custom-select-options"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="cctv-item" id="cctv-2">
                     <div class="placeholder">Loading...</div>
                     <div class="cctv-label">
-                        <div class="custom-select-container" data-slot="2">
-                            <div class="custom-select-trigger">CCTV 선택</div>
-                            <div class="custom-select-options"></div>
+                        <div class="cctv-label-wrapper">
+                            <button class="cctv-zoom-btn" title="전체보기">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M4 8v-2a2 2 0 0 1 2 -2h2" />
+                                    <path d="M4 16v2a2 2 0 0 0 2 2h2" />
+                                    <path d="M16 4h2a2 2 0 0 1 2 2v2" />
+                                    <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
+                                    <path d="M8 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+                                    <path d="M16 16l-2.5 -2.5" />
+                                </svg>
+                            </button>
+                            <div class="custom-select-container" data-slot="2">
+                                <div class="custom-select-trigger">CCTV 선택</div>
+                                <div class="custom-select-options"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="cctv-item" id="cctv-3">
                     <div class="placeholder">Loading...</div>
                     <div class="cctv-label">
-                        <div class="custom-select-container" data-slot="3">
-                            <div class="custom-select-trigger">CCTV 선택</div>
-                            <div class="custom-select-options"></div>
+                        <div class="cctv-label-wrapper">
+                            <button class="cctv-zoom-btn" title="전체보기">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M4 8v-2a2 2 0 0 1 2 -2h2" />
+                                    <path d="M4 16v2a2 2 0 0 0 2 2h2" />
+                                    <path d="M16 4h2a2 2 0 0 1 2 2v2" />
+                                    <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
+                                    <path d="M8 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+                                    <path d="M16 16l-2.5 -2.5" />
+                                </svg>
+                            </button>
+                            <div class="custom-select-container" data-slot="3">
+                                <div class="custom-select-trigger">CCTV 선택</div>
+                                <div class="custom-select-options"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="cctv-item" id="cctv-4">
                     <div class="placeholder">Loading...</div>
                     <div class="cctv-label">
-                        <div class="custom-select-container" data-slot="4">
-                            <div class="custom-select-trigger">CCTV 선택</div>
-                            <div class="custom-select-options"></div>
+                        <div class="cctv-label-wrapper">
+                            <button class="cctv-zoom-btn" title="전체보기">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <path d="M4 8v-2a2 2 0 0 1 2 -2h2" />
+                                    <path d="M4 16v2a2 2 0 0 0 2 2h2" />
+                                    <path d="M16 4h2a2 2 0 0 1 2 2v2" />
+                                    <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
+                                    <path d="M8 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+                                    <path d="M16 16l-2.5 -2.5" />
+                                </svg>
+                            </button>
+                            <div class="custom-select-container" data-slot="4">
+                                <div class="custom-select-trigger">CCTV 선택</div>
+                                <div class="custom-select-options"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1333,6 +1447,33 @@
         let markers = [];
         let centerMarker = null;
         let mapInitialized = false;
+
+        // ===== Panel Fullscreen Toggle =====
+        document.querySelectorAll('.cctv-zoom-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const cctvItem = btn.closest('.cctv-item');
+                if (cctvItem) {
+                    // Close any other fullscreen panels first
+                    document.querySelectorAll('.cctv-item.panel-fullscreen').forEach(panel => {
+                        if (panel !== cctvItem) {
+                            panel.classList.remove('panel-fullscreen');
+                        }
+                    });
+                    // Toggle fullscreen on clicked panel
+                    cctvItem.classList.toggle('panel-fullscreen');
+                }
+            });
+        });
+
+        // Close fullscreen panel with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.cctv-item.panel-fullscreen').forEach(panel => {
+                    panel.classList.remove('panel-fullscreen');
+                });
+            }
+        });
 
         // ===== Tab Switching =====
         document.querySelectorAll('.tab-btn').forEach(btn => {
