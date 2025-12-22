@@ -148,13 +148,25 @@ def fetch_utic_data():
             url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
 
             # Special handling for River Flood Control Offices
-            # E60: Han River, E61: Nakdong River
-            # These require specific direct URLs using the 'ID' field
+            # E60: Han River, E61: Nakdong River, E62: Geum River, E63: Yeongsan River
             cctv_id_str = item.get("CCTVID", "")
+            
+            # Extract common logic
+            obscd = item.get('ID')
+            cctv_passwd = item.get("PASSWD")
+            
             if "E60" in cctv_id_str:
-                url = f"https://hrfco.go.kr/sumun/cctvPopup.do?Obscd={item.get('ID')}"
+                url = f"https://hrfco.go.kr/sumun/cctvPopup.do?Obscd={obscd}"
             elif "E61" in cctv_id_str:
-                url = f"https://www.nakdongriver.go.kr/sumun/popup/cctvView.do?Obscd={item.get('ID')}"
+                url = f"https://www.nakdongriver.go.kr/sumun/popup/cctvView.do?Obscd={obscd}"
+            elif "E62" in cctv_id_str:
+                # E62 (Geum River) logic from collect_cctv_data.py
+                # https://www.geumriver.go.kr/html/sumun/rtmpView.jsp?wlobscd={cctv_passwd}&cctvcd={details.get('ID', '')}
+                url = f"https://www.geumriver.go.kr/html/sumun/rtmpView.jsp?wlobscd={cctv_passwd}&cctvcd={obscd}"
+            elif "E63" in cctv_id_str:
+                # E63 (Yeongsan River) logic from collect_cctv_data.py
+                # https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}
+                url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
             
             cctv_entry = {
                 "id": cctv_id,
@@ -202,6 +214,19 @@ def main():
     
     # 2. Load Existing Data
     existing_data_map = load_existing_data(OUTPUT_FILE)
+    existing_count = len(existing_data_map)
+    
+    # SAFETY GUARDRAIL: Check if data drop is too significant (> 20%)
+    if existing_count > 0:
+        new_count = len(new_data_list)
+        drop_rate = (existing_count - new_count) / existing_count
+        if drop_rate > 0.2:
+            print(f"\n[CRITICAL WARNING] Data drop detected!")
+            print(f"Existing: {existing_count} -> New: {new_count} (Drop rate: {drop_rate*100:.1f}%)")
+            print("The drop rate exceeds the 20% safety threshold. Update ABORTED to prevent data loss.")
+            print("Please check the API status or script logic.")
+            # Exit with error to notify GitHub Actions
+            exit(1)
     
     # 3. Compare
     added = 0
