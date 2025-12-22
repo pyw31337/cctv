@@ -1876,27 +1876,36 @@
                     handleSearch(keyword, 'video', true);
                 }
             } else {
-                // 3. Fallback: LocalStorage > Default
-                let initData = { name: '서울역', lat: 37.5547, lng: 126.9706 };
+                // 3. Fallback: Search History > Default
+                let initData = null;
                 try {
-                    const saved = localStorage.getItem('cctvLastLocation');
+                    const saved = localStorage.getItem('cctvSearchHistory');
                     if (saved) {
-                        const parsed = JSON.parse(saved);
-                        if (parsed.keyword) {
-                            initData.name = parsed.keyword;
-                            document.getElementById('video-keyword').value = initData.name;
-                            document.getElementById('map-keyword').value = initData.name;
-                            handleSearch(initData.name, 'video', true);
-                            return;
+                        const history = JSON.parse(saved);
+                        if (history && history.length > 0) {
+                            const lastSearch = history[0];
+                            // Ensure it has required data
+                            if (lastSearch.name && lastSearch.lat && lastSearch.lng) {
+                                initData = lastSearch;
+                            }
                         }
                     }
                 } catch (e) {
                     console.log('localStorage load failed:', e);
                 }
 
-                document.getElementById('video-keyword').value = initData.name;
-                document.getElementById('map-keyword').value = initData.name;
-                handleSearch(initData.name, 'video', true);
+                // Default to Seoul Station if no history
+                if (!initData) {
+                    initData = { name: '서울역', address: '서울 용산구 한강대로 405', lat: 37.5547, lng: 126.9706 };
+                }
+
+                // Use saved location directly (skip search API)
+                selectPlace({
+                    place_name: initData.name,
+                    address_name: initData.address || initData.name,
+                    y: initData.lat.toString(),
+                    x: initData.lng.toString()
+                });
             }
         }
 
