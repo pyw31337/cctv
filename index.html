@@ -1,0 +1,2495 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>밖에 눈오나?</title>
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="밖에 눈오나?" />
+    <meta property="og:description" content="밖에 눈 오는지 한눈에 확인해 보세요." />
+    <meta property="og:image" content="title.png" />
+    <meta property="og:url" content="http://pyw31337.dothome.co.kr/cctv/" />
+
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+    <link rel="manifest" href="site.webmanifest">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=0236cfffa7cfef34abacd91a6d7c73c0&libraries=services"></script>
+
+    <style>
+        :root {
+            --bg: #020617;
+            --card-bg: #020617;
+            --border: #1e293b;
+            --accent: #22c55e;
+            --accent-dark: #16a34a;
+            --accent-soft: rgba(34, 197, 94, 0.3);
+            --text-main: #e5e7eb;
+            --text-sub: #9ca3af;
+            --safe-area-bottom: env(safe-area-inset-bottom, 20px);
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+
+            /* Dim overlay for search focus */
+            .dim-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 99;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.3s;
+            }
+
+            .dim-overlay.active {
+                opacity: 1;
+                pointer-events: auto;
+            }
+
+            margin: 0;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            background: radial-gradient(circle at top, #0b1120, #020617 55%);
+            color: var(--text-main);
+            font-family: 'Inter',
+            system-ui,
+            -apple-system,
+            BlinkMacSystemFont,
+            sans-serif;
+        }
+
+        .container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Tab Navigation - Floating style */
+        .tab-nav-container {
+            position: absolute;
+            top: 16px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            z-index: 100;
+            pointer-events: none;
+            align-items: center;
+        }
+
+        .tab-nav {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 999px;
+            pointer-events: auto;
+            /* Enable clicks */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .tab-btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 999px;
+            background: transparent;
+            color: var(--text-sub);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .tab-btn.active {
+            background: var(--accent);
+            color: #022c22;
+            box-shadow: 0 2px 10px var(--accent-soft);
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+            width: 100%;
+            height: 100%;
+        }
+
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ===== VIDEO VIEW (4-Panel) ===== */
+        #video-tab {
+            padding: 0;
+            position: relative;
+        }
+
+        .grid-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 2px;
+            background: #000;
+        }
+
+        /* Disable pointer events during resize for smooth drag over iframes */
+        .grid-container.resizing iframe,
+        .grid-container.resizing video {
+            pointer-events: none !important;
+        }
+
+        .cctv-item {
+            position: relative;
+            background: #0f172a;
+            overflow: hidden;
+            overflow: hidden;
+            /* Removed display: flex to avoid layout quirks with video elements */
+            display: block;
+        }
+
+        .placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            color: var(--text-sub);
+            background: radial-gradient(circle at center, #1e293b, #0f172a);
+        }
+
+        .cctv-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .cctv-item:hover .cctv-label,
+        .cctv-item:active .cctv-label {
+            opacity: 1;
+        }
+
+        .cctv-fullscreen-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 32px;
+            height: 32px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            padding: 0;
+            opacity: 0;
+            transition: opacity 0.2s, background 0.2s;
+        }
+
+        .cctv-fullscreen-btn:hover {
+            background: rgba(0, 0, 0, 0.8);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .cctv-item:hover .cctv-fullscreen-btn,
+        .cctv-item:active .cctv-fullscreen-btn {
+            opacity: 1;
+        }
+
+        .cctv-select {
+            width: 100%;
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            outline: none;
+            backdrop-filter: blur(4px);
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background: #000;
+        }
+
+        /* Resizer Handle */
+        .resizer-handle {
+            position: absolute;
+            width: 44px;
+            height: 44px;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            background: var(--accent);
+            border: 3px solid #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3), 0 8px 20px rgba(0, 0, 0, 0.6);
+            cursor: grab;
+            touch-action: none;
+            z-index: 50;
+        }
+
+        .resizer-icon {
+            width: 20px;
+            height: 20px;
+            stroke: #022c22;
+            stroke-width: 2;
+            fill: none;
+        }
+
+        /* ===== MAP VIEW ===== */
+        #map-tab {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+
+        #map-container {
+            width: 100%;
+            height: 100%;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Video Layer Popup */
+        .video-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .video-layer.active {
+            display: flex;
+        }
+
+        .video-layer-content {
+            background: #1e293b;
+            border-radius: 16px;
+            width: 100%;
+            height: 50vh;
+            max-width: 500px;
+            overflow: hidden;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            min-height: 400px;
+        }
+
+        .hd {
+            display: none;
+        }
+
+        .video-layer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .video-layer-title {
+            font-weight: 600;
+            font-size: 16px;
+            color: white;
+        }
+
+        .video-layer-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-frame {
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #000;
+            min-height: 400px;
+        }
+
+        div.cctv div.player {
+            margin: auto !important;
+        }
+
+
+        /* Floating Search */
+        .floating-search-container {
+            position: absolute;
+            bottom: max(20px, var(--safe-area-bottom));
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            z-index: 100;
+            pointer-events: none;
+            padding: 0 16px;
+            transition: bottom 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        @media (max-width: 768px) {
+            .floating-search-container.keyboard-active {
+                bottom: unset;
+                top: 20px;
+                transform: none;
+                z-index: 2000;
+                /* Ensure it's above everything including Dim Overlay */
+            }
+
+            /* Hide Tab Nav when search is active on mobile */
+            body.search-active .tab-nav-container {
+                display: none;
+            }
+
+            /* Show results below the search bar when it moves to the top */
+            .floating-search-container.keyboard-active .search-results {
+                bottom: auto;
+                top: 100%;
+                margin-bottom: 0;
+                margin-top: 12px;
+            }
+        }
+
+        .floating-search-wrapper {
+            width: 100%;
+            max-width: 400px;
+            position: relative;
+            pointer-events: auto;
+        }
+
+        .floating-search {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 8px 8px 16px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 3px solid var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-soft), 0 10px 30px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
+
+        .floating-search-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            background: transparent;
+            color: white;
+            font-size: 15px;
+            min-width: 0;
+        }
+
+        .floating-search-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .floating-search-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            background: var(--accent);
+            color: #022c22;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: transform 0.2s;
+        }
+
+        .floating-search-btn:active {
+            transform: scale(0.95);
+        }
+
+        .search-icon {
+            width: 20px;
+            height: 20px;
+            stroke: #022c22;
+            stroke-width: 2;
+            fill: none;
+        }
+
+        .floating-clear-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255, 255, 255, 0.2);
+            color: var(--text-sub);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 0;
+            margin-right: -4px;
+            transition: all 0.2s;
+        }
+
+        .floating-clear-btn:hover {
+            background: rgba(255, 255, 255, 0.4);
+            color: white;
+        }
+
+        .floating-clear-btn.visible {
+            display: flex;
+        }
+
+        /* Search Results List */
+        .search-results {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            margin-bottom: 12px;
+            max-height: 240px;
+            overflow-y: auto;
+            display: none;
+            flex-direction: column;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+
+        .search-results.active {
+            display: flex;
+        }
+
+        .search-item {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .search-item:last-child {
+            border-bottom: none;
+        }
+
+        .search-item:active {
+            background: rgba(34, 197, 94, 0.2);
+        }
+
+        .search-item-name {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: white;
+        }
+
+        .search-item-addr {
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+
+        .status-text {
+            position: absolute;
+            bottom: calc(max(20px, var(--safe-area-bottom)) + 60px);
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            z-index: 90;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+        }
+
+        #video-tab .status-text {
+            position: absolute;
+            bottom: 80px;
+            /* Adjust based on search bar height */
+            left: 0;
+            right: 0;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+            z-index: 90;
+        }
+
+        @media (max-width: 768px) {
+            .grid-container {
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: 1fr 1fr;
+            }
+
+            .cctv-label {
+                opacity: 1;
+                top: 6px;
+                left: 6px;
+                right: 6px;
+            }
+
+            .cctv-select {
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+
+            div.cctv p.hd {
+                display: none;
+            }
+        }
+
+        /* Custom Dropdown */
+        .custom-select-container {
+            position: relative;
+            width: 100%;
+            z-index: 20;
+        }
+
+        .custom-select-trigger {
+            width: 100%;
+            font-size: 13px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .custom-select-trigger:hover {
+            background: rgba(0, 0, 0, 0.8);
+            border-color: var(--accent);
+        }
+
+        .custom-select-options {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: max-content;
+            min-width: 200px;
+            max-width: 90vw;
+            margin-top: 8px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--accent);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        .custom-select-options.active {
+            display: flex;
+        }
+
+        .custom-option {
+            padding: 12px 20px;
+            font-size: 15px;
+            /* Larger text */
+            color: var(--text-main);
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .custom-option:last-child {
+            border-bottom: none;
+        }
+
+        .custom-option:hover {
+            background: rgba(34, 197, 94, 0.2);
+            color: white;
+        }
+
+        .custom-option.selected {
+            background: var(--accent);
+            color: #022c22;
+            font-weight: 600;
+        }
+
+        /* Weather Feature Styles */
+        @keyframes rotate-sun {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .weather-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            margin-left: 12px;
+            /* Increased separation */
+            transition: all 0.2s;
+            padding: 0;
+            pointer-events: auto;
+            /* Enable clicks since container is none */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            border: 2px solid var(--accent);
+        }
+
+        .weather-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: scale(1.05);
+        }
+
+        .weather-icon-btn {
+            width: 20px;
+            height: 20px;
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 2;
+        }
+
+        .weather-sun-group {
+            transform-origin: center;
+            animation: rotate-sun 12s linear infinite;
+        }
+
+        .weather-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2500;
+            backdrop-filter: blur(2px);
+        }
+
+        .weather-layer.active {
+            display: flex;
+        }
+
+        .weather-content {
+            background: rgba(30, 41, 59, 0.3);
+            border-radius: 28px;
+            padding: 24px;
+            width: 90%;
+            max-width: 360px;
+            text-align: center;
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .weather-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .weather-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .weather-close {
+            background: none;
+            border: none;
+            color: var(--text-sub);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0 8px;
+            line-height: 1;
+        }
+
+        .weather-close:hover {
+            color: white;
+        }
+
+        .weather-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .weather-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px 20px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.2s ease;
+        }
+
+        .weather-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .weather-day {
+            font-weight: 500;
+            width: 40px;
+            text-align: left;
+            color: var(--text-main);
+        }
+
+        .weather-icon-display {
+            font-size: 20px;
+            width: 30px;
+        }
+
+        .weather-temp {
+            font-weight: 600;
+            color: var(--accent);
+            width: 40px;
+            text-align: right;
+        }
+
+        /* Bookmark / History Styles */
+        .bookmark-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            margin-right: 12px;
+            /* To left of tabs */
+            transition: all 0.2s;
+            padding: 0;
+            pointer-events: auto;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            border: 2px solid var(--accent);
+        }
+
+        .bookmark-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: scale(1.05);
+        }
+
+        .bookmark-icon-btn {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 2;
+        }
+
+        .bookmark-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2500;
+            backdrop-filter: blur(2px);
+        }
+
+        .bookmark-layer.active {
+            display: flex;
+        }
+
+        .bookmark-content {
+            background: rgba(30, 41, 59, 0.3);
+            border-radius: 28px;
+            padding: 24px;
+            width: 90%;
+            max-width: 600px;
+            /* Increased for PC */
+            text-align: center;
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .bookmark-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .bookmark-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .bookmark-close {
+            background: none;
+            border: none;
+            color: var(--text-sub);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0 8px;
+            line-height: 1;
+        }
+
+        .bookmark-close:hover {
+            color: white;
+        }
+
+        .bookmark-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .bookmark-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px 20px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .bookmark-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        /* Updated Bookmark Info Layout */
+        .bookmark-info {
+            display: flex;
+            flex-direction: column;
+            /* PC & Mobile: Column (Name top, Address bottom) */
+            align-items: flex-start;
+            justify-content: center;
+            flex: 1;
+            text-align: left;
+            gap: 2px;
+            overflow: hidden;
+        }
+
+        .bookmark-text {
+            font-size: 15px;
+            color: var(--text-main);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .bookmark-address {
+            font-size: 13px;
+            color: var(--text-sub);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .bookmark-actions {
+            display: flex;
+            align-items: center;
+            margin-left: 12px;
+            flex-shrink: 0;
+        }
+
+        .bookmark-delete-btn {
+            background: none;
+            border: none;
+            color: var(--text-sub);
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 4px;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .bookmark-delete-btn:hover {
+            opacity: 1;
+            color: #ef4444;
+        }
+
+        .bookmark-share-btn {
+            background: none;
+            border: none;
+            color: var(--text-sub);
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 4px;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+            display: flex;
+            align-items: center;
+        }
+
+        .bookmark-share-btn:hover {
+            opacity: 1;
+            color: var(--accent);
+        }
+
+        /* Mobile Tweaks */
+        @media (max-width: 768px) {
+            .tab-nav-container {
+                position: static;
+                margin-top: 10px;
+                margin-bottom: 10px;
+            }
+
+            .bookmark-info {
+                flex-direction: column;
+                /* Mobile: Column (Name top, Address bottom) */
+                align-items: flex-start;
+                gap: 2px;
+            }
+
+            .bookmark-address {
+                font-size: 12px;
+            }
+        }
+
+        .bookmark-empty {
+            color: var(--text-sub);
+            font-size: 13px;
+            padding: 20px;
+        }
+
+        .weather-temp-range {
+            color: var(--text-sub);
+            font-size: 12px;
+            width: 60px;
+            text-align: right;
+        }
+
+        /* Toast Notification */
+        .toast-notification {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(34, 197, 94, 0.9);
+            color: #022c22;
+            padding: 10px 20px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 3000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .toast-notification.show {
+            opacity: 1;
+        }
+
+        /* ... existing styles ... */
+    </style>
+</head>
+
+<body>
+    <div id="dim-overlay" class="dim-overlay"></div>
+    <div id="toast" class="toast-notification">링크가 복사되었습니다!</div>
+    <div class="container">
+        <!-- Tab Navigation (Floating) -->
+        <div class="tab-nav-container">
+            <!-- Bookmark Button -->
+            <button class="bookmark-btn" id="bookmark-btn" title="최근 검색 기록">
+                <svg class="bookmark-icon-btn" viewBox="0 0 24 24">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                </svg>
+            </button>
+
+            <nav class="tab-nav">
+                <button class="tab-btn active" data-tab="video">영상보기</button>
+                <button class="tab-btn" data-tab="map">지도보기</button>
+            </nav>
+
+            <!-- Weather Button Floating Outside -->
+            <button class="weather-btn" id="weather-btn" title="주간 날씨 보기">
+                <svg class="weather-icon-btn" viewBox="0 0 24 24">
+                    <g class="weather-sun-group">
+                        <path
+                            d="M12 3V5M12 19V21M5 12H3M21 12H19M5.636 5.636L7.05 7.05M16.95 16.95L18.364 18.364M5.636 18.364L7.05 16.95M16.95 7.05L18.364 5.636M12 7C9.23858 7 7 9.23858 7 12C7 14.7614 9.23858 17 12 17C14.7614 17 17 14.7614 17 12C17 9.23858 14.7614 7 12 7Z"
+                            stroke-linecap="round" stroke-linejoin="round" />
+                    </g>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Video View (4-Panel) -->
+        <div class="tab-content active" id="video-tab">
+            <div class="grid-container">
+                <div class="cctv-item" id="cctv-1">
+                    <div class="placeholder">Loading...</div>
+                    <div class="cctv-label">
+                        <div class="custom-select-container" data-slot="1">
+                            <div class="custom-select-trigger">CCTV 선택</div>
+                            <div class="custom-select-options"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="cctv-item" id="cctv-2">
+                    <div class="placeholder">Loading...</div>
+                    <div class="cctv-label">
+                        <div class="custom-select-container" data-slot="2">
+                            <div class="custom-select-trigger">CCTV 선택</div>
+                            <div class="custom-select-options"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="cctv-item" id="cctv-3">
+                    <div class="placeholder">Loading...</div>
+                    <div class="cctv-label">
+                        <div class="custom-select-container" data-slot="3">
+                            <div class="custom-select-trigger">CCTV 선택</div>
+                            <div class="custom-select-options"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="cctv-item" id="cctv-4">
+                    <div class="placeholder">Loading...</div>
+                    <div class="cctv-label">
+                        <div class="custom-select-container" data-slot="4">
+                            <div class="custom-select-trigger">CCTV 선택</div>
+                            <div class="custom-select-options"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="resizer-handle" id="resizer">
+                    <svg class="resizer-icon" viewBox="0 0 24 24">
+                        <path d="M12 4V20M4 12H20" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </div>
+            </div>
+            <div id="video-status" class="status-text"></div>
+            <div class="floating-search-container">
+                <div class="floating-search-wrapper">
+                    <div class="search-results" id="video-search-results"></div>
+                    <div class="floating-search">
+                        <input type="text" id="video-keyword" class="floating-search-input"
+                            placeholder="오목교, 국회대로, 강남역 등 검색">
+                        <button id="video-clear-btn" class="floating-clear-btn">✕</button>
+                        <button id="video-search-btn" class="floating-search-btn">
+                            <svg class="search-icon" viewBox="0 0 24 24">
+                                <path
+                                    d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map View -->
+        <div class="tab-content" id="map-tab">
+            <div id="map-container">
+                <div id="map"></div>
+            </div>
+            <div id="map-status" class="status-text"></div>
+            <div class="floating-search-container">
+                <div class="floating-search-wrapper">
+                    <div class="search-results" id="map-search-results"></div>
+                    <div class="floating-search">
+                        <input type="text" id="map-keyword" class="floating-search-input"
+                            placeholder="오목교, 국회대로, 강남역 등 검색">
+                        <button id="map-clear-btn" class="floating-clear-btn">✕</button>
+                        <button id="map-search-btn" class="floating-search-btn">
+                            <svg class="search-icon" viewBox="0 0 24 24">
+                                <path
+                                    d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Layer Popup -->
+    <div class="video-layer" id="video-layer">
+        <div class="video-layer-content">
+            <div class="video-layer-header">
+                <span class="video-layer-title" id="video-layer-title">CCTV</span>
+                <button class="video-layer-close" id="video-layer-close">✕</button>
+            </div>
+            <div class="video-frame" id="video-frame"></div>
+        </div>
+    </div>
+
+    <!-- Weather Layer Popup -->
+    <div class="weather-layer" id="weather-layer">
+        <div class="weather-content">
+            <div class="weather-header">
+                <span class="weather-title" id="weather-title">주간 날씨</span>
+                <button class="weather-close" id="weather-close">✕</button>
+            </div>
+            <div class="weather-list" id="weather-list">
+                <!-- Weather Items will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Bookmark Layer Popup -->
+    <div class="bookmark-layer" id="bookmark-layer">
+        <div class="bookmark-content">
+            <div class="bookmark-header">
+                <span class="bookmark-title" id="bookmark-title">최근 검색어</span>
+                <button class="bookmark-close" id="bookmark-close">✕</button>
+            </div>
+            <div class="bookmark-list" id="bookmark-list">
+                <!-- History Items will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== Shared State =====
+        const ITS_API_KEY = '8c86cb02ef2647d9a6484c47386549ae';
+        const KAKAO_REST_API_KEY = 'e18ee199818819d830c3fe479aa1ca71';
+
+        let currentKeyword = '서울역';
+        let currentLat = 37.5547;
+        let currentLng = 126.9706;
+        let currentCctvList = [];
+        let allCCTVData = [];
+        let map = null;
+        let markers = [];
+        let centerMarker = null;
+        let mapInitialized = false;
+
+        // ===== Tab Switching =====
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.dataset.tab;
+                switchTab(tabId);
+            });
+        });
+
+        function switchTab(tabId) {
+            // Update buttons
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(`${tabId}-tab`).classList.add('active');
+
+            // Sync keyword between tabs
+            const videoKeyword = document.getElementById('video-keyword').value;
+            const mapKeyword = document.getElementById('map-keyword').value;
+
+            if (tabId === 'map') {
+                document.getElementById('map-keyword').value = videoKeyword || mapKeyword;
+                updateClearButtons();
+                if (!mapInitialized) {
+                    requestAnimationFrame(() => {
+                        setTimeout(() => {
+                            initMap();
+                            mapInitialized = true;
+                        }, 50);
+                    });
+                } else {
+                    requestAnimationFrame(() => {
+                        setTimeout(() => {
+                            if (map) {
+                                map.relayout();
+                                if (currentKeyword) {
+                                    // Just recenter, don't re-search to avoid clearing results
+                                    map.setCenter(new kakao.maps.LatLng(currentLat, currentLng));
+                                }
+                            }
+                        }, 50);
+                    });
+                }
+            } else {
+                document.getElementById('video-keyword').value = mapKeyword || videoKeyword;
+                updateClearButtons();
+            }
+        }
+
+        // ===== Kakao Geocoding =====
+        async function searchPlaces(keyword) {
+            // Reverted to default Kakao sorting (accuracy/relevance)
+            // We still pass x, y as a hint if available, but remove sort='distance'
+            const params = new URLSearchParams({
+                query: keyword,
+                size: 15
+            });
+
+            if (currentLat && currentLng) {
+                params.append('x', currentLng);
+                params.append('y', currentLat);
+            }
+
+            const url = 'https://dapi.kakao.com/v2/local/search/keyword.json?' + params.toString();
+
+            const res = await fetch(url, {
+                headers: { Authorization: 'KakaoAK ' + KAKAO_REST_API_KEY }
+            });
+            if (!res.ok) throw new Error('카카오 API 오류: ' + res.status);
+
+            const data = await res.json();
+            return data.documents || [];
+        }
+
+        // ===== ITS API for NTIC =====
+        async function loadCctvByCenter(lat, lng) {
+            const delta = 0.1;
+            const params = new URLSearchParams({
+                apiKey: ITS_API_KEY,
+                type: 'all',
+                cctvType: '1',
+                minX: (lng - delta).toFixed(6),
+                maxX: (lng + delta).toFixed(6),
+                minY: (lat - delta).toFixed(6),
+                maxY: (lat + delta).toFixed(6),
+                getType: 'json'
+            });
+
+            const url = 'https://openapi.its.go.kr:9443/cctvInfo?' + params.toString();
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('ITS API 오류: ' + res.status);
+
+            const data = await res.json();
+            const list = data.response?.data || data.data || [];
+            return Array.isArray(list) ? list : [];
+        }
+
+        // ===== Search Logic =====
+        function formatDistance(meters) {
+            if (!meters) return '';
+            const m = parseInt(meters, 10);
+            if (m >= 1000) {
+                return (m / 1000).toFixed(1) + 'km';
+            }
+            return m + 'm';
+        }
+
+        async function handleSearch(keyword, type, autoSelectFirst = false) {
+            if (!keyword) return;
+
+            const resultsContainer = document.getElementById(`${type}-search-results`);
+            const statusEl = document.getElementById(`${type === 'video' ? 'video-status' : 'map-status'}`);
+
+            statusEl.textContent = '검색 중...';
+            resultsContainer.innerHTML = '';
+            resultsContainer.classList.remove('active');
+
+            try {
+                let places = await searchPlaces(keyword);
+
+                if (places.length === 0) {
+                    statusEl.textContent = '검색 결과가 없습니다.';
+                    return;
+                }
+
+                if (places.length === 1 || autoSelectFirst) {
+                    selectPlace(places[0]);
+                } else {
+                    // Show multiple results
+                    places.forEach(place => {
+                        const div = document.createElement('div');
+                        div.className = 'search-item';
+
+                        // Calculate distance display
+                        const distanceStr = formatDistance(place.distance);
+
+                        div.innerHTML = `
+                            <div style="flex:1">
+                                <div class="search-item-name">${place.place_name}</div>
+                                <div class="search-item-addr">${place.address_name}</div>
+                            </div>
+                            <div style="font-size:12px;color:var(--accent);font-weight:500;margin-left:8px;">
+                                ${distanceStr}
+                            </div>
+                        `;
+                        // Flex layout for item
+                        div.style.display = 'flex';
+                        div.style.alignItems = 'center';
+                        div.style.justifyContent = 'space-between';
+
+                        div.addEventListener('click', () => {
+                            selectPlace(place);
+                            resultsContainer.classList.remove('active');
+                        });
+                        resultsContainer.appendChild(div);
+                    });
+                    resultsContainer.classList.add('active');
+                    statusEl.textContent = `${places.length}개의 장소가 검색되었습니다.`;
+                }
+            } catch (e) {
+                statusEl.textContent = '오류: ' + e.message;
+            }
+        }
+
+        // ===== Distance Calculation =====
+        function getDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371000; // Earth's radius in meters
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        async function selectPlace(place) {
+            closeSearch(); // Close search UI
+            currentKeyword = place.place_name;
+            currentLat = parseFloat(place.y);
+            currentLng = parseFloat(place.x);
+
+            // Update inputs
+            document.getElementById('video-keyword').value = currentKeyword;
+            document.getElementById('map-keyword').value = currentKeyword;
+
+            // Update status
+            const videoStatus = document.getElementById('video-status');
+            const mapStatus = document.getElementById('map-status');
+            videoStatus.textContent = `"${currentKeyword}" 주변 CCTV 조회 중...`;
+            mapStatus.textContent = `"${currentKeyword}" 위치로 이동`;
+
+            // Load CCTVs from both sources
+            try {
+                // 1. NTIC (ITS API)
+                let nticList = [];
+                try {
+                    const rawNtic = await loadCctvByCenter(currentLat, currentLng);
+                    nticList = rawNtic.map(item => ({
+                        cctvname: item.cctvname,
+                        cctvurl: item.cctvurl,
+                        lat: parseFloat(item.coordy),
+                        lng: parseFloat(item.coordx),
+                        source: 'NTIC'
+                    }));
+                } catch (e) {
+                    console.log('NTIC load failed:', e);
+                }
+
+                // 2. UTIC (from allCCTVData, filter by distance ~10km)
+                const maxDistKm = 10;
+                const uticList = allCCTVData
+                    .filter(c => {
+                        const dist = getDistance(currentLat, currentLng, c.lat, c.lng);
+                        return dist <= maxDistKm * 1000;
+                    })
+                    .map(c => ({
+                        cctvname: c.name,
+                        cctvurl: c.url,
+                        lat: c.lat,
+                        lng: c.lng,
+                        source: 'UTIC'
+                    }));
+
+                // 3. Merge and calculate distance
+                const merged = [...nticList, ...uticList].map(c => ({
+                    ...c,
+                    distance: getDistance(currentLat, currentLng, c.lat, c.lng)
+                }));
+
+                // 4. Sort by distance and take top results
+                merged.sort((a, b) => a.distance - b.distance);
+
+                // 5. Deduplicate by proximity (within 50 meters)
+                const deduped = [];
+                merged.forEach(c => {
+                    const isDupe = deduped.some(existing =>
+                        getDistance(existing.lat, existing.lng, c.lat, c.lng) < 50
+                    );
+                    if (!isDupe) deduped.push(c);
+                });
+
+                currentCctvList = deduped;
+
+                if (deduped.length > 0) {
+                    videoStatus.textContent = `"${currentKeyword}" 주변 CCTV ${deduped.length}개 (NTIC: ${nticList.length}, UTIC: ${uticList.length})`;
+                    populateVideoSelects(deduped);
+                } else {
+                    videoStatus.textContent = `"${currentKeyword}" 주변 CCTV가 없습니다.`;
+                    populateVideoSelects([]);
+                }
+            } catch (e) {
+                videoStatus.textContent = 'CCTV 로드 실패: ' + e.message;
+            }
+
+            // Update Map
+            if (map) {
+                const moveLatLon = new kakao.maps.LatLng(currentLat, currentLng);
+                map.setCenter(moveLatLon);
+                map.setLevel(5);
+
+                // Update Center Marker (Red Pin)
+                if (centerMarker) centerMarker.setMap(null);
+
+                const pinImage = new kakao.maps.MarkerImage(
+                    './pin.svg',
+                    new kakao.maps.Size(40, 40),
+                    { offset: new kakao.maps.Point(20, 20) }
+                );
+
+                centerMarker = new kakao.maps.Marker({
+                    position: moveLatLon,
+                    image: pinImage,
+                    zIndex: 100
+                });
+                centerMarker.setMap(map);
+
+                setTimeout(loadMarkersInViewport, 200);
+            }
+
+            // Save location to localStorage (with address and lat/lng)
+            saveSearchTerm({
+                name: place.place_name,
+                address: place.address_name,
+                lat: currentLat,
+                lng: currentLng
+            });
+        }
+
+        // ===== Search History (Bookmark) Logic =====
+        function saveSearchTerm(data) {
+            if (!data) return;
+
+            // Convert string input to object (for backward compatibility)
+            if (typeof data === 'string') {
+                data = { name: data, address: '', lat: 0, lng: 0 };
+            }
+
+            const keyword = data.name;
+            if (!keyword) return;
+
+            try {
+                let history = JSON.parse(localStorage.getItem('cctvSearchHistory') || '[]');
+
+                // Remove existing if present (by name)
+                history = history.filter(item => {
+                    const itemName = typeof item === 'object' ? item.name : item;
+                    return itemName !== keyword;
+                });
+
+                // Add to top
+                history.unshift(data);
+
+                // Limit to 10
+                if (history.length > 10) history = history.slice(0, 10);
+
+                localStorage.setItem('cctvSearchHistory', JSON.stringify(history));
+
+                // If popup is open, refresh it
+                if (document.getElementById('bookmark-layer').classList.contains('active')) {
+                    renderSearchHistory();
+                }
+            } catch (e) {
+                console.log('Search history save failed:', e);
+            }
+        }
+
+        function getSearchHistory() {
+            try {
+                return JSON.parse(localStorage.getItem('cctvSearchHistory') || '[]');
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function deleteSearchHistoryItem(keyword, e) {
+            if (e) e.stopPropagation();
+            try {
+                let history = getSearchHistory();
+                history = history.filter(item => {
+                    const itemName = typeof item === 'object' ? item.name : item;
+                    return itemName !== keyword;
+                });
+                localStorage.setItem('cctvSearchHistory', JSON.stringify(history));
+                renderSearchHistory();
+            } catch (e) {
+                console.log('Delete history failed:', e);
+            }
+        }
+
+        // Share Feature (Clipboard)
+        function copyShareUrl(data, e) {
+            if (e) e.stopPropagation();
+
+            const origin = window.location.origin;
+            const path = window.location.pathname;
+
+            // Handle both string and object input
+            const keyword = typeof data === 'object' ? data.name : data;
+            let url = `${origin}${path}?keyword=${encodeURIComponent(keyword)}`;
+
+            if (typeof data === 'object' && data.lat && data.lng) {
+                url += `&lat=${data.lat}&lng=${data.lng}`;
+            }
+
+            // Copy to clipboard
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(url).then(() => {
+                    showToast('링크가 복사되었습니다!');
+                }).catch(err => {
+                    console.error('Clipboard failed', err);
+                    prompt('Ctrl+C를 눌러 복사하세요', url);
+                });
+            } else {
+                prompt('Ctrl+C를 눌러 복사하세요', url);
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            if (toast) {
+                toast.textContent = msg;
+                toast.classList.add('show');
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 2000);
+            }
+        }
+
+        function renderSearchHistory() {
+            const listEl = document.getElementById('bookmark-list');
+            const history = getSearchHistory();
+            listEl.innerHTML = '';
+
+            if (history.length === 0) {
+                listEl.innerHTML = '<div class="bookmark-empty">최근 검색 기록이 없습니다.</div>';
+                return;
+            }
+
+            history.forEach(item => {
+                const isObject = typeof item === 'object';
+                const term = isObject ? item.name : item;
+                const address = (isObject && item.address) ? item.address : '';
+
+                const div = document.createElement('div');
+                div.className = 'bookmark-item';
+
+                // Info Container
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'bookmark-info';
+
+                // Keyword (Name) - Top
+                const textSpan = document.createElement('span');
+                textSpan.className = 'bookmark-text';
+                textSpan.textContent = term;
+                infoDiv.appendChild(textSpan);
+
+                // Address - Bottom
+                if (address) {
+                    const addrSpan = document.createElement('span');
+                    addrSpan.className = 'bookmark-address';
+                    addrSpan.textContent = address;
+                    infoDiv.appendChild(addrSpan);
+                }
+
+                div.appendChild(infoDiv);
+
+                // Actions Container
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'bookmark-actions';
+
+                // Share Button
+                const shareBtn = document.createElement('button');
+                shareBtn.className = 'bookmark-share-btn';
+                shareBtn.title = '이 위치 공유하기';
+                shareBtn.innerHTML = `
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5" r="3"></circle>
+                        <circle cx="6" cy="12" r="3"></circle>
+                        <circle cx="18" cy="19" r="3"></circle>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                `;
+                shareBtn.onclick = (e) => copyShareUrl(item, e);
+                actionsDiv.appendChild(shareBtn);
+
+                // Delete Button
+                const delBtn = document.createElement('button');
+                delBtn.className = 'bookmark-delete-btn';
+                delBtn.textContent = '✕';
+                delBtn.onclick = (e) => deleteSearchHistoryItem(term, e);
+                actionsDiv.appendChild(delBtn);
+
+                div.appendChild(actionsDiv);
+
+                // Click item -> search
+                div.onclick = () => {
+                    document.getElementById('bookmark-layer').classList.remove('active');
+
+                    if (isObject && item.lat && item.lng) {
+                        // Use saved location directly
+                        selectPlace({
+                            place_name: item.name,
+                            address_name: item.address,
+                            y: item.lat,
+                            x: item.lng
+                        });
+                    } else {
+                        // Fallback for old strings
+                        const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
+                        handleSearch(term, activeTab, true);
+                    }
+                };
+
+                listEl.appendChild(div);
+            });
+        }
+
+        // Bookmark Event Listeners
+        document.getElementById('bookmark-btn').addEventListener('click', () => {
+            renderSearchHistory();
+            document.getElementById('bookmark-layer').classList.add('active');
+        });
+
+        document.getElementById('bookmark-close').addEventListener('click', () => {
+            document.getElementById('bookmark-layer').classList.remove('active');
+        });
+
+        // Close on outside click
+        document.getElementById('bookmark-layer').addEventListener('click', (e) => {
+        });
+
+        // Reverse Geocoding Helper
+        function getAddressFromCoords(lat, lng) {
+            return new Promise((resolve) => {
+                if (!window.kakao || !kakao.maps || !kakao.maps.services) {
+                    resolve('');
+                    return;
+                }
+
+                const geocoder = new kakao.maps.services.Geocoder();
+                const coord = new kakao.maps.LatLng(lat, lng);
+
+                geocoder.coord2Address(coord.getLng(), coord.getLat(), (result, status) => {
+                    if (status === kakao.maps.services.Status.OK) {
+                        const addr = result[0].address.address_name;
+                        resolve(addr);
+                    } else {
+                        resolve('');
+                    }
+                });
+            });
+        }
+
+        // URL Parameter Handling
+        async function initByUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            const keyword = params.get('keyword');
+            const lat = parseFloat(params.get('lat'));
+            const lng = parseFloat(params.get('lng'));
+
+            if (keyword) {
+                if (lat && lng) {
+                    // 1. Exact location from URL
+                    // Try to get address first
+                    let address = '';
+                    try {
+                        // Wait for kakao to load if needed (simple retry or just wait)
+                        // script loaded in head sync, so likely ready or nearly ready.
+                        // We'll trust it's ready since it's in head.
+                        address = await getAddressFromCoords(lat, lng);
+                    } catch (e) {
+                        console.log('Reverse geo failed', e);
+                    }
+
+                    selectPlace({
+                        place_name: keyword,
+                        address_name: address,
+                        y: lat,
+                        x: lng
+                    });
+                } else {
+                    // 2. Keyword Search
+                    document.getElementById('video-keyword').value = keyword;
+                    document.getElementById('map-keyword').value = keyword;
+                    handleSearch(keyword, 'video', true);
+                }
+            } else {
+                // 3. Fallback: LocalStorage > Default
+                let initData = { name: '서울역', lat: 37.5547, lng: 126.9706 };
+                try {
+                    const saved = localStorage.getItem('cctvLastLocation');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        if (parsed.keyword) {
+                            initData.name = parsed.keyword;
+                            document.getElementById('video-keyword').value = initData.name;
+                            document.getElementById('map-keyword').value = initData.name;
+                            handleSearch(initData.name, 'video', true);
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.log('localStorage load failed:', e);
+                }
+
+                document.getElementById('video-keyword').value = initData.name;
+                document.getElementById('map-keyword').value = initData.name;
+                handleSearch(initData.name, 'video', true);
+            }
+        }
+
+        function initEvents() {
+            // ... existing initEvents content if you want to explicitly separate it ...
+            // But existing code puts listeners inline.
+        }
+
+        window.addEventListener('load', () => {
+            initCenterResizer();
+            loadCCTVData(); // Load UTIC data
+            initByUrlParams(); // Handle startup state
+        });
+
+        // Event Listeners for Search
+        ['video', 'map'].forEach(type => {
+            const btn = document.getElementById(`${type}-search-btn`);
+            const input = document.getElementById(`${type}-keyword`);
+
+            // Use mousedown/touchstart to trigger search BEFORE blur
+            const triggerSearch = (e) => {
+                e.preventDefault(); // Prevent focus loss
+                handleSearch(input.value.trim(), type);
+                input.blur(); // Dismiss keyboard explicitly
+            };
+
+            btn.addEventListener('mousedown', triggerSearch);
+            btn.addEventListener('touchstart', triggerSearch, { passive: false });
+
+            input.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') {
+                    handleSearch(input.value.trim(), type);
+                    input.blur();
+                }
+            });
+
+            // Hide results on outside click
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.floating-search-wrapper')) {
+                    document.getElementById(`${type}-search-results`).classList.remove('active');
+                }
+            });
+        });
+
+        // ===== VIDEO VIEW Functions =====
+        function attachStreamToSlot(slotIndex, cctvItem, listIndex) {
+            const container = document.getElementById('cctv-' + slotIndex);
+            if (!container) return;
+
+            // Update Custom Select Trigger Text
+            const trigger = container.querySelector('.custom-select-trigger');
+            if (trigger) {
+                trigger.textContent = cctvItem ? (cctvItem.cctvname || 'CCTV ' + (listIndex + 1)) : 'CCTV 선택';
+                // Remove 'selected' class from all options and add to the current one
+                const optionsContainer = container.querySelector('.custom-select-options');
+                if (optionsContainer) {
+                    optionsContainer.querySelectorAll('.custom-option').forEach(opt => opt.classList.remove('selected'));
+                    if (listIndex !== -1) {
+                        const selectedOption = optionsContainer.children[listIndex];
+                        if (selectedOption) selectedOption.classList.add('selected');
+                    }
+                }
+            }
+
+            const oldPlaceholder = container.querySelector('.placeholder');
+            if (oldPlaceholder) oldPlaceholder.remove();
+
+            const oldVideo = container.querySelector('video');
+            if (oldVideo) oldVideo.remove();
+
+            const oldIframe = container.querySelector('iframe');
+            if (oldIframe) oldIframe.remove();
+
+            // Helper to load next available stream (only for HLS failures)
+            const loadNext = () => {
+                console.log(`Slot ${slotIndex}: CCTV failed (${cctvItem?.cctvname}), trying next...`);
+                const nextIndex = listIndex + 1;
+                if (nextIndex < currentCctvList.length) {
+                    attachStreamToSlot(slotIndex, currentCctvList[nextIndex], nextIndex);
+                } else {
+                    console.log(`Slot ${slotIndex}: No more CCTVs available.`);
+                    const p = document.createElement('div');
+                    p.className = 'placeholder';
+                    p.textContent = 'No Signal';
+                    container.insertBefore(p, container.firstChild);
+                    if (trigger) trigger.textContent = 'CCTV 선택';
+                }
+            };
+
+            if (!cctvItem || !cctvItem.cctvurl) {
+                const p = document.createElement('div');
+                p.className = 'placeholder';
+                p.textContent = 'No CCTV';
+                container.insertBefore(p, container.firstChild);
+                if (trigger) trigger.textContent = 'CCTV 선택';
+                return;
+            }
+
+            const url = cctvItem.cctvurl;
+
+            // Check if URL is direct HLS stream or iframe wrapper
+            const isDirectHLS = url.includes('.m3u8') || url.includes('cctvsec.ktict.co.kr');
+
+            if (isDirectHLS) {
+                // Direct HLS stream - use video element with HLS.js
+                const video = document.createElement('video');
+                video.controls = true;
+                video.autoplay = true;
+                video.muted = true;
+                video.playsInline = true;
+                video.setAttribute('playsinline', '');
+                video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
+
+                // Timeout to detect stalled loading (10 seconds for HLS)
+                const loadTimeout = setTimeout(() => {
+                    if (video.readyState < 3) {
+                        console.log(`Slot ${slotIndex}: Load timeout, skipping...`);
+                        loadNext();
+                    }
+                }, 10000);
+
+                video.onplaying = () => clearTimeout(loadTimeout);
+                video.onerror = () => {
+                    clearTimeout(loadTimeout);
+                    loadNext();
+                };
+
+                container.insertBefore(video, container.firstChild);
+
+                if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.fatal) {
+                            clearTimeout(loadTimeout);
+                            hls.destroy();
+                            loadNext();
+                        }
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url;
+                    const playFn = () => {
+                        video.play().catch(e => console.log('Autoplay prevented:', e));
+                    };
+                    if (video.readyState >= 1) {
+                        playFn();
+                    } else {
+                        video.addEventListener('loadedmetadata', playFn);
+                    }
+                }
+
+                // Add Fullscreen Button (Overlay)
+                const fsBtn = document.createElement('button');
+                fsBtn.className = 'cctv-fullscreen-btn';
+                fsBtn.innerHTML = `
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                    </svg>
+                `;
+                fsBtn.title = '전체화면';
+                fsBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    openVideoLayer(cctvItem);
+                };
+                container.appendChild(fsBtn);
+
+                // Double tap / Click to fullscreen (Secondary)
+                const handleDoubleTap = (e) => {
+                    openVideoLayer(cctvItem);
+                };
+
+                video.addEventListener('dblclick', handleDoubleTap);
+
+                let lastTap = 0;
+                video.addEventListener('touchend', (e) => {
+                    const currentTime = new Date().getTime();
+                    const tapLength = currentTime - lastTap;
+                    if (tapLength < 300 && tapLength > 0) {
+                        e.preventDefault();
+                        handleDoubleTap(e);
+                    }
+                    lastTap = currentTime;
+                });
+            } else {
+                // Iframe wrapper URL (UTIC) - use simple iframe (No scaling)
+                const iframe = document.createElement('iframe');
+                iframe.src = url;
+                iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;';
+                iframe.allow = "autoplay; fullscreen";
+
+                container.insertBefore(iframe, container.firstChild);
+            }
+        }
+
+        function populateVideoSelects(list) {
+            const containers = document.querySelectorAll('.custom-select-container');
+            containers.forEach((container, idx) => {
+                const optionsContainer = container.querySelector('.custom-select-options');
+                optionsContainer.innerHTML = ''; // Clear options
+
+                // Add options
+                list.forEach((item, i) => {
+                    const div = document.createElement('div');
+                    div.className = 'custom-option';
+                    div.textContent = item.cctvname || ('CCTV ' + (i + 1));
+                    div.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        attachStreamToSlot(idx + 1, item, i);
+                        optionsContainer.classList.remove('active');
+                    });
+                    optionsContainer.appendChild(div);
+                });
+
+                // Initial load: try to load item at index, but might skip if failed
+                if (list[idx]) {
+                    attachStreamToSlot(idx + 1, list[idx], idx);
+                } else {
+                    attachStreamToSlot(idx + 1, null, -1);
+                }
+            });
+        }
+
+        // Custom Select Event Listeners
+        document.addEventListener('click', (e) => {
+            // Close all selects first
+            if (!e.target.closest('.custom-select-container')) {
+                document.querySelectorAll('.custom-select-options').forEach(el => el.classList.remove('active'));
+            }
+        });
+
+        document.querySelectorAll('.custom-select-trigger').forEach(trigger => {
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const container = trigger.closest('.custom-select-container');
+                const options = container.querySelector('.custom-select-options');
+
+                // Close others
+                document.querySelectorAll('.custom-select-options').forEach(el => {
+                    if (el !== options) el.classList.remove('active');
+                });
+
+                options.classList.toggle('active');
+            });
+        });
+
+        // ===== MAP VIEW Functions =====
+        function initMap() {
+            const container = document.getElementById('map');
+            const options = {
+                center: new kakao.maps.LatLng(currentLat, currentLng),
+                level: 5
+            };
+            map = new kakao.maps.Map(container, options);
+
+            // Load CCTV data
+            loadCCTVData();
+
+            // Add map events
+            kakao.maps.event.addListener(map, 'idle', loadMarkersInViewport);
+
+            // Add initial center marker if exists
+            if (currentLat && currentLng) {
+                const pinImage = new kakao.maps.MarkerImage(
+                    './pin.svg',
+                    new kakao.maps.Size(40, 40),
+                    { offset: new kakao.maps.Point(20, 20) }
+                );
+                centerMarker = new kakao.maps.Marker({
+                    position: new kakao.maps.LatLng(currentLat, currentLng),
+                    image: pinImage,
+                    zIndex: 100
+                });
+                centerMarker.setMap(map);
+            }
+        }
+
+        function loadCCTVData() {
+            fetch('cctv_data.json')
+                .then(res => res.json())
+                .then(data => {
+                    // Filter out CCTVs with status 'broken'
+                    allCCTVData = data.filter(c => c.url && c.status !== 'broken');
+                    console.log(`Loaded ${allCCTVData.length} CCTVs (filtered broken)`);
+                    loadMarkersInViewport();
+                })
+                .catch(err => console.error('Error loading CCTV data:', err));
+        }
+
+        function loadMarkersInViewport() {
+            if (!map) return;
+
+            const level = map.getLevel();
+            const statusEl = document.getElementById('map-status');
+
+            // Clear old markers (except center marker)
+            markers.forEach(m => m.setMap(null));
+            markers = [];
+
+            if (level >= 9) {
+                statusEl.textContent = '지도를 확대하면 마커가 나타납니다';
+                return;
+            }
+
+            const bounds = map.getBounds();
+            const sw = bounds.getSouthWest();
+            const ne = bounds.getNorthEast();
+
+            const inView = allCCTVData.filter(c =>
+                c.lat >= sw.getLat() && c.lat <= ne.getLat() &&
+                c.lng >= sw.getLng() && c.lng <= ne.getLng()
+            ).slice(0, 200);
+
+            // Green marker for normal, Gray for ActiveX
+            const greenImage = new kakao.maps.MarkerImage(
+                './marker.svg',
+                new kakao.maps.Size(32, 32),
+                { offset: new kakao.maps.Point(16, 16) }
+            );
+            const grayImage = new kakao.maps.MarkerImage(
+                './marker_gray.svg',
+                new kakao.maps.Size(32, 32),
+                { offset: new kakao.maps.Point(16, 16) }
+            );
+
+            inView.forEach(cctv => {
+                // Only kind=MODE is unsupported ActiveX, kind=I (Busan) works via iframe
+                const isActiveX = cctv.url.includes('kind=MODE');
+                const marker = new kakao.maps.Marker({
+                    position: new kakao.maps.LatLng(cctv.lat, cctv.lng),
+                    image: isActiveX ? grayImage : greenImage
+                });
+                marker.setMap(map);
+
+                kakao.maps.event.addListener(marker, 'click', () => openVideoLayer(cctv));
+
+                markers.push(marker);
+            });
+
+            statusEl.textContent = `화면 내 ${inView.length}개 CCTV`;
+        }
+
+        // ===== Video Layer Popup =====
+        function openVideoLayer(cctvData) {
+            const layer = document.getElementById('video-layer');
+            const title = document.getElementById('video-layer-title');
+            const frame = document.getElementById('video-frame');
+
+            title.textContent = cctvData.name;
+            frame.innerHTML = '';
+
+            // kind=MODE requires ActiveX (unsupported), kind=I (Busan) can use iframe
+            const isActiveX = cctvData.url.includes('kind=MODE');
+            // Check for .m3u8 extension OR known HLS domains like cctvsec.ktict.co.kr
+            const isHLS = cctvData.url.includes('.m3u8') || cctvData.url.includes('cctvsec.ktict.co.kr');
+
+            if (isActiveX) {
+                frame.innerHTML = `
+                  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:white;">
+                    <p style="margin-bottom:16px;opacity:0.8;">이 CCTV는 지원되지 않는 형식입니다.</p>
+                    <button onclick="window.open('${cctvData.url}', '_blank', 'width=480,height=400')"
+                      style="padding:12px 24px;background:linear-gradient(135deg,var(--accent),var(--accent-dark));color:#022c22;border:none;border-radius:8px;cursor:pointer;font-weight:600;">
+                      새 창에서 열기
+                    </button>
+                  </div>
+                `;
+            } else if (isHLS) {
+                const video = document.createElement('video');
+                video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:black;';
+                video.controls = true;
+                video.autoplay = true;
+                video.muted = false;
+                video.playsInline = true;
+                frame.appendChild(video);
+
+                if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(cctvData.url);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                        video.play().catch(e => console.log('Autoplay prevented:', e));
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = cctvData.url;
+                    video.addEventListener('loadedmetadata', function () {
+                        video.play().catch(e => console.log('Autoplay prevented:', e));
+                    });
+                } else {
+                    frame.innerHTML = `
+                        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:white;">
+                            <p>이 브라우저에서는 영상을 재생할 수 없습니다.</p>
+                        </div>
+                     `;
+                }
+            } else {
+                // Assume it's an HTML wrapper (like kind=n) -> Use Iframe
+                const iframe = document.createElement('iframe');
+                iframe.src = cctvData.url;
+                iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;';
+                iframe.allow = "autoplay; fullscreen";
+                frame.appendChild(iframe);
+            }
+
+            layer.classList.add('active');
+        }
+
+        function closeVideoLayer() {
+            const layer = document.getElementById('video-layer');
+            const frame = document.getElementById('video-frame');
+            frame.innerHTML = '';
+            layer.classList.remove('active');
+        }
+
+        document.getElementById('video-layer-close').addEventListener('click', closeVideoLayer);
+        document.getElementById('video-layer').addEventListener('click', (e) => {
+            if (e.target.id === 'video-layer') closeVideoLayer();
+        });
+
+        // ===== Resizer Handle =====
+        function initCenterResizer() {
+            const grid = document.querySelector('.grid-container');
+            const handle = document.getElementById('resizer');
+            if (!grid || !handle) return;
+
+            let col1 = 1, col2 = 1, row1 = 1, row2 = 1;
+
+            function applyGrid() {
+                grid.style.gridTemplateColumns = `${col1}fr ${col2}fr`;
+                grid.style.gridTemplateRows = `${row1}fr ${row2}fr`;
+
+                const rect = grid.getBoundingClientRect();
+                const totalCol = col1 + col2;
+                const totalRow = row1 + row2;
+                handle.style.left = `${(col1 / totalCol) * 100}%`;
+                handle.style.top = `${(row1 / totalRow) * 100}%`;
+            }
+
+            // CSS class based pointer-event handling is more robust
+            // function setMediaPointerEvents(enabled) { ... } - REMOVED
+
+
+            let dragging = false, startX = 0, startY = 0;
+
+            handle.addEventListener('mousedown', (e) => {
+                dragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                grid.classList.add('resizing'); // Use class
+                e.preventDefault();
+            });
+
+            handle.addEventListener('touchstart', (e) => {
+                dragging = true;
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                grid.classList.add('resizing'); // Use class
+            }, { passive: false });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!dragging) return;
+                const rect = grid.getBoundingClientRect();
+                const dx = (e.clientX - startX) / rect.width * 2;
+                const dy = (e.clientY - startY) / rect.height * 2;
+
+                col1 = Math.min(1.8, Math.max(0.4, col1 + dx));
+                col2 = Math.min(1.8, Math.max(0.4, col2 - dx));
+                row1 = Math.min(1.8, Math.max(0.4, row1 + dy));
+                row2 = Math.min(1.8, Math.max(0.4, row2 - dy));
+
+                applyGrid();
+                startX = e.clientX;
+                startY = e.clientY;
+            });
+
+            window.addEventListener('touchmove', (e) => {
+                if (!dragging) return;
+                e.preventDefault(); // Prevent scrolling while resizing
+                const rect = grid.getBoundingClientRect();
+                const dx = (e.touches[0].clientX - startX) / rect.width * 2;
+                const dy = (e.touches[0].clientY - startY) / rect.height * 2;
+
+                col1 = Math.min(1.8, Math.max(0.4, col1 + dx));
+                col2 = Math.min(1.8, Math.max(0.4, col2 - dx));
+                row1 = Math.min(1.8, Math.max(0.4, row1 + dy));
+                row2 = Math.min(1.8, Math.max(0.4, row2 - dy));
+
+                applyGrid();
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+            }, { passive: false });
+
+            window.addEventListener('mouseup', () => {
+                if (dragging) {
+                    dragging = false;
+                    grid.classList.remove('resizing');
+                }
+            });
+            window.addEventListener('touchend', () => {
+                if (dragging) {
+                    dragging = false;
+                    grid.classList.remove('resizing');
+                }
+            });
+
+            applyGrid();
+        }
+
+        function closeSearch() {
+            document.body.classList.remove('search-active');
+            document.querySelectorAll('.floating-search-container').forEach(c => c.classList.remove('keyboard-active'));
+            const overlay = document.getElementById('dim-overlay');
+            if (overlay) overlay.classList.remove('active');
+
+            // Also hide results dropdown if any
+            document.querySelectorAll('.search-results').forEach(r => r.classList.remove('active'));
+
+            document.querySelectorAll('.floating-search-input').forEach(i => i.blur());
+        }
+
+        const searchInputs = document.querySelectorAll('.floating-search-input');
+        searchInputs.forEach(input => {
+            input.addEventListener('focus', () => {
+                const container = input.closest('.floating-search-container');
+                if (container) {
+                    document.body.classList.add('search-active');
+                    container.classList.add('keyboard-active');
+                    const overlay = document.getElementById('dim-overlay');
+                    if (overlay) overlay.classList.add('active');
+                }
+            });
+
+            input.addEventListener('blur', (e) => {
+                // Do not hide on blur automatically to keep results visible
+                // Search is closed only via Overlay click or Result selection
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    if (e.isComposing) return; // Prevent double submission on IME composition
+                    const type = input.id.split('-')[0]; // 'video' or 'map'
+                    handleSearch(input.value.trim(), type);
+                    input.blur(); // Dismiss keyboard and reset position
+                }
+            });
+        });
+
+        // Dismiss search on overlay click
+        const dimOverlay = document.getElementById('dim-overlay');
+        if (dimOverlay) {
+            dimOverlay.addEventListener('click', () => {
+                closeSearch();
+            });
+        }
+
+        // ===== Weather Feature =====
+        const weatherBtn = document.getElementById('weather-btn');
+        const weatherLayer = document.getElementById('weather-layer');
+        const weatherClose = document.getElementById('weather-close');
+        const weatherListEl = document.getElementById('weather-list');
+        const weatherTitle = document.getElementById('weather-title');
+
+        if (weatherBtn) {
+            weatherBtn.addEventListener('click', async () => {
+                if (weatherLayer) weatherLayer.classList.add('active');
+                if (weatherTitle) weatherTitle.textContent = `${currentKeyword} 주간 날씨`;
+                await fetchAndRenderWeather(currentLat, currentLng);
+            });
+        }
+        if (weatherClose) {
+            weatherClose.addEventListener('click', () => {
+                if (weatherLayer) weatherLayer.classList.remove('active');
+            });
+        }
+        if (weatherLayer) {
+            weatherLayer.addEventListener('click', (e) => {
+                if (e.target === weatherLayer) {
+                    weatherLayer.classList.remove('active');
+                }
+            });
+        }
+
+        async function fetchAndRenderWeather(lat, lng) {
+            if (!weatherListEl) return;
+            weatherListEl.innerHTML = '<div style="padding:24px;color:var(--text-sub);">날씨 불러오는 중...</div>';
+
+            try {
+                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`);
+                const data = await res.json();
+
+                if (!data.daily) throw new Error('No Data');
+
+                const daily = data.daily;
+                let html = '';
+                const days = ['일', '월', '화', '수', '목', '금', '토'];
+
+                for (let i = 0; i < 7 && i < daily.time.length; i++) {
+                    const date = new Date(daily.time[i]);
+                    const dayName = i === 0 ? '오늘' : days[date.getDay()];
+                    const code = daily.weathercode[i];
+                    const max = Math.round(daily.temperature_2m_max[i]);
+                    const min = Math.round(daily.temperature_2m_min[i]);
+                    const icon = getWeatherIcon(code);
+
+                    html += `
+                        <div class="weather-item">
+                            <div class="weather-day">${dayName}</div>
+                            <div class="weather-icon-display">${icon}</div>
+                            <div class="weather-temp">${Math.round((max + min) / 2)}°</div>
+                            <div class="weather-temp-range">${min}° / ${max}°</div>
+                        </div>
+                    `;
+                }
+                weatherListEl.innerHTML = html;
+
+            } catch (e) {
+                console.error(e);
+                weatherListEl.innerHTML = '<div style="padding:20px;">날씨 정보를 불러오는데 실패했습니다.</div>';
+            }
+        }
+
+        function getWeatherIcon(code) {
+            // WMO Codes
+            if (code === 0) return '☀️';
+            if (code >= 1 && code <= 3) return '⛅';
+            if (code === 45 || code === 48) return '🌫️';
+            if (code >= 51 && code <= 67) return '🌧️';
+            if (code >= 71 && code <= 77) return '🌨️';
+            if (code >= 80 && code <= 82) return '🌦️';
+            if (code >= 95) return '⚡';
+            return '☁️';
+        }
+
+        // ===== Clear Button Logic =====
+        function updateClearButtons() {
+            ['video', 'map'].forEach(type => {
+                const input = document.getElementById(`${type}-keyword`);
+                const btn = document.getElementById(`${type}-clear-btn`);
+                if (input && btn) {
+                    if (input.value.length > 0) btn.classList.add('visible');
+                    else btn.classList.remove('visible');
+                }
+            });
+        }
+
+        ['video', 'map'].forEach(type => {
+            const input = document.getElementById(`${type}-keyword`);
+            const btn = document.getElementById(`${type}-clear-btn`);
+
+            if (input && btn) {
+                input.addEventListener('input', updateClearButtons);
+                input.addEventListener('focus', updateClearButtons); // Check on focus/blur
+
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault(); // Prevent focus loss issues if any
+                    input.value = '';
+                    updateClearButtons();
+                    input.focus();
+                });
+            }
+        });
+
+        // ===== Init =====
+        // ===== Init =====
+        // window load listener moved up to avoid duplicates
+    </script>
+</body>
+
+</html>
