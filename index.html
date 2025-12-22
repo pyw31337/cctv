@@ -1562,14 +1562,33 @@
                         // CAPTURE CURRENT SIZE BEFORE IT EXPANDS
                         const content = cctvItem.querySelector('div.cctv, iframe, video');
                         if (content) {
-                            currentSize = {
-                                width: content.offsetWidth || 320,
-                                height: content.offsetHeight || 245
-                            };
-                            // Also adjust for video intrinsic size if avail
+                            // STRATEGY: Determine the "Native" Base Resolution
+                            // 1. VIDEO tags: Use intrinsic videoWidth/videoHeight.
+                            // 2. IFRAME tags: ALWAYS use 320x245. 
+                            //    Reason: On mobile (e.g. 310px width), the grid makes the iframe small (150px).
+                            //    If we use offsetWidth (150px) as base, we scale 150px -> 310px (2x scale).
+                            //    But the iframe's internal content is likely clipped or squashed. 
+                            //    By forcing 320x245, we tell the scaler: "This is a 320px video, scale it to fit 310px".
+                            //    Result: Scale ~0.97x (slight shrink), showing full content.
+
                             if (content.tagName === 'VIDEO' && content.videoWidth) {
-                                currentSize.width = content.videoWidth;
-                                currentSize.height = content.videoHeight;
+                                currentSize = {
+                                    width: content.videoWidth,
+                                    height: content.videoHeight
+                                };
+                            } else if (content.tagName === 'IFRAME') {
+                                // Default CCTV standard size
+                                currentSize = { width: 320, height: 245 };
+                            } else {
+                                // Fallback for divs, etc. (Default to standard if small)
+                                const w = content.offsetWidth;
+                                const h = content.offsetHeight;
+                                if (w < 200) {
+                                    // If strangely small (mobile grid), assume standard
+                                    currentSize = { width: 320, height: 245 };
+                                } else {
+                                    currentSize = { width: w, height: h };
+                                }
                             }
                         }
                     }
