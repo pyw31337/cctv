@@ -2341,6 +2341,64 @@
         document.getElementById('video-location-btn').addEventListener('click', searchByCurrentLocation);
         document.getElementById('map-location-btn').addEventListener('click', searchByCurrentLocation);
 
+        // ===== Video Autoplay Helper =====
+        function attemptAutoplay(video) {
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.log("Autoplay prevented:", error);
+                    // Show a manual play button overlay if autoplay fails
+                    showManualPlayButton(video);
+                });
+            }
+        }
+
+        function showManualPlayButton(video) {
+            const container = video.parentElement;
+            // Check if button already exists
+            if (container.querySelector('.manual-play-overlay')) return;
+
+            const btn = document.createElement('button');
+            btn.className = 'manual-play-overlay';
+            btn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="white" width="48" height="48">
+                    <path d="M8 5v14l11-7z"/>
+                </svg>
+            `;
+            btn.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.5);
+                border: 2px solid white;
+                border-radius: 50%;
+                width: 64px;
+                height: 64px;
+                cursor: pointer;
+                z-index: 50;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                backdrop-filter: blur(4px);
+                padding: 0;
+            `;
+
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                // When manually clicked, we can try to unmute
+                if (video.muted) video.muted = false;
+                video.play().then(() => {
+                    btn.remove();
+                }).catch(e => console.error("Manual play failed:", e));
+            };
+
+            container.appendChild(btn);
+
+            // Remove button if video starts playing by other means
+            video.addEventListener('playing', () => btn.remove(), { once: true });
+        }
+
         // ===== VIDEO VIEW Functions =====
         function attachStreamToSlot(slotIndex, cctvItem, listIndex) {
             const container = document.getElementById('cctv-' + slotIndex);
@@ -2449,10 +2507,13 @@
                             loadNext();
                         }
                     });
+                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                        attemptAutoplay(video);
+                    });
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                     video.src = url;
                     const playFn = () => {
-                        video.play().catch(e => console.log('Autoplay prevented:', e));
+                        attemptAutoplay(video);
                     };
                     if (video.readyState >= 1) {
                         playFn();
@@ -2680,7 +2741,8 @@
                 video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:black;';
                 video.controls = true;
                 video.autoplay = true;
-                video.muted = false;
+                // CRITICAL FIX: Must start muted for iOS Autoplay policy
+                video.muted = true;
                 video.playsInline = true;
                 video.preload = 'auto';
                 frame.appendChild(video);
@@ -2701,12 +2763,12 @@
                     hls.loadSource(cctvData.url);
                     hls.attachMedia(video);
                     hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                        video.play().catch(e => console.log('Autoplay prevented:', e));
+                        attemptAutoplay(video);
                     });
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                     video.src = cctvData.url;
                     video.addEventListener('loadedmetadata', function () {
-                        video.play().catch(e => console.log('Autoplay prevented:', e));
+                        attemptAutoplay(video);
                     });
                 } else {
                     frame.innerHTML = `

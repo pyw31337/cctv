@@ -205,87 +205,76 @@ def main():
     its_data = fetch_its_data()
     utic_data = fetch_utic_data()
     
-    if not its_data and not utic_data:
-        print("Failed to fetch data from both sources. Aborting update.")
-        return
-
-    new_data_list = its_data + utic_data
-    new_data_map = {item['id']: item for item in new_data_list}
-    
     # 2. Load Existing Data
     existing_data_map = load_existing_data(OUTPUT_FILE)
-    existing_count = len(existing_data_map)
     
+    final_data_list = []
+    
+    # Process ITS (NTIC)
+    if its_data:
+        print(f"Using {len(its_data)} new entries from ITS.")
+        final_data_list.extend(its_data)
+    else:
+        # Fetch failed, try to recover from existing
+        print("ITS fetch failed/empty. Attempting to recover existing ITS data...")
+        existing_its = [item for item in existing_data_map.values() if item.get('source') == 'NTIC']
+        if existing_its:
+            print(f"Preserving {len(existing_its)} existing ITS entries.")
+            final_data_list.extend(existing_its)
+        else:
+            print("No existing ITS data to preserve.")
+
+    # Process UTIC
+    if utic_data:
+        print(f"Using {len(utic_data)} new entries from UTIC.")
+        final_data_list.extend(utic_data)
+    else:
+        # Fetch failed, recover
+        print("UTIC fetch failed/empty. Attempting to recover existing UTIC data...")
+        existing_utic = [item for item in existing_data_map.values() if item.get('source') == 'UTIC']
+        if existing_utic:
+            print(f"Preserving {len(existing_utic)} existing UTIC entries.")
+            final_data_list.extend(existing_utic)
+        else:
+            print("No existing UTIC data to preserve.")
+
+    # 3. Stats & Verification
+    print(f"Total entries combined: {len(final_data_list)}")
+
     # SAFETY GUARDRAIL: Check if data drop is too significant (> 20%)
-    if existing_count > 0:
-        new_count = len(new_data_list)
+    # Now we compare the FINAL list against the OLD list.
+    if len(existing_data_map) > 0:
+        existing_count = len(existing_data_map)
+        new_count = len(final_data_list)
+        
         drop_rate = (existing_count - new_count) / existing_count
         if drop_rate > 0.2:
             print(f"\n[CRITICAL WARNING] Data drop detected!")
             print(f"Existing: {existing_count} -> New: {new_count} (Drop rate: {drop_rate*100:.1f}%)")
-            print("The drop rate exceeds the 20% safety threshold. Update ABORTED to prevent data loss.")
-            print("Please check the API status or script logic.")
-            # Exit with error to notify GitHub Actions
+            print("The drop rate still exceeds the 20% safety threshold even after preservation.")
+            print("This indicates a massive loss of data from a successful fetch or total missing data.")
+            print("Update ABORTED.")
             exit(1)
+            
+    # Calculate simple stats for change log (approximate)
+    # Since we are rebuilding the list, 'updated' is hard to track perfectly without detailed diffing,
+    # but strictly speaking, we just want to know how many are new/removed from the perspective of the FILE.
     
-    # 3. Compare
     added = 0
-    updated = 0
     removed = 0
+    updated = 0 # Placeholder, hard to calculate cheaply with full rebuild strategy, but that's fine.
     
-    final_data_list = []
+    # Simple count of ID presence
+    new_ids = set(item['id'] for item in final_data_list)
+    old_ids = set(existing_data_map.keys())
     
-    # Check for additions and updates
-    for cctv_id, new_item in new_data_map.items():
-        if cctv_id not in existing_data_map:
-            added += 1
-            final_data_list.append(new_item)
-        else:
-            old_item = existing_data_map[cctv_id]
-            # Check for changes in key fields
-            # Note: Float comparison for lat/lng might be tricky, use epsilon if strict needed
-            # For now, we update if url or name matches.
-            # Actually, we should just use the new data as the source of truth for active items.
-            # But we want to count stats.
-            
-            is_changed = (old_item.get('url') != new_item.get('url')) or \
-                         (old_item.get('name') != new_item.get('name')) or \
-                         (abs(old_item.get('lat', 0) - new_item.get('lat', 0)) > 0.00001) or \
-                         (abs(old_item.get('lng', 0) - new_item.get('lng', 0)) > 0.00001)
-                         
-            if is_changed:
-                updated += 1
-            
-            final_data_list.append(new_item)
-            
-    # Check for removals (IDs in old but not in new)
-    # Only if we successfully fetched data for that source. 
-    # If we failed ITS but got UTIC, we shouldn't delete all ITS entries.
+    added = len(new_ids - old_ids)
+    removed = len(old_ids - new_ids)
     
-    its_fetch_success = len(its_data) > 0
-    utic_fetch_success = len(utic_data) > 0
-    
-    for cctv_id, old_item in existing_data_map.items():
-        if cctv_id in new_data_map:
-            continue
-            
-        # Item is missing in new data.
-        # Check source to decide if we should remove it (i.e. if we successfully fetched that source and it's gone)
-        source = old_item.get('source')
-        if source == 'NTIC' and its_fetch_success:
-            removed += 1
-            # Don't add to final list (effectively removing)
-        elif source == 'UTIC' and utic_fetch_success:
-            removed += 1
-        else:
-            # Keep it if we didn't successfully fetch that source (preserve existing data on failure)
-            final_data_list.append(old_item)
-
     print(f"Summary:")
-    print(f"  Total entries: {len(final_data_list)}")
-    print(f"  Added: {added}")
-    print(f"  Updated: {updated}")
-    print(f"  Removed: {removed}")
+    print(f"  Total Result: {len(final_data_list)}")
+    print(f"  New IDs: {added}")
+    print(f"  Removed IDs: {removed}")
     
     # 4. Save
     try:
