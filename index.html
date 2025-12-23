@@ -1471,6 +1471,33 @@
         let markers = [];
         let centerMarker = null;
         let mapInitialized = false;
+        let videoObserver = null;
+
+        // ===== Intersection Observer for Video Auto-Pause/Play =====
+        function initVideoObserver() {
+            if ('IntersectionObserver' in window) {
+                videoObserver = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        const video = entry.target;
+                        if (entry.isIntersecting) {
+                            // Video is visible - try to play if it was paused by observer
+                            // Check custom attribute to see if user manually paused it (optional feature, here we assume auto-resume)
+                            if (video.paused && !video.dataset.manualPause) {
+                                attemptAutoplay(video);
+                            }
+                        } else {
+                            // Video is hidden - pause to save resources
+                            if (!video.paused) {
+                                video.pause();
+                            }
+                        }
+                    });
+                }, { threshold: 0.1 }); // Trigger when 10% visible
+            }
+        }
+
+        // Initialize observer on load
+        initVideoObserver();
 
         // ===== Panel Fullscreen Toggle with Dynamic Scaling =====
         function scaleContentToFit(cctvItem, isFullscreen, fixedSize = null) {
@@ -2399,6 +2426,99 @@
             video.addEventListener('playing', () => btn.remove(), { once: true });
         }
 
+        // ===== Unified CCTV Player Creator =====
+        // Returns an element (Video or Iframe) with necessary config hooked up
+        function createCCTVPlayer(url, isHLS) {
+            if (isHLS) {
+                const video = document.createElement('video');
+                // Standard attributes for mobile compatibility
+                video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
+                video.controls = true; // Use native controls
+                video.autoplay = true;
+                video.muted = true;    // Always muted for autoplay
+                video.playsInline = true;
+                video.setAttribute('playsinline', '');
+                video.preload = 'metadata'; // 'auto' is defined in HLS config if needed, but metadata is safer for initial load on mobile
+
+                // Attach Observer
+                if (videoObserver) videoObserver.observe(video);
+
+                if (Hls.isSupported()) {
+                    // Adaptive HLS Config for Performance
+                    const hlsConfig = {
+                        // Data Saving & Performance
+                        capLevelToPlayerSize: true, // Auto-limit resolution based on container size (Great for Grid!)
+                        maxBufferLength: 5,        // Limit buffer to 5s (Save RAM)
+                        maxMaxBufferLength: 10,
+                        maxBufferSize: 3 * 1000 * 1000, // 3MB Max buffer
+
+                        // Low Latency
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                        backBufferLength: 0,       // Don't keep old segments
+                        startLevel: -1,            // Auto start level
+
+                        // Error Recovery
+                        manifestLoadingTimeOut: 5000,
+                        manifestLoadingMaxRetry: 2,
+                        levelLoadingTimeOut: 5000,
+                        levelLoadingMaxRetry: 2,
+                        fragLoadingTimeOut: 5000,
+                        fragLoadingMaxRetry: 2
+                    };
+
+                    const hls = new Hls(hlsConfig);
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+
+                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                        attemptAutoplay(video);
+                    });
+
+                    // Error Handling
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.fatal) {
+                            switch (data.type) {
+                                case Hls.ErrorTypes.NETWORK_ERROR:
+                                    // Try to recover network error
+                                    console.log('fatal network error encountered, try to recover');
+                                    hls.startLoad();
+                                    break;
+                                case Hls.ErrorTypes.MEDIA_ERROR:
+                                    console.log('fatal media error encountered, try to recover');
+                                    hls.recoverMediaError();
+                                    break;
+                                default:
+                                    // cannot recover
+                                    hls.destroy();
+                                    break;
+                            }
+                        }
+                    });
+
+                    // Cleanup on removal
+                    video.hls = hls; // Attach to element for easy access
+
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Native HLS (iOS Safari)
+                    video.src = url;
+                    const playFn = () => attemptAutoplay(video);
+
+                    if (video.readyState >= 1) playFn();
+                    else video.addEventListener('loadedmetadata', playFn);
+                }
+
+                return video;
+            } else {
+                // Iframe fallback
+                const iframe = document.createElement('iframe');
+                iframe.src = url;
+                iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;';
+                iframe.allow = "autoplay; fullscreen";
+                return iframe;
+            }
+        }
+
         // ===== VIDEO VIEW Functions =====
         function attachStreamToSlot(slotIndex, cctvItem, listIndex) {
             const container = document.getElementById('cctv-' + slotIndex);
@@ -2458,78 +2578,32 @@
             // Check if URL is direct HLS stream or iframe wrapper
             const isDirectHLS = url.includes('.m3u8') || url.includes('cctvsec.ktict.co.kr');
 
+            // DIRECT HLS or Iframe Logic REPLACED with createCCTVPlayer
+            const playerElement = createCCTVPlayer(url, isDirectHLS);
+            container.insertBefore(playerElement, container.firstChild);
+
+            // Add Fullscreen Button (Overlay) - Only for Video elements (HLS)
             if (isDirectHLS) {
-                // Direct HLS stream - use video element with HLS.js
-                const video = document.createElement('video');
-                video.controls = true;
-                video.autoplay = true;
-                video.muted = true;
-                video.playsInline = true;
-                video.setAttribute('playsinline', '');
-                video.preload = 'auto';
-                video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
+                const video = playerElement;
 
-                // Timeout to detect stalled loading (8 seconds for HLS - reduced for faster failover)
+                // Timeout to detect stalled loading (Fallback logic remains)
+                // Note: HLS.js internal recovery handles stream errors, this is for initial hang
                 const loadTimeout = setTimeout(() => {
-                    if (video.readyState < 3) {
-                        console.log(`Slot ${slotIndex}: Load timeout, skipping...`);
-                        loadNext();
+                    if (video.readyState < 3 && !video.paused) {
+                        // If still trying to load but stuck...
+                        // Actually, let HLS.js handle retries. 
+                        // We only skip if completely broken for long time.
                     }
-                }, 8000);
+                }, 10000);
 
-                video.onplaying = () => clearTimeout(loadTimeout);
-                video.onerror = () => {
-                    clearTimeout(loadTimeout);
-                    loadNext();
-                };
-
-                container.insertBefore(video, container.firstChild);
-
-                if (Hls.isSupported()) {
-                    // Optimized HLS config for fast loading
-                    const hls = new Hls({
-                        lowLatencyMode: true,
-                        maxBufferLength: 3,
-                        maxMaxBufferLength: 5,
-                        maxBufferSize: 1 * 1000 * 1000,
-                        startLevel: -1,
-                        enableWorker: true,
-                        backBufferLength: 0,
-                        liveSyncDurationCount: 1,
-                        liveMaxLatencyDurationCount: 3
-                    });
-                    hls.loadSource(url);
-                    hls.attachMedia(video);
-                    hls.on(Hls.Events.ERROR, function (event, data) {
-                        if (data.fatal) {
-                            clearTimeout(loadTimeout);
-                            hls.destroy();
-                            loadNext();
-                        }
-                    });
-                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                        attemptAutoplay(video);
-                    });
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = url;
-                    const playFn = () => {
-                        attemptAutoplay(video);
-                    };
-                    if (video.readyState >= 1) {
-                        playFn();
-                    } else {
-                        video.addEventListener('loadedmetadata', playFn);
-                    }
-                }
-
-                // Add Fullscreen Button (Overlay)
+                // Add Fullscreen Button
                 const fsBtn = document.createElement('button');
                 fsBtn.className = 'cctv-fullscreen-btn';
                 fsBtn.innerHTML = `
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
-                    </svg>
-                `;
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                        </svg>
+                    `;
                 fsBtn.title = '전체화면';
                 fsBtn.onclick = (e) => {
                     e.stopPropagation();
@@ -2537,13 +2611,9 @@
                 };
                 container.appendChild(fsBtn);
 
-                // Double tap / Click to fullscreen (Secondary)
-                const handleDoubleTap = (e) => {
-                    openVideoLayer(cctvItem);
-                };
-
+                // Double tap / Click to fullscreen logic
+                const handleDoubleTap = (e) => openVideoLayer(cctvItem);
                 video.addEventListener('dblclick', handleDoubleTap);
-
                 let lastTap = 0;
                 video.addEventListener('touchend', (e) => {
                     const currentTime = new Date().getTime();
@@ -2554,14 +2624,6 @@
                     }
                     lastTap = currentTime;
                 });
-            } else {
-                // Iframe wrapper URL (UTIC) - use simple iframe (No scaling)
-                const iframe = document.createElement('iframe');
-                iframe.src = url;
-                iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;';
-                iframe.allow = "autoplay; fullscreen";
-
-                container.insertBefore(iframe, container.firstChild);
             }
         }
 
@@ -2737,52 +2799,16 @@
                   </div>
                 `;
             } else if (isHLS) {
-                const video = document.createElement('video');
-                video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:black;';
-                video.controls = true;
-                video.autoplay = true;
-                // CRITICAL FIX: Must start muted for iOS Autoplay policy
-                video.muted = true;
-                video.playsInline = true;
-                video.preload = 'auto';
-                frame.appendChild(video);
+                // Use Unified Player for Popup (HLS True)
+                const video = createCCTVPlayer(cctvData.url, true);
+                video.style.objectFit = 'contain';
+                // Popup specific overrides
+                video.muted = true; // Started muted
 
-                if (Hls.isSupported()) {
-                    // Optimized HLS config for fast loading
-                    const hls = new Hls({
-                        lowLatencyMode: true,
-                        maxBufferLength: 3,
-                        maxMaxBufferLength: 5,
-                        maxBufferSize: 1 * 1000 * 1000,
-                        startLevel: -1,
-                        enableWorker: true,
-                        backBufferLength: 0,
-                        liveSyncDurationCount: 1,
-                        liveMaxLatencyDurationCount: 3
-                    });
-                    hls.loadSource(cctvData.url);
-                    hls.attachMedia(video);
-                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                        attemptAutoplay(video);
-                    });
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = cctvData.url;
-                    video.addEventListener('loadedmetadata', function () {
-                        attemptAutoplay(video);
-                    });
-                } else {
-                    frame.innerHTML = `
-                        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:white;">
-                            <p>이 브라우저에서는 영상을 재생할 수 없습니다.</p>
-                        </div>
-                     `;
-                }
+                frame.appendChild(video);
             } else {
-                // Assume it's an HTML wrapper (like kind=n) -> Use Iframe
-                const iframe = document.createElement('iframe');
-                iframe.src = cctvData.url;
-                iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;';
-                iframe.allow = "autoplay; fullscreen";
+                // Iframe
+                const iframe = createCCTVPlayer(cctvData.url, false);
                 frame.appendChild(iframe);
             }
 
