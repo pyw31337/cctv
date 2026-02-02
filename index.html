@@ -38,10 +38,42 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HLS.js (CDN) -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=0236cfffa7cfef34abacd91a6d7c73c0&libraries=services"></script>
+    <!-- Kakao Maps API -->
+    <script type="text/javascript"
+        src="//dapi.kakao.com/v2/maps/sdk.js?appkey=e18ee199818819d830c3fe479aa1ca71&libraries=services,clusterer"></script>
 
     <style>
+        /* Modern Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+
+        /* Safe Area for Mobile Notch */
+        body {
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            background-color: #111827;
+            /* Match header color for safe area */
+        }
+
         :root {
             --bg: #020617;
             --card-bg: #020617;
@@ -378,6 +410,10 @@
             display: flex;
             align-items: center;
             justify-content: center;
+        }
+
+        .video-layer-close:hover {
+            background: rgba(255, 255, 255, 0.2);
         }
 
         .video-frame {
@@ -1473,6 +1509,7 @@
         let centerMarker = null;
         let mapInitialized = false;
         let videoObserver = null;
+        let currentOverlay = null; // To keep track of the currently open Kakao CustomOverlay
 
         // ===== Intersection Observer for Video Auto-Pause/Play =====
         function initVideoObserver() {

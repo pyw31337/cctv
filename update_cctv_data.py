@@ -1,9 +1,10 @@
-
 import json
 import requests
 import urllib.parse
 import os
 import time
+import concurrent.futures
+import re
 
 # Configuration
 ITS_API_URL = "https://openapi.its.go.kr:9443/cctvInfo"
@@ -74,6 +75,87 @@ def fetch_its_data():
         print(f"Error fetching ITS data: {e}")
         return []
 
+def process_utic_item(item):
+    """Process a single UTIC item: construct URL and check for HLS."""
+    # Keys: CCTVNAME, CCTVID, XCOORD, YCOORD, KIND, CCTVIP, CH, ID, PASSWD, PORT
+    cctv_id = item.get("CCTVID")
+    if not cctv_id:
+        return None
+        
+    name = item.get("CCTVNAME", "")
+    try:
+        lng = float(item.get("XCOORD", 0))
+        lat = float(item.get("YCOORD", 0))
+    except (ValueError, TypeError):
+        return None
+
+    # Determine parameters
+    kind = item.get("KIND")
+    center = item.get("CENTERNAME")
+    
+    # Special handling for Seoul region to use 'Seoul' kind instead of 'MODE'
+    if center and "서울" in center:
+        kind = "Seoul"
+    elif cctv_id.startswith("L01"): # Fallback for Seoul ID prefix
+        kind = "Seoul"
+
+    params = {
+        "key": UTIC_API_KEY,
+        "cctvid": item.get("CCTVID"),
+        "cctvName": name, 
+        "kind": kind,
+        "cctvip": item.get("CCTVIP"),
+        "cctvch": item.get("CH"),
+        "id": item.get("ID"),
+        "cctvpasswd": item.get("PASSWD"),
+        "cctvport": item.get("PORT")
+    }
+    
+    # Filter out None values for UTIC URL
+    query_string = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
+    
+    # Web URL (Default)
+    url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
+
+    # Special handling for River Flood Control Offices
+    cctv_id_str = item.get("CCTVID", "")
+    obscd = item.get('ID')
+    cctv_passwd = item.get("PASSWD")
+    
+    if "E60" in cctv_id_str:
+        url = f"https://hrfco.go.kr/sumun/cctvPopup.do?Obscd={obscd}"
+    elif "E61" in cctv_id_str:
+        url = f"https://www.nakdongriver.go.kr/sumun/popup/cctvView.do?Obscd={obscd}"
+    elif "E62" in cctv_id_str:
+        url = f"https://www.geumriver.go.kr/html/sumun/rtmpView.jsp?wlobscd={cctv_passwd}&cctvcd={obscd}"
+    elif "E63" in cctv_id_str:
+        url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
+    
+    # [Optimization] Deep Inspection for HLS
+    # Many UTIC streams are actually HLS wrapped in JSP.
+    try:
+        if "openDataCctvStream.jsp" in url:
+            # Set a short timeout (e.g., 3s)
+            jsp_res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, verify=False, timeout=3)
+            if jsp_res.status_code == 200:
+                 match = re.search(r'(http[s]?://[^\s"\']+\.m3u8[^\s"\']*)', jsp_res.text)
+                 if match:
+                     direct_hls = match.group(1)
+                     # print(f"  [Optimization] Found direct HLS for {name}") # Too noisy for threads
+                     url = direct_hls
+    except Exception:
+        pass
+    
+    return {
+        "id": cctv_id,
+        "name": name,
+        "lat": lat,
+        "lng": lng,
+        "url": url,
+        "source": "UTIC",
+        "status": "active"
+    }
+
 def fetch_utic_data():
     """Fetches CCTV data from the UTIC API (internal JSON endpoint)."""
     print("Fetching UTIC data...")
@@ -91,94 +173,22 @@ def fetch_utic_data():
         if isinstance(data, dict):
             if "result" in data: items = data["result"]
             elif "data" in data: items = data["data"]
-
+        
         if not items:
             print("No data found in UTIC response.")
             return []
 
-        for item in items:
-            # Keys: CCTVNAME, CCTVID, XCOORD, YCOORD, KIND, CCTVIP, CH, ID, PASSWD, PORT
-            cctv_id = item.get("CCTVID")
-            if not cctv_id:
-                continue
-                
-            name = item.get("CCTVNAME", "")
-            try:
-                lng = float(item.get("XCOORD", 0))
-                lat = float(item.get("YCOORD", 0))
-            except (ValueError, TypeError):
-                continue
-
-            # Construct URL
-            # Url format: https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=...&cctvid=...
-            # Parameters need to be URL encoded
+        print(f"Processing {len(items)} UTIC items with concurrency...")
+        
+        # Process in parallel
+        # Max workers 50 to balance speed and server load
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            # Submit all tasks
+            results = list(executor.map(process_utic_item, items))
             
-            # Using urllib.parse.quote for values
-            def q(v): return urllib.parse.quote(str(v or ''))
-            
-            # Note: The 'key' in the url param is the API key.
-            # Other params: cctvid, cctvName, kind, cctvip, cctvch, id, cctvpasswd, cctvport
-            
-            # Determine parameters
-            kind = item.get("KIND")
-            center = item.get("CENTERNAME")
-            
-            # Special handling for Seoul region to use 'Seoul' kind instead of 'MODE'
-            if center and "서울" in center:
-                kind = "Seoul"
-            elif cctv_id.startswith("L01"): # Fallback for Seoul ID prefix
-                kind = "Seoul"
-
-            params = {
-                "key": UTIC_API_KEY,
-                "cctvid": item.get("CCTVID"),
-                "cctvName": name, 
-                "kind": kind,
-                "cctvip": item.get("CCTVIP"),
-                "cctvch": item.get("CH"),
-                "id": item.get("ID"),
-                "cctvpasswd": item.get("PASSWD"),
-                "cctvport": item.get("PORT")
-            }
-            
-            # Filter out None values for UTIC URL
-            query_string = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
-            
-            # Web URL (Default)
-            url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
-
-            # Special handling for River Flood Control Offices
-            # E60: Han River, E61: Nakdong River, E62: Geum River, E63: Yeongsan River
-            cctv_id_str = item.get("CCTVID", "")
-            
-            # Extract common logic
-            obscd = item.get('ID')
-            cctv_passwd = item.get("PASSWD")
-            
-            if "E60" in cctv_id_str:
-                url = f"https://hrfco.go.kr/sumun/cctvPopup.do?Obscd={obscd}"
-            elif "E61" in cctv_id_str:
-                url = f"https://www.nakdongriver.go.kr/sumun/popup/cctvView.do?Obscd={obscd}"
-            elif "E62" in cctv_id_str:
-                # E62 (Geum River) logic from collect_cctv_data.py
-                # https://www.geumriver.go.kr/html/sumun/rtmpView.jsp?wlobscd={cctv_passwd}&cctvcd={details.get('ID', '')}
-                url = f"https://www.geumriver.go.kr/html/sumun/rtmpView.jsp?wlobscd={cctv_passwd}&cctvcd={obscd}"
-            elif "E63" in cctv_id_str:
-                # E63 (Yeongsan River) logic from collect_cctv_data.py
-                # https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}
-                url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
-            
-            cctv_entry = {
-                "id": cctv_id,
-                "name": name,
-                "lat": lat,
-                "lng": lng,
-                "url": url,
-                "source": "UTIC",
-                "status": "active"
-            }
-            normalized_data.append(cctv_entry)
-            
+        # Filter None results
+        normalized_data = [r for r in results if r is not None]
+        
         print(f"Fetched {len(normalized_data)} entries from UTIC.")
         return normalized_data
 
@@ -249,13 +259,6 @@ def main():
         try:
             ilat, ilng = float(its_item['lat']), float(its_item['lng'])
             
-            # Check against matched UTIC items
-            # (Optimization: could use a spatial index, but O(N*M) for 20k*5k is slow (100M ops). 
-            #  Given simple script, maybe acceptable or needs optimization?)
-            #  Let's limit check to same name or just nearby?
-            #  Distance check is most reliable.
-            #  To speed up, perhaps filter by rough lat/lng first?
-            
             for u_item in utic_data:
                 # Quick filter: lat/lng diff > 0.01 (approx 1km)
                 ulat, ulng = float(u_item['lat']), float(u_item['lng'])
@@ -291,9 +294,8 @@ def main():
             print(f"\n[CRITICAL WARNING] Data drop detected!")
             print(f"Existing: {existing_count} -> New: {new_count} (Drop rate: {drop_rate*100:.1f}%)")
             print("Update ABORTED to allow manual inspection.")
-            # exit(1) # Commented out to allow overwrite if user really wants, or just warning.
-            # Actually, let's enforce it but with a override message
-            print("Proceeding with caution... (User requested fix)")
+            # print("Proceeding with caution... (User requested fix)") # Commented out for now
+            return
 
     # 5. Save
     try:
