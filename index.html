@@ -2804,13 +2804,32 @@
                   </div>
                 `;
             } else if (isHLS) {
-                // Use Unified Player for Popup (HLS True)
-                const video = createCCTVPlayer(cctvData.url, true);
-                video.style.objectFit = 'contain';
-                // Popup specific overrides
-                video.muted = true; // Started muted
+                // Check for Mixed Content (HTTPS site loading HTTP stream)
+                const isMixedContent = window.location.protocol === 'https:' && cctvData.url.startsWith('http:');
 
-                frame.appendChild(video);
+                if (isMixedContent) {
+                    frame.innerHTML = `
+                      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:white;text-align:center;padding:20px;">
+                        <svg class="w-12 h-12 text-yellow-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        <p style="margin-bottom:8px;font-weight:bold;">보안 연결(HTTPS) 문제</p>
+                        <p style="margin-bottom:16px;opacity:0.8;font-size:0.9em;">이 CCTV는 보안되지 않은(HTTP) 주소로 제공되어<br>현재 페이지에서 바로 재생할 수 없습니다.</p>
+                        <button onclick="window.open('${cctvData.url}', '_blank', 'width=640,height=480')"
+                          style="padding:10px 20px;background:white;color:black;border:none;border-radius:6px;cursor:pointer;font-weight:600;margin-bottom:8px;">
+                          새 창에서 열기 (영상 직접 보기)
+                        </button>
+                        <p style="font-size:0.8em;opacity:0.5;">또는 브라우저 설정에서 '안전하지 않은 콘텐츠 허용'을 해야 합니다.</p>
+                      </div>
+                    `;
+                    // Attempt to load anyway (some browsers might allow if user permitted previously)
+                    // createCCTVPlayer call skipped to avoid console errors spam, or we can try?
+                    // Better to rely on "New Window" for guaranteed access.
+                } else {
+                    // Safe to load
+                    const video = createCCTVPlayer(cctvData.url, true);
+                    video.style.objectFit = 'contain';
+                    video.muted = true;
+                    frame.appendChild(video);
+                }
             } else {
                 // Iframe
                 const iframe = createCCTVPlayer(cctvData.url, false);

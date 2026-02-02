@@ -138,10 +138,12 @@ def process_utic_item(item):
             # Set a short timeout (e.g., 3s)
             jsp_res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, verify=False, timeout=3)
             if jsp_res.status_code == 200:
-                 match = re.search(r'(http[s]?://[^\s"\']+\.m3u8[^\s"\']*)', jsp_res.text)
+                 # Robust regex to capture URL and query params up to whitespace or quotes or HTML comment
+                 match = re.search(r'(http[s]?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*)', jsp_res.text)
                  if match:
                      direct_hls = match.group(1)
-                     # print(f"  [Optimization] Found direct HLS for {name}") # Too noisy for threads
+                     # Clean any trailing garbage if regex failed (e.g. -->)
+                     direct_hls = direct_hls.split('-->')[0]
                      url = direct_hls
     except Exception:
         pass
