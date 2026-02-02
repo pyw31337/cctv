@@ -667,6 +667,7 @@
 
         .cctv-item.panel-fullscreen .cctv-label {
             opacity: 1;
+            z-index: 2000;
         }
 
         .cctv-item.panel-fullscreen .cctv-zoom-btn svg {
@@ -1504,77 +1505,44 @@
             // Find the inner content that needs scaling
             const content = cctvItem.querySelector('div.cctv, iframe, video');
 
-
-
             if (!content) return;
 
-
-
             if (isFullscreen) {
-                // Get viewport dimensions
-                const viewportWidth = window.innerWidth;
-                const viewportHeight = window.innerHeight;
+                // HIGH QUALITY MODE
+                // Instead of scaling a small 320x240 video up (blurry),
+                // we set the video element to fill the viewport (100%).
+                // This triggers Hls.js 'capLevelToPlayerSize' to switch to HD.
 
-
-                // Use captured size if available, otherwise fallback to defaults
-                let contentWidth = fixedSize ? fixedSize.width : 320;
-                let contentHeight = fixedSize ? fixedSize.height : 245;
-
-                // Fallback: For video elements, try to use actual dimensions if not passed
-                if (!fixedSize && content.tagName === 'VIDEO') {
-                    contentWidth = content.videoWidth || 320;
-                    contentHeight = content.videoHeight || 245;
-                }
-
-                // Apply fixed dimensions IMMEDIATELY to prevent layout thrashing
-                content.style.width = `${contentWidth}px`;
-                content.style.height = `${contentHeight}px`;
-
-                // CRITICAL: For iframes, we must explicitly set fixed dimensions
-                // because CSS 100% would make offsetWidth return viewport size
-                if (!fixedSize && content.tagName === 'IFRAME') {
-                    content.style.width = `${contentWidth}px`;
-                    content.style.height = `${contentHeight}px`;
-                }
-
-                // Calculate scale to fit viewport while maintaining aspect ratio
-                const scaleX = viewportWidth / contentWidth;
-                const scaleY = (viewportHeight - 80) / contentHeight; // Account for header/controls
-                const scale = Math.min(scaleX, scaleY) * 0.95; // 95% to leave margin
-
-
-
-                // Apply scale transform and center
-                content.style.transform = `scale(${scale})`;
-                content.style.transformOrigin = 'center center';
+                content.style.transform = '';
                 content.style.position = 'absolute';
-                content.style.top = '48%'; // Adjusted: Moved up to clear bottom controls
-                content.style.left = '50%';
-                content.style.marginTop = `-${contentHeight / 2}px`;
-                content.style.marginLeft = `-${contentWidth / 2}px`;
-                content.style.zIndex = '1000'; // FORCE HIGH Z-INDEX
-
-
+                content.style.top = '0';
+                content.style.left = '0';
+                content.style.width = '100%';
+                content.style.height = '100%';
+                content.style.marginTop = '0';
+                content.style.marginLeft = '0';
+                content.style.zIndex = '1000';
+                content.style.objectFit = 'contain'; // Native aspect ratio handling
 
             } else {
-                // Reset all styles
+                // RESET TO GRID MODE
                 content.style.transform = '';
-                content.style.transformOrigin = '';
                 content.style.position = '';
                 content.style.top = '';
                 content.style.left = '';
+                content.style.width = ''; // Reverts to CSS default or attribute
+                content.style.height = '';
                 content.style.marginTop = '';
                 content.style.marginLeft = '';
                 content.style.zIndex = '';
-                // Reset dimensions for non-fullscreen mode
+                content.style.objectFit = 'cover'; // Grid mode crop
+
+                // Restore iframe specific sizing if needed
                 if (content.tagName === 'IFRAME') {
                     content.style.width = '100%';
                     content.style.height = '100%';
                 }
-
             }
-
-
         }
 
         document.querySelectorAll('.cctv-zoom-btn').forEach(btn => {
@@ -2456,7 +2424,7 @@
                         enableWorker: true,
                         lowLatencyMode: true,
                         backBufferLength: 0,       // Don't keep old segments
-                        startLevel: -1,            // Auto start level
+                        startLevel: 0,             // Start with lowest quality for instant play
 
                         // Error Recovery
                         manifestLoadingTimeOut: 5000,
