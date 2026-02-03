@@ -342,33 +342,74 @@ function renderVideoGrid() {
 }
 
 function createVideoElement(cctv) {
-    const isHls = cctv.url.includes('.m3u8');
+    const url = cctv.url;
+    const isHls = url.includes('.m3u8');
+    const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
+    const isSecureStream = url.includes('cctvsec.ktict.co.kr');
 
-    if (isHls && Hls.isSupported()) {
+    // HLS streams (.m3u8) - use HLS.js
+    if ((isHls || isSecureStream) && Hls.isSupported()) {
         const video = document.createElement('video');
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
-        video.loop = true;
+        video.setAttribute('playsinline', '');
+        video.preload = 'metadata';
 
         const hls = new Hls({
             enableWorker: true,
-            lowLatencyMode: true
+            lowLatencyMode: true,
+            capLevelToPlayerSize: true,
+            maxBufferLength: 5,
+            maxBufferSize: 3 * 1000 * 1000,
+            backBufferLength: 0,
+            startLevel: 0,
+            manifestLoadingTimeOut: 5000,
         });
-        hls.loadSource(cctv.url);
+        hls.loadSource(url);
         hls.attachMedia(video);
 
+        hls.on(Hls.Events.ERROR, function (event, data) {
+            if (data.fatal) {
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        hls.startLoad();
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        hls.recoverMediaError();
+                        break;
+                    default:
+                        hls.destroy();
+                        break;
+                }
+            }
+        });
+
+        video.hls = hls;
         return video;
-    } else {
+    }
+
+    // Safari native HLS
+    if (isHls) {
         const video = document.createElement('video');
-        video.src = cctv.url;
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
+        video.src = url;
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
-        video.loop = true;
-
+        video.setAttribute('playsinline', '');
         return video;
     }
+
+    // UTIC/Redirect URLs - use iframe embed (most reliable)
+    const iframe = document.createElement('iframe');
+    iframe.src = url;
+    iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;display:block;';
+    iframe.allow = 'autoplay; fullscreen';
+    iframe.scrolling = 'no';
+    iframe.setAttribute('allowfullscreen', '');
+    return iframe;
 }
 
 // === Map ===
