@@ -79,7 +79,7 @@ function setupEventListeners() {
     $('#dim-overlay').addEventListener('click', closeAllOverlays);
 
     // Weather
-    $('#weather-btn').addEventListener('click', openWeather);
+    $('#weather-btn').addEventListener('click', toggleWeather);
     $('#weather-close').addEventListener('click', closeWeather);
 
     // Video Layer
@@ -376,17 +376,33 @@ function renderMapMarkers() {
 }
 
 // === Weather ===
-function openWeather() {
+function toggleWeather() {
     const layer = $('#weather-layer');
-    layer.classList.add('active');
-    $('#dim-overlay').classList.add('active');
+    const btn = $('#weather-btn');
+    const isOpen = layer.classList.contains('active');
 
-    $('#weather-title').textContent = `${state.keyword} 주간 날씨`;
-    fetchWeather();
+    if (isOpen) {
+        // Close weather
+        layer.classList.remove('active');
+        btn.classList.remove('active');
+        $('#dim-overlay').classList.remove('active');
+    } else {
+        // Close search first
+        $('#search-results').classList.remove('active');
+
+        // Open weather
+        layer.classList.add('active');
+        btn.classList.add('active');
+        $('#dim-overlay').classList.add('active');
+
+        $('#weather-title').textContent = `${state.keyword} 주간 날씨`;
+        fetchWeather();
+    }
 }
 
 function closeWeather() {
     $('#weather-layer').classList.remove('active');
+    $('#weather-btn').classList.remove('active');
     $('#dim-overlay').classList.remove('active');
 }
 

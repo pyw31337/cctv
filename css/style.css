@@ -182,11 +182,21 @@ body {
     align-items: center;
     justify-content: center;
     background: var(--bg-primary);
-    border: 1px solid var(--border-color);
+    border: 2px solid var(--border-color);
     border-radius: 50%;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background var(--transition), color var(--transition);
+    transition: all var(--transition);
+}
+
+.weather-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.weather-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 .weather-btn:hover {
@@ -407,6 +417,8 @@ body {
     opacity: 0;
     visibility: hidden;
     transition: opacity var(--transition), visibility var(--transition);
+    z-index: 1003;
+    /* Above header and search */
 }
 
 .weather-layer.active {
