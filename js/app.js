@@ -347,7 +347,18 @@ function createVideoElement(cctv) {
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
 
-    // HLS streams (.m3u8) - use HLS.js
+    // UTIC Portal URLs - MUST use iframe (they are redirect pages, not direct streams)
+    if (isUtic) {
+        const iframe = document.createElement('iframe');
+        iframe.src = url;
+        iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;display:block;';
+        iframe.allow = 'autoplay; fullscreen';
+        iframe.scrolling = 'no';
+        iframe.setAttribute('allowfullscreen', '');
+        return iframe;
+    }
+
+    // HLS streams (.m3u8 or ktict) - use HLS.js
     if ((isHls || isSecureStream) && Hls.isSupported()) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
@@ -402,7 +413,7 @@ function createVideoElement(cctv) {
         return video;
     }
 
-    // UTIC/Redirect URLs - use iframe embed (most reliable)
+    // Fallback: iframe for any other URL type
     const iframe = document.createElement('iframe');
     iframe.src = url;
     iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;display:block;';
