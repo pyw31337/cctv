@@ -26,6 +26,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load Data
     await loadCctvData();
 
+    // Restore last searched location from history
+    const history = getSearchHistory();
+    if (history.length > 0 && history[0].lat && history[0].lng) {
+        state.center = { lat: history[0].lat, lng: history[0].lng };
+        state.keyword = history[0].name || '서울역';
+        $('#search-input').value = state.keyword;
+    }
+
     // Setup Event Listeners
     setupEventListeners();
 
