@@ -44,7 +44,7 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <!-- Kakao Maps API -->
     <script type="text/javascript"
-        src="//dapi.kakao.com/v2/maps/sdk.js?appkey=e18ee199818819d830c3fe479aa1ca71&libraries=services,clusterer"></script>
+        src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=e18ee199818819d830c3fe479aa1ca71&libraries=services,clusterer"></script>
 
     <style>
         /* Modern Scrollbar */
@@ -2765,43 +2765,83 @@
 
         // ===== MAP VIEW Functions =====
         function initMap() {
-            const container = document.getElementById('map');
-            const options = {
-                center: new kakao.maps.LatLng(currentLat, currentLng),
-                level: 5
-            };
-            map = new kakao.maps.Map(container, options);
-
-            // Load CCTV data if not already loaded
-            if (allCCTVData.length === 0) {
-                loadCCTVData().then(() => {
-                    refreshMapData(); // Initial load
-                });
-            } else {
-                refreshMapData();
-            }
-
-            // Button Event
-            const refreshBtn = document.getElementById('map-refresh-btn');
-            refreshBtn.addEventListener('click', () => {
-                refreshMapData();
-                refreshBtn.classList.remove('active');
-            });
-
-            // Map Events: Show button on interaction
-            const showRefreshBtn = () => {
-                if (!refreshBtn.classList.contains('active')) {
-                    refreshBtn.classList.add('active');
+            try {
+                if (!window.kakao || !window.kakao.maps) {
+                    console.error('Kakao Maps API not loaded.');
+                    document.getElementById('map-status').textContent = '지도 API 로드 실패. 인터넷 연결을 확인하세요.';
+                    return;
                 }
-            };
 
-            kakao.maps.event.addListener(map, 'dragend', showRefreshBtn);
-            kakao.maps.event.addListener(map, 'zoom_changed', showRefreshBtn);
+                const container = document.getElementById('map');
+                const options = {
+                    center: new kakao.maps.LatLng(currentLat, currentLng),
+                    level: 5
+                };
+                map = new kakao.maps.Map(container, options);
 
-            // Add initial center marker if exists
-            if (currentLat && currentLng) {
-                updateCenterMarker();
+                // Load CCTV data if not already loaded
+                if (allCCTVData.length === 0) {
+                    loadCCTVData().then(() => {
+                        refreshMapData(); // Initial load
+                    });
+                } else {
+                    refreshMapData();
+                }
+
+                // Button Event
+                const refreshBtn = document.getElementById('map-refresh-btn');
+                if (refreshBtn) { // Safety check
+                    refreshBtn.addEventListener('click', () => {
+                        refreshMapData();
+                        refreshBtn.classList.remove('active');
+                    });
+                }
+
+                // Map Events: Show button on interaction
+                const showRefreshBtn = () => {
+                    if (refreshBtn && !refreshBtn.classList.contains('active')) {
+                        refreshBtn.classList.add('active');
+                    }
+                };
+
+                kakao.maps.event.addListener(map, 'dragend', showRefreshBtn);
+                kakao.maps.event.addListener(map, 'zoom_changed', showRefreshBtn);
+
+                // Add initial center marker if exists
+                if (currentLat && currentLng) {
+                    updateCenterMarker();
+                }
+
+                // Force layout update just in case
+                setTimeout(() => map.relayout(), 100);
+
+            } catch (error) {
+                console.error('Map initialization failed:', error);
+                document.getElementById('map-status').textContent = '지도 초기화 오류: ' + error.message;
             }
+        }
+
+        // Button Event
+        const refreshBtn = document.getElementById('map-refresh-btn');
+        refreshBtn.addEventListener('click', () => {
+            refreshMapData();
+            refreshBtn.classList.remove('active');
+        });
+
+        // Map Events: Show button on interaction
+        const showRefreshBtn = () => {
+            if (!refreshBtn.classList.contains('active')) {
+                refreshBtn.classList.add('active');
+            }
+        };
+
+        kakao.maps.event.addListener(map, 'dragend', showRefreshBtn);
+        kakao.maps.event.addListener(map, 'zoom_changed', showRefreshBtn);
+
+        // Add initial center marker if exists
+        if (currentLat && currentLng) {
+            updateCenterMarker();
+        }
         }
 
         function updateCenterMarker() {
