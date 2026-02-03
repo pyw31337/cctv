@@ -1,45 +1,54 @@
 // Main Application Logic
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Initialize Observer
+    // 1. Initialize Video Observer (Auto Pause/Play)
     if ('IntersectionObserver' in window) {
         videoObserver = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 const video = entry.target;
                 if (!entry.isIntersecting) {
-                    video.pause();
+                    if (!video.paused) video.pause();
                 } else {
                     if (video.hls) video.hls.startLoad();
-                    // Optional: Auto-resume? video.play(); 
-                    // Better to let user play or attributes handle it
+                    // Attempt autoplay if needed
+                    video.play().catch(() => { });
                 }
             });
         }, { threshold: 0.1 });
     }
 
-    // 2. Load Data
+    // 2. Load Data & Init
     loadCCTVData().then(() => {
-        // Startup Logic
         initByUrlParams();
     });
 
-    // 3. Resizer Init
+    // 3. Init UI Components
     initCenterResizer();
+    initWeatherFeature();
+    initSearchEvents();
+
+    // Tab Init
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
 });
 
-
-// Tab Switching
+// === Tab Logic ===
 function switchTab(tabId) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelector(`.tab-btn[data-tab="${tabId}"]`).classList.add('active');
+    document.querySelectorAll(`.tab-btn[data-tab="${tabId}"]`).forEach(btn => btn.classList.add('active'));
 
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    document.getElementById(`${tabId}-tab`).classList.add('active');
 
+    // Map Tab Special Handling
     if (tabId === 'map') {
+        document.getElementById('map-tab').classList.add('active');
         if (!mapInitialized) {
-            initMap();
-            mapInitialized = true;
+            // Tiny delay to ensure visibility before init
+            setTimeout(() => {
+                initMap();
+                mapInitialized = true;
+            }, 50);
         } else {
             setTimeout(() => {
                 if (map) {
@@ -48,52 +57,148 @@ function switchTab(tabId) {
                 }
             }, 50);
         }
+    } else {
+        document.getElementById('video-tab').classList.add('active');
     }
 }
 
-document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-});
+// === Search Events ===
+function initSearchEvents() {
+    const vInput = document.getElementById('video-keyword');
+    if (vInput) {
+        vInput.addEventListener('focus', () => {
+            renderHistoryAndBookmarks(); // Show history/bookmarks
+            document.querySelector('.dim-overlay').classList.add('active');
+            document.querySelector('.floating-search-container').classList.add('keyboard-active');
+        });
 
-// Location Selection Logic
+        // Hide on blur (delayed to allow clicks on items)
+        /* 
+        vInput.addEventListener('blur', () => {
+             setTimeout(() => {
+                 // Only hide if result wasn't clicked
+             }, 200);
+        });
+        */
+    }
+
+    // Dim Overlay Click
+    document.querySelector('.dim-overlay').addEventListener('click', () => {
+        document.getElementById('video-search-results').classList.remove('active');
+        document.querySelector('.dim-overlay').classList.remove('active');
+        document.querySelector('.floating-search-container').classList.remove('keyboard-active');
+        document.getElementById('video-keyword').blur();
+    });
+
+    // Clear Button
+    document.getElementById('video-clear-btn').addEventListener('click', () => {
+        document.getElementById('video-keyword').value = '';
+        renderHistoryAndBookmarks(); // Show history again
+        document.getElementById('video-keyword').focus();
+    });
+}
+
+// === Weather Feature ===
+function initWeatherFeature() {
+    const weatherBtn = document.getElementById('weather-btn');
+    const weatherClose = document.getElementById('weather-close');
+    const weatherLayer = document.getElementById('weather-layer');
+
+    if (weatherBtn) {
+        weatherBtn.addEventListener('click', async () => {
+            if (weatherLayer) weatherLayer.classList.add('active');
+            const title = document.getElementById('weather-title');
+            if (title) title.textContent = `${currentKeyword} 주간 날씨`;
+            await fetchAndRenderWeather(currentLat, currentLng);
+        });
+    }
+
+    if (weatherClose) {
+        weatherClose.addEventListener('click', () => {
+            if (weatherLayer) weatherLayer.classList.remove('active');
+        });
+    }
+
+    if (weatherLayer) {
+        weatherLayer.addEventListener('click', (e) => {
+            if (e.target === weatherLayer) weatherLayer.classList.remove('active');
+        });
+    }
+}
+
+async function fetchAndRenderWeather(lat, lng) {
+    const weatherListEl = document.getElementById('weather-list');
+    if (!weatherListEl) return;
+    weatherListEl.innerHTML = '<div style="padding:24px;color:var(--text-sub);">날씨 불러오는 중...</div>';
+
+    try {
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`);
+        const data = await res.json();
+
+        if (!data.daily) throw new Error('No Data');
+
+        const daily = data.daily;
+        let html = '';
+        const days = ['일', '월', '화', '수', '목', '금', '토'];
+
+        for (let i = 0; i < 7 && i < daily.time.length; i++) {
+            const date = new Date(daily.time[i]);
+            const dayName = i === 0 ? '오늘' : days[date.getDay()];
+            const code = daily.weathercode[i];
+            const max = Math.round(daily.temperature_2m_max[i]);
+            const min = Math.round(daily.temperature_2m_min[i]);
+            const icon = getWeatherIcon(code);
+
+            html += `
+                <div class="weather-item">
+                    <div class="weather-day">${dayName}</div>
+                    <div class="weather-icon-display">${icon}</div>
+                    <div class="weather-temp">${Math.round((max + min) / 2)}°</div>
+                    <div class="weather-temp-range">${min}° / ${max}°</div>
+                </div>
+            `;
+        }
+        weatherListEl.innerHTML = html;
+
+    } catch (e) {
+        console.error(e);
+        weatherListEl.innerHTML = '<div style="padding:20px;">날씨 정보를 불러오는데 실패했습니다.</div>';
+    }
+}
+
+function getWeatherIcon(code) {
+    if (code === 0) return '☀️';
+    if (code >= 1 && code <= 3) return '⛅';
+    if (code === 45 || code === 48) return '🌫️';
+    if (code >= 51 && code <= 67) return '🌧️';
+    if (code >= 71 && code <= 77) return '🌨️';
+    if (code >= 80 && code <= 82) return '🌦️';
+    if (code >= 95) return '⚡';
+    return '☁️';
+}
+
+// === Location Selection Logic ===
 async function selectPlace(place) {
     currentKeyword = place.place_name;
     currentLat = parseFloat(place.y);
     currentLng = parseFloat(place.x);
 
-    // Save history
-    saveSearchTerm({
-        name: currentKeyword,
-        address: place.address_name,
-        lat: currentLat,
-        lng: currentLng
-    });
+    // Save history handled by caller usually, but to be safe:
+    saveSearchTerm(place);
 
     // Update UI
     document.getElementById('video-keyword').value = currentKeyword;
-    document.getElementById('map-keyword').value = currentKeyword;
 
     // Close Search
     document.getElementById('video-search-results').classList.remove('active');
     document.querySelector('.dim-overlay').classList.remove('active');
-    document.body.classList.remove('search-active');
+    document.querySelector('.floating-search-container').classList.remove('keyboard-active');
 
-    // Trigger Update
-    // 1. Filter Data (Distance based)
-    // Simple filter by distance for Grid View immediately
-    // Or just let refreshMapData handle it
-
-    // Move Map
+    // Filter Logic
     if (map) {
         map.setCenter(new kakao.maps.LatLng(currentLat, currentLng));
         refreshMapData();
     } else {
-        // If map not init, just filter list for grid
-        // But refreshMapData requires map... 
-        // We should init map in background? 
-        // For now, let's just rely on allCCTVData being filtered when Map inits.
-        // But for Video Tab Updates?
-        // We need a non-map way to refresh grid based on location
         filterGridByLocation(currentLat, currentLng);
     }
 }
@@ -107,27 +212,24 @@ function filterGridByLocation(lat, lng) {
 
     currentCctvList = list;
     populateVideoSelects(list);
-
-    document.getElementById('video-status').textContent = `"${currentKeyword}" 주변 CCTV ${list.length}개`;
+    const statusEl = document.getElementById('video-status');
+    if (statusEl) statusEl.textContent = `"${currentKeyword}" 주변 CCTV ${list.length}개`;
 }
 
 function initByUrlParams() {
     const params = new URLSearchParams(window.location.search);
     const searchParam = params.get('search');
-
     if (searchParam) {
         document.getElementById('video-keyword').value = searchParam;
         handleSearch(searchParam, 'video', true).then(place => {
             if (place) selectPlace(place);
         });
     } else {
-        // Default Grid Load
         filterGridByLocation(DEFAULT_LAT, DEFAULT_LNG);
     }
 }
 
-
-// UI Events (Grid Resizer)
+// === Grid Resizer (Full Logic) ===
 function initCenterResizer() {
     const grid = document.querySelector('.grid-container');
     const handle = document.getElementById('resizer');
@@ -135,19 +237,68 @@ function initCenterResizer() {
 
     let col1 = 1, col2 = 1, row1 = 1, row2 = 1;
 
-    handle.addEventListener('touchstart', (e) => {
+    function applyGrid() {
+        grid.style.gridTemplateColumns = `${col1}fr ${col2}fr`;
+        grid.style.gridTemplateRows = `${row1}fr ${row2}fr`;
+
+        // Update handle position
+        // Assuming equal initial weights, we can just center it visually or calc true pos.
+        // But with fr units, css grid handles resizing. 
+        // We just need to ensure handle follows the center.
+        // Actually, 'resizer' is absolute centered. 
+        // If we change grid rows/cols, we need to move handle?
+        // Yes, if top-left gets bigger, center moves right-down.
+        const totalW = col1 + col2;
+        const totalH = row1 + row2;
+        handle.style.left = `${(col1 / totalW) * 100}%`;
+        handle.style.top = `${(row1 / totalH) * 100}%`;
+    }
+
+    let dragging = false;
+    let startX, startY;
+
+    const onStart = (x, y) => {
+        dragging = true;
+        startX = x;
+        startY = y;
         grid.classList.add('resizing');
-    }, { passive: true });
+    };
 
-    handle.addEventListener('touchend', () => {
+    const onMove = (x, y) => {
+        if (!dragging) return;
+        const rect = grid.getBoundingClientRect();
+
+        // Calculate delta percentage
+        const dx = (x - startX) / rect.width * 2; // Factor 2 for sensitivity
+        const dy = (y - startY) / rect.height * 2;
+
+        col1 = Math.max(0.2, Math.min(1.8, col1 + dx));
+        col2 = Math.max(0.2, Math.min(1.8, col2 - dx));
+        row1 = Math.max(0.2, Math.min(1.8, row1 + dy));
+        row2 = Math.max(0.2, Math.min(1.8, row2 - dy));
+
+        applyGrid();
+        startX = x;
+        startY = y;
+    };
+
+    const onEnd = () => {
+        dragging = false;
         grid.classList.remove('resizing');
-    });
+    };
 
-    // ... Implement full logic if needed, or simplified
+    // Mouse
+    handle.addEventListener('mousedown', e => { e.preventDefault(); onStart(e.clientX, e.clientY); });
+    window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', onEnd);
+
+    // Touch
+    handle.addEventListener('touchstart', e => { e.preventDefault(); onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    window.addEventListener('touchmove', e => { if (dragging) e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    window.addEventListener('touchend', onEnd);
 }
 
-
-// Video Layer Popup (Used by Map)
+// === Video Layer / Popups ===
 function openVideoLayer(cctvData) {
     const layer = document.getElementById('video-layer');
     const title = document.getElementById('video-layer-title');
@@ -156,33 +307,26 @@ function openVideoLayer(cctvData) {
     title.textContent = cctvData.name;
     frame.innerHTML = '';
 
-    // Check for Broken/ActiveX
-    const isActiveX = cctvData.url.includes('kind=MODE') && !cctvData.url.includes('openDataCctvStream.jsp');
-    // New UTIC JSP URLs are kind=MODE but use Iframe/HLS internally, so we trust openDataCctvStream.jsp
-    // But wait, the user said "Dalmoe IC" works now. It has openDataCctvStream.jsp.
+    const isHLS = cctvData.url.includes('.m3u8') || cctvData.url.includes('cctvsec.ktict.co.kr');
 
-    const isHLS = cctvData.url.includes('.m3u8');
-
-    if (false) { // Disabled ActiveX Check for now
-        // ...
+    // Check Mixed Content
+    if (window.location.protocol === 'https:' && cctvData.url.startsWith('http:')) {
+        frame.innerHTML = `
+            <div style="color:white;text-align:center;padding:20px;">
+                <p>보안 연결 문제로 재생할 수 없습니다.</p>
+                <button onclick="window.open('${cctvData.url}', '_blank', 'width=600,height=480')">새 창에서 보기</button>
+            </div>
+         `;
     } else {
-        // Standard Player
-        // Always use createCCTVPlayer
         const player = createCCTVPlayer(cctvData.url, isHLS);
-        // For popup, contain/cover?
-        if (player.nodeName === 'VIDEO') {
-            player.style.objectFit = 'contain'; // Popup should show full context
-        }
+        if (player.nodeName === 'VIDEO') player.style.objectFit = 'contain';
         frame.appendChild(player);
     }
 
     layer.classList.add('active');
-
-    // New Window Button logic provided in original...
-    // We can add it below the frame easily
 }
 
-document.getElementById('video-layer-close').addEventListener('click', () => {
+document.getElementById('video-layer-close') && document.getElementById('video-layer-close').addEventListener('click', () => {
     document.getElementById('video-layer').classList.remove('active');
     document.getElementById('video-frame').innerHTML = '';
 });
