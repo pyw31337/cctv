@@ -38,28 +38,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Ensure Initial State matches Default (Video)
     // Run after a slight delay to ensure layout is ready
-    setTimeout(() => switchTab('video'), 50);
+    setTimeout(() => switchTab('video'), 100);
 });
 
 // === Tab Logic ===
 function switchTab(tabId) {
-    // 1. Sliding Indicator Update (JS Calculation)
+    console.log(`Switching Tab to: ${tabId}`); // Debug
+
+    // 1. Sliding Indicator Update (Offset-based)
     const navContainer = document.querySelector('.tab-nav.independent');
     const indicator = document.querySelector('.tab-indicator');
     const targetBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
 
     if (navContainer && indicator && targetBtn) {
-        // Calculate relative position
-        const rectNav = navContainer.getBoundingClientRect();
-        const rectBtn = targetBtn.getBoundingClientRect();
+        // Use offsetLeft/Top which are relative to the nearest positioned ancestor (navContainer)
+        // This is robust against border/padding of the parent.
+        const left = targetBtn.offsetLeft;
+        const top = targetBtn.offsetTop;
+        const width = targetBtn.offsetWidth;
+        const height = targetBtn.offsetHeight;
 
-        // Relative Left within Container
-        const relLeft = rectBtn.left - rectNav.left;
+        console.log(`Indicator Target: Left=${left}, Top=${top}, W=${width}, H=${height}`);
 
-        indicator.style.left = `${relLeft}px`;
-        indicator.style.width = `${rectBtn.width}px`;
-        indicator.style.height = `${rectBtn.height}px`;
-        indicator.style.top = `${rectBtn.top - rectNav.top}px`; // Robust vertical alignment
+        indicator.style.transform = `translate(${left}px, ${top}px)`;
+        // Using translate is smoother than changing left/top properties for animation
+        indicator.style.width = `${width}px`;
+        indicator.style.height = `${height}px`;
+
+        // Ensure reset of left/top if we using translate
+        indicator.style.left = '0';
+        indicator.style.top = '0';
+    } else {
+        console.error('Tab elements missing!', { navContainer, indicator, targetBtn });
     }
 
     // 2. Button State Update
