@@ -657,12 +657,14 @@ function createVideoElement(cctv) {
 }
 
 // Fetch the actual stream URL for Gyeonggi local CCTVs (kind=EE)
-// Uses UTIC's internal API endpoint
+// Uses UTIC's internal API endpoint via CORS proxy
 async function fetchGyeonggiStreamUrl(cctvip) {
     try {
-        // Use a CORS proxy or server-side fetch if needed
-        // The UTIC API endpoint returns the actual ktict stream URL
-        const response = await fetch(`https://www.utic.go.kr/map/getGyeonggiCctvUrl.do?cctvIp=${cctvip}`);
+        // Use a CORS proxy to bypass server-side security blocking github.io
+        const targetUrl = `https://www.utic.go.kr/map/getGyeonggiCctvUrl.do?cctvIp=${cctvip}`;
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+
+        const response = await fetch(proxyUrl);
         if (!response.ok) throw new Error('API request failed');
         const text = await response.text();
         // The response is a plain URL string
