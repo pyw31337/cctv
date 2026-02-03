@@ -27,11 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initWeatherFeature();
     initSearchEvents();
 
-    // 3. Init UI Components
-    initCenterResizer();
-    initWeatherFeature();
-    initSearchEvents();
-
     // Tab Init (Event Delegation for Robustness)
     document.body.addEventListener('click', (e) => {
         const tabBtn = e.target.closest('.tab-btn');
@@ -40,22 +35,32 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tabId) switchTab(tabId);
         }
     });
+
+    // Ensure Initial State matches Default (Video)
+    // switchTab('video'); // optional, but good practice
 });
 
 // === Tab Logic ===
 function switchTab(tabId) {
-    // 1. Immediate UI Update
+    // 1. Sliding Indicator Update (Parent Class)
+    const navContainer = document.querySelector('.tab-nav.independent');
+    if (navContainer) {
+        if (tabId === 'map') navContainer.classList.add('map-active');
+        else navContainer.classList.remove('map-active');
+    }
+
+    // 2. Button State Update
     document.querySelectorAll('.tab-btn').forEach(btn => {
         if (btn.dataset.tab === tabId) btn.classList.add('active');
         else btn.classList.remove('active');
     });
 
+    // 3. Content Update
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
 
-    // 2. Logic Update
-    // Map Tab Special Handling
+    // 4. Logic Handling
     if (tabId === 'map') {
         document.getElementById('map-tab').classList.add('active');
         if (!mapInitialized) {
