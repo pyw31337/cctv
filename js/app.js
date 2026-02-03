@@ -317,9 +317,10 @@ function updateNearestCctvs() {
     state.nearestCctvs = state.cctvData
         .filter(cctv => {
             const url = cctv.url || '';
-            // Filter out broken kind=EE (Gyeonggi local) CCTVs
-            // These don't auto-play due to UTIC portal JS bug and API is blocked
-            if (url.includes('kind=EE')) {
+            // Filter out broken CCTVs:
+            // - kind=EE: Gyeonggi local (UTIC bug + API blocked)
+            // - kind=K: Jeju local (Server load error pages)
+            if (url.includes('kind=EE') || url.includes('kind=K')) {
                 return false;
             }
             return true;
