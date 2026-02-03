@@ -157,8 +157,9 @@ function updateSegmentIndicator() {
 // === Search ===
 function showSearchHistory() {
     const resultsEl = $('#search-results');
-    const history = getSearchHistory();
-    const bookmarks = getBookmarks();
+    // Filter out undefined or invalid items
+    const history = getSearchHistory().filter(item => item && item.name && item.name !== 'undefined');
+    const bookmarks = getBookmarks().filter(item => item && item.name && item.name !== 'undefined');
 
     let html = '';
 
