@@ -2821,28 +2821,7 @@
             }
         }
 
-        // Button Event
-        const refreshBtn = document.getElementById('map-refresh-btn');
-        refreshBtn.addEventListener('click', () => {
-            refreshMapData();
-            refreshBtn.classList.remove('active');
-        });
 
-        // Map Events: Show button on interaction
-        const showRefreshBtn = () => {
-            if (!refreshBtn.classList.contains('active')) {
-                refreshBtn.classList.add('active');
-            }
-        };
-
-        kakao.maps.event.addListener(map, 'dragend', showRefreshBtn);
-        kakao.maps.event.addListener(map, 'zoom_changed', showRefreshBtn);
-
-        // Add initial center marker if exists
-        if (currentLat && currentLng) {
-            updateCenterMarker();
-        }
-        }
 
         function updateCenterMarker() {
             if (!map || !currentLat || !currentLng) return;
