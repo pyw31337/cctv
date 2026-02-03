@@ -305,6 +305,15 @@
             background: #000;
         }
 
+        /* Hide iOS Native Play Button Overlay */
+        video::-webkit-media-controls {
+            display: none !important;
+        }
+
+        video::-webkit-media-controls-start-playback-button {
+            display: none !important;
+        }
+
         /* Resizer Handle */
         .resizer-handle {
             position: absolute;
@@ -2504,7 +2513,7 @@
                 const video = document.createElement('video');
                 // Standard attributes for mobile compatibility
                 video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
-                video.controls = true; // Use native controls
+                // video.controls = true; // Removed to hide mobile overlay
                 video.autoplay = true;
                 video.muted = true;    // Always muted for autoplay
                 video.playsInline = true;
