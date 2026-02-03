@@ -695,10 +695,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.9);
+    background: rgba(0, 0, 0, 0.95);
     opacity: 0;
     visibility: hidden;
     transition: opacity var(--transition), visibility var(--transition);
+    z-index: 2000;
 }
 
 .video-layer.active {
@@ -709,7 +710,16 @@ body {
 .video-layer-content {
     width: 95%;
     max-width: 1000px;
-    /* Widened */
+    display: flex;
+    flex-direction: column;
+    transition: all var(--transition);
+}
+
+.video-layer-content.maximized {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    border-radius: 0;
 }
 
 .video-layer-header {
@@ -717,12 +727,28 @@ body {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+.video-layer-content.maximized .video-layer-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 16px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
+    z-index: 10;
+    margin-bottom: 0;
 }
 
 .video-layer-header h2 {
     font-size: 16px;
     font-weight: 500;
     color: var(--text-primary);
+}
+
+.video-layer-content.maximized .video-layer-header h2 {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 .video-layer-header button {
@@ -737,6 +763,11 @@ body {
     color: var(--text-primary);
     font-size: 20px;
     cursor: pointer;
+    backdrop-filter: blur(4px);
+}
+
+.video-layer-content.maximized .video-layer-header button {
+    background: rgba(30, 41, 59, 0.6);
 }
 
 .video-frame {
@@ -745,9 +776,19 @@ body {
     background: #000;
     border-radius: var(--radius-md);
     overflow: hidden;
+    position: relative;
+    flex: 1;
 }
 
-.video-frame video {
+.video-layer-content.maximized .video-frame {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: unset;
+    border-radius: 0;
+}
+
+.video-frame video,
+.video-frame iframe {
     width: 100%;
     height: 100%;
     object-fit: contain;
@@ -766,6 +807,26 @@ body {
     .video-grid {
         grid-template-columns: 1fr;
         grid-template-rows: repeat(4, 1fr);
+    }
+
+    /* Adjust controls for mobile in grid */
+    .panel-controls {
+        top: 6px;
+        left: 6px;
+        right: 6px;
+    }
+
+    /* Ensure video layer fits on mobile */
+    .video-layer-content:not(.maximized) {
+        width: 100%;
+        border-radius: 0;
+    }
+
+    .video-layer-content:not(.maximized) .video-frame {
+        border-radius: 0;
+        /* Mobile Aspect Ratio Fix */
+        max-height: 56.25vw;
+        /* 16:9 of width */
     }
 }
 

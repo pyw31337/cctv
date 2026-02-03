@@ -362,7 +362,7 @@ function renderVideoGrid() {
         }
 
         // Clear wrapper content
-        wrapper.innerHTML = '';
+        cleanupVideo(wrapper);
 
         if (cctv) {
             // Create and insert video element
@@ -496,7 +496,7 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
         panel.appendChild(wrapper);
     }
 
-    wrapper.innerHTML = '';
+    cleanupVideo(wrapper);
 
     // Create new video element
     const video = createVideoElement(cctv);
@@ -556,7 +556,6 @@ function createVideoElement(cctv) {
 
     // HLS streams (.m3u8 or ktict) - use HLS.js
     if ((isHls || isSecureStream) && Hls.isSupported()) {
-        const video = document.createElement('video');
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
         video.muted = true;
@@ -618,6 +617,23 @@ function createVideoElement(cctv) {
     iframe.scrolling = 'no';
     iframe.setAttribute('allowfullscreen', '');
     return iframe;
+}
+
+function cleanupVideo(container) {
+    if (!container) return;
+
+    const video = container.querySelector('video');
+    if (video) {
+        if (video.hls) {
+            video.hls.destroy();
+            video.hls = null;
+        }
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+    }
+
+    container.innerHTML = '';
 }
 
 // === Map ===
@@ -761,14 +777,14 @@ function openVideoLayer(cctv) {
     const layer = $('#video-layer');
     const frame = $('#video-frame');
 
+    // Cleanup previous video
+    cleanupVideo(frame);
+
     $('#video-layer-title').textContent = cctv.name;
     const video = createVideoElement(cctv);
-    // Remove controls from video element itself if causing layout issues, OR keep them.
-    // video.controls = true; 
-    // HLS video usually needs controls. If iframe, it has its own.
+
     if (video.tagName === 'VIDEO') video.controls = true;
 
-    frame.innerHTML = '';
     frame.appendChild(video);
 
     // Add Expand Toggle Button if not exists
@@ -790,24 +806,8 @@ function openVideoLayer(cctv) {
             const isMaximized = content.classList.toggle('maximized');
 
             if (isMaximized) {
-                // Expanded style handled by CSS
-                content.style.width = '100vw';
-                content.style.maxWidth = 'none';
-                content.style.height = '100vh';
-                content.style.borderRadius = '0';
-                $('.video-frame').style.height = 'calc(100vh - 60px)'; // Adjust for header
-                $('.video-frame').style.aspectRatio = 'unset';
-
                 toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M10 14L3 21"/></svg>`;
             } else {
-                // Restore style
-                content.style.width = ''; // revert to CSS
-                content.style.maxWidth = '';
-                content.style.height = '';
-                content.style.borderRadius = '';
-                $('.video-frame').style.height = '';
-                $('.video-frame').style.aspectRatio = '';
-
                 toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
             }
         });
@@ -820,7 +820,7 @@ function closeVideoLayer() {
     const layer = $('#video-layer');
     const frame = $('#video-frame');
 
-    frame.innerHTML = '';
+    cleanupVideo(frame);
     layer.classList.remove('active');
 }
 
