@@ -117,9 +117,11 @@ function setupEventListeners() {
             return;
         }
 
-        const item = e.target.closest('.search-result-item');
         if (item) selectSearchResult(item);
     });
+
+    // Mobile Keyboard Handling
+    setupMobileKeyboardHandling();
 }
 
 // === Mode Switching ===
@@ -807,4 +809,62 @@ function deleteHistoryItem(name) {
     localStorage.setItem('cctv_bookmarks', JSON.stringify(bookmarks));
 
     showSearchHistory(); // Refresh
+}
+
+// === Mobile Keyboard Handling ===
+function setupMobileKeyboardHandling() {
+    if (!window.visualViewport) return;
+
+    const viewport = window.visualViewport;
+    const header = document.getElementById('header');
+    const searchResults = document.getElementById('search-results');
+    const searchInput = document.getElementById('search-input');
+
+    function updateLayout() {
+        // Only active if search input is focused
+        if (document.activeElement !== searchInput) {
+            resetLayout();
+            return;
+        }
+
+        // Calculate offset from bottom of layout viewport to bottom of visual viewport
+        // This handles iOS keyboard pushing visual viewport up
+        // bottom position = layoutHeight - (visualHeight + visualOffsetTop)
+        const offset = window.innerHeight - viewport.height - viewport.offsetTop;
+
+        // On Android, viewport.height tracks resize, so offset might be near 0 if innerHeight resizes too.
+        // On iOS, innerHeight is constant, height shrinks, offset increases.
+
+        // If the viewport is significantly compressed (keyboard likely open)
+        // or if there is a significant offset
+        const isKeyboardLike = viewport.height < window.innerHeight * 0.85 || offset > 100;
+
+        if (isKeyboardLike) {
+            // Apply lifting
+            // Use 0 as floor to prevent negative values
+            const liftAmount = Math.max(0, offset);
+
+            header.style.bottom = `${liftAmount}px`;
+            if (searchResults) {
+                // Keep search results above where the header is
+                searchResults.style.bottom = `${liftAmount + 90}px`;
+            }
+        } else {
+            resetLayout();
+        }
+    }
+
+    function resetLayout() {
+        header.style.removeProperty('bottom');
+        if (searchResults) searchResults.style.removeProperty('bottom');
+    }
+
+    viewport.addEventListener('resize', updateLayout);
+    viewport.addEventListener('scroll', updateLayout);
+
+    searchInput.addEventListener('focus', updateLayout);
+    searchInput.addEventListener('blur', () => {
+        // Delay slightly to handle immediate focus changes or clicks
+        setTimeout(resetLayout, 100);
+    });
 }
