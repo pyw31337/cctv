@@ -395,7 +395,7 @@ function toggleWeather() {
         btn.classList.add('active');
         $('#dim-overlay').classList.add('active');
 
-        $('#weather-title').textContent = `${state.keyword} 주간 날씨`;
+        $('#weather-title').innerHTML = `<span style="color: var(--accent)">${state.keyword}</span> 주간 날씨`;
         fetchWeather();
     }
 }
@@ -421,13 +421,14 @@ async function fetchWeather() {
         list.innerHTML = data.daily.time.slice(0, 7).map((time, i) => {
             const date = new Date(time);
             const dayName = i === 0 ? '오늘' : days[date.getDay()];
+            const dateStr = `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
             const icon = getWeatherIcon(data.daily.weathercode[i]);
             const max = Math.round(data.daily.temperature_2m_max[i]);
             const min = Math.round(data.daily.temperature_2m_min[i]);
 
             return `
                 <div class="weather-item">
-                    <div class="weather-day">${dayName}</div>
+                    <div class="weather-day">${dayName} <span class="weather-date">${dateStr}</span></div>
                     <div class="weather-icon">${icon}</div>
                     <div class="weather-temp">${Math.round((max + min) / 2)}°</div>
                     <div class="weather-range">${min}° / ${max}°</div>
