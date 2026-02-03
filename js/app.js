@@ -315,6 +315,15 @@ function updateNearestCctvs() {
     const { lat, lng } = state.center;
 
     state.nearestCctvs = state.cctvData
+        .filter(cctv => {
+            const url = cctv.url || '';
+            // Filter out broken kind=EE (Gyeonggi local) CCTVs
+            // These don't auto-play due to UTIC portal JS bug and API is blocked
+            if (url.includes('kind=EE')) {
+                return false;
+            }
+            return true;
+        })
         .map(cctv => ({
             ...cctv,
             distance: getDistance(lat, lng, cctv.lat, cctv.lng)
@@ -511,76 +520,7 @@ function createVideoElement(cctv) {
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
 
-    // Check if this is a kind=EE CCTV (Gyeonggi local) - these need special handling
-    // The UTIC portal JS has a bug that prevents video loading for kind=EE
-    const urlParams = new URLSearchParams(url.split('?')[1] || '');
-    const kind = urlParams.get('kind');
-    const cctvip = urlParams.get('cctvip');
-
-    // For kind=EE CCTVs, we need to fetch the actual stream URL and use HLS.js
-    if (isUtic && kind === 'EE' && cctvip) {
-        // Create a container that will be replaced with video once stream URL is fetched
-        const container = document.createElement('div');
-        container.style.cssText = 'width:100%;height:100%;background:black;display:flex;align-items:center;justify-content:center;';
-        container.innerHTML = '<div style="color:#666;font-size:12px;">스트림 로딩중...</div>';
-
-        // Fetch the actual stream URL from UTIC's API
-        fetchGyeonggiStreamUrl(cctvip).then(streamUrl => {
-            if (streamUrl && Hls.isSupported()) {
-                container.innerHTML = '';
-                const video = document.createElement('video');
-                video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
-                video.muted = true;
-                video.autoplay = true;
-                video.playsInline = true;
-                video.setAttribute('playsinline', '');
-                video.preload = 'metadata';
-
-                const hls = new Hls({
-                    enableWorker: true,
-                    lowLatencyMode: true,
-                    capLevelToPlayerSize: true,
-                    maxBufferLength: 5,
-                    maxBufferSize: 3 * 1000 * 1000,
-                    backBufferLength: 0,
-                    startLevel: 0,
-                    manifestLoadingTimeOut: 10000,
-                });
-                hls.loadSource(streamUrl);
-                hls.attachMedia(video);
-
-                hls.on(Hls.Events.ERROR, function (event, data) {
-                    if (data.fatal) {
-                        console.error('HLS Error for Gyeonggi stream:', data);
-                        container.innerHTML = '<div style="color:#f66;font-size:12px;">스트림 오류</div>';
-                    }
-                });
-
-                video.hls = hls;
-                container.appendChild(video);
-            } else if (streamUrl) {
-                // Safari native HLS
-                container.innerHTML = '';
-                const video = document.createElement('video');
-                video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
-                video.src = streamUrl;
-                video.muted = true;
-                video.autoplay = true;
-                video.playsInline = true;
-                video.setAttribute('playsinline', '');
-                container.appendChild(video);
-            } else {
-                container.innerHTML = '<div style="color:#f66;font-size:12px;">스트림 불가</div>';
-            }
-        }).catch(err => {
-            console.error('Failed to fetch Gyeonggi stream:', err);
-            container.innerHTML = '<div style="color:#f66;font-size:12px;">연결 오류</div>';
-        });
-
-        return container;
-    }
-
-    // UTIC Portal URLs (non-EE types like Seoul, ITS, etc.) - use iframe
+    // UTIC Portal URLs - use iframe (kind=EE CCTVs are filtered out in updateNearestCctvs)
     if (isUtic) {
         const iframe = document.createElement('iframe');
         iframe.src = url;
@@ -654,29 +594,6 @@ function createVideoElement(cctv) {
     iframe.scrolling = 'no';
     iframe.setAttribute('allowfullscreen', '');
     return iframe;
-}
-
-// Fetch the actual stream URL for Gyeonggi local CCTVs (kind=EE)
-// Uses UTIC's internal API endpoint via CORS proxy
-async function fetchGyeonggiStreamUrl(cctvip) {
-    try {
-        // Use allorigins.win as CORS proxy (returns JSON with contents field)
-        const targetUrl = `https://www.utic.go.kr/map/getGyeonggiCctvUrl.do?cctvIp=${cctvip}`;
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-
-        const response = await fetch(proxyUrl);
-        if (!response.ok) throw new Error('API request failed');
-        const json = await response.json();
-        const text = json.contents || '';
-        // The response is a plain URL string
-        if (text && text.trim().startsWith('http')) {
-            return text.trim();
-        }
-        return null;
-    } catch (err) {
-        console.error('Failed to fetch Gyeonggi stream URL:', err);
-        return null;
-    }
 }
 
 // === Map ===
