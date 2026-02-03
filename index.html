@@ -345,6 +345,58 @@
             height: 100%;
         }
 
+        /* Map "Search Here" Button */
+        .map-refresh-btn {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: white;
+            color: #0f172a;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+            cursor: pointer;
+            display: none;
+            /* Hidden by default */
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .map-refresh-btn:hover {
+            background: #f8fafc;
+            transform: translateX(-50%) scale(1.05);
+            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .map-refresh-btn.active {
+            display: flex;
+            animation: fadeIn 0.3s forwards;
+        }
+
+        .map-refresh-btn svg {
+            width: 16px;
+            height: 16px;
+            stroke: var(--accent);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
         /* Video Layer Popup */
         .video-layer {
             position: fixed;
@@ -1418,6 +1470,15 @@
         <div class="tab-content" id="map-tab">
             <div id="map-container">
                 <div id="map"></div>
+                <button id="map-refresh-btn" class="map-refresh-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M23 4v6h-6"></path>
+                        <path d="M1 20v-6h6"></path>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 1 20.49 15"></path>
+                    </svg>
+                    이 위치에서 재검색
+                </button>
             </div>
             <div id="map-status" class="status-text"></div>
             <div class="floating-search-container">
@@ -2692,39 +2753,59 @@
             // Load CCTV data if not already loaded
             if (allCCTVData.length === 0) {
                 loadCCTVData().then(() => {
-                    loadMarkersInViewport();
+                    refreshMapData(); // Initial load
                 });
             } else {
-                loadMarkersInViewport();
+                refreshMapData();
             }
 
-            // Add map events
-            kakao.maps.event.addListener(map, 'idle', loadMarkersInViewport);
+            // Button Event
+            const refreshBtn = document.getElementById('map-refresh-btn');
+            refreshBtn.addEventListener('click', () => {
+                refreshMapData();
+                refreshBtn.classList.remove('active');
+            });
+
+            // Map Events: Show button on interaction
+            const showRefreshBtn = () => {
+                if (!refreshBtn.classList.contains('active')) {
+                    refreshBtn.classList.add('active');
+                }
+            };
+
+            kakao.maps.event.addListener(map, 'dragend', showRefreshBtn);
+            kakao.maps.event.addListener(map, 'zoom_changed', showRefreshBtn);
 
             // Add initial center marker if exists
             if (currentLat && currentLng) {
-                const pinImage = new kakao.maps.MarkerImage(
-                    './pin.svg',
-                    new kakao.maps.Size(40, 40),
-                    { offset: new kakao.maps.Point(20, 20) }
-                );
-                centerMarker = new kakao.maps.Marker({
-                    position: new kakao.maps.LatLng(currentLat, currentLng),
-                    image: pinImage,
-                    zIndex: 100
-                });
-                centerMarker.setMap(map);
+                updateCenterMarker();
             }
+        }
+
+        function updateCenterMarker() {
+            if (!map || !currentLat || !currentLng) return;
+
+            if (centerMarker) centerMarker.setMap(null);
+
+            const pinImage = new kakao.maps.MarkerImage(
+                './pin.svg',
+                new kakao.maps.Size(40, 40),
+                { offset: new kakao.maps.Point(20, 20) }
+            );
+            centerMarker = new kakao.maps.Marker({
+                position: new kakao.maps.LatLng(currentLat, currentLng),
+                image: pinImage,
+                zIndex: 100
+            });
+            centerMarker.setMap(map);
         }
 
         function loadCCTVData() {
             return fetch('cctv_data.json')
                 .then(res => res.json())
                 .then(data => {
-                    // Filter out CCTVs with status 'broken'
                     allCCTVData = data.filter(c => c.url && c.status !== 'broken');
-                    console.log(`Loaded ${allCCTVData.length} CCTVs (filtered broken)`);
-                    loadMarkersInViewport();
+                    console.log(`Loaded ${allCCTVData.length} CCTVs`);
                     return allCCTVData;
                 })
                 .catch(err => {
@@ -2733,57 +2814,70 @@
                 });
         }
 
-        function loadMarkersInViewport() {
+        // Optimized Refresh Logic
+        function refreshMapData() {
             if (!map) return;
-
-            const level = map.getLevel();
-            const statusEl = document.getElementById('map-status');
-
-            // Clear old markers (except center marker)
-            markers.forEach(m => m.setMap(null));
-            markers = [];
-
-            if (level >= 9) {
-                statusEl.textContent = '지도를 확대하면 마커가 나타납니다';
-                return;
-            }
 
             const bounds = map.getBounds();
             const sw = bounds.getSouthWest();
             const ne = bounds.getNorthEast();
 
+            // 1. Filter Data by Viewport
             const inView = allCCTVData.filter(c =>
                 c.lat >= sw.getLat() && c.lat <= ne.getLat() &&
                 c.lng >= sw.getLng() && c.lng <= ne.getLng()
-            ).slice(0, 200);
-
-            // Green marker for normal, Gray for ActiveX
-            const greenImage = new kakao.maps.MarkerImage(
-                './marker.svg',
-                new kakao.maps.Size(32, 32),
-                { offset: new kakao.maps.Point(16, 16) }
-            );
-            const grayImage = new kakao.maps.MarkerImage(
-                './marker_gray.svg',
-                new kakao.maps.Size(32, 32),
-                { offset: new kakao.maps.Point(16, 16) }
             );
 
-            inView.forEach(cctv => {
-                // Only kind=MODE is unsupported ActiveX, kind=I (Busan) works via iframe
-                const isActiveX = cctv.url.includes('kind=MODE');
+            // 2. Limit and Marker Update
+            const statusEl = document.getElementById('map-status');
+            const limit = 100; // Performance limit
+            const limitedList = inView.slice(0, limit);
+
+            // Clear old markers efficiently
+            markers.forEach(m => m.setMap(null));
+            markers = [];
+
+            // Batch Marker Creation (avoid layout thrashing)
+            limitedList.forEach(c => {
+                const imageSrc = c.source === 'NTIC'
+                    ? './marker_gray.svg' // Differnt Color? Or just reuse logic
+                    : './marker.svg';
+
+                // Use standard green marker
+                const image = new kakao.maps.MarkerImage(
+                    './marker.svg',
+                    new kakao.maps.Size(32, 32),
+                    { offset: new kakao.maps.Point(16, 16) }
+                );
+
                 const marker = new kakao.maps.Marker({
-                    position: new kakao.maps.LatLng(cctv.lat, cctv.lng),
-                    image: isActiveX ? grayImage : greenImage
+                    position: new kakao.maps.LatLng(c.lat, c.lng),
+                    image: image,
+                    title: c.name
                 });
                 marker.setMap(map);
 
-                kakao.maps.event.addListener(marker, 'click', () => openVideoLayer(cctv));
+                // Marker Click -> Show Video
+                kakao.maps.event.addListener(marker, 'click', () => {
+                    openVideoLayer(c); // Use existing popup logic
+                });
 
                 markers.push(marker);
             });
 
-            statusEl.textContent = `화면 내 ${inView.length}개 CCTV`;
+            // 3. Update Sync Logic: Update Global CCTV List & Grid
+            currentCctvList = limitedList; // Update context for Grid
+            populateVideoSelects(currentCctvList); // Refresh Dropdowns
+
+            // 4. Update Status Text
+            if (inView.length > limit) {
+                statusEl.textContent = `${inView.length}개 중 ${limit}개 표시 (지도를 확대하세요)`;
+            } else {
+                statusEl.textContent = `현재 지역 CCTV ${inView.length}개`;
+            }
+
+            // 5. Update Center Marker if searching
+            // (Optional: Move center marker to map center? No, keep originally searched location)
         }
 
         // ===== Video Layer Popup =====
