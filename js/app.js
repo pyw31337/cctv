@@ -99,22 +99,34 @@ function initSearchEvents() {
 }
 
 // === Weather Feature ===
+// === Weather Feature ===
 function initWeatherFeature() {
+    // Use delegation or direct attach, but ensure element exists
     const weatherBtn = document.getElementById('weather-btn');
     const weatherClose = document.getElementById('weather-close');
     const weatherLayer = document.getElementById('weather-layer');
 
     if (weatherBtn) {
-        weatherBtn.addEventListener('click', async () => {
+        weatherBtn.addEventListener('click', async (e) => {
+            e.stopPropagation(); // prevent bubbling issues
             if (weatherLayer) weatherLayer.classList.add('active');
+
             const title = document.getElementById('weather-title');
-            if (title) title.textContent = `${currentKeyword} 주간 날씨`;
+            // User request: Default to '서울역' if currentKeyword is empty/placeholder-like behavior
+            const displayKeyword = (currentKeyword && currentKeyword.trim() !== '') ? currentKeyword : '서울역';
+            if (title) title.textContent = `${displayKeyword} 주간 날씨`;
+
+            // Should valid coordinates?
+            // If default '서울역', coordinates should be valid (set in init).
             await fetchAndRenderWeather(currentLat, currentLng);
         });
+    } else {
+        console.error('Weather button not found!');
     }
 
     if (weatherClose) {
-        weatherClose.addEventListener('click', () => {
+        weatherClose.addEventListener('click', (e) => {
+            e.stopPropagation();
             if (weatherLayer) weatherLayer.classList.remove('active');
         });
     }
