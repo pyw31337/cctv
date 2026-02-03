@@ -111,28 +111,34 @@
         <!-- Floating Search -->
         <div class="floating-search-container">
             <div class="floating-search-wrapper">
-                <div class="search-results" id="video-search-results">
+                <div class="search-results" id="video-search-results" style="bottom: 110%; left: 0; right: 0;">
                     <!-- Bookmarks and Recents will be injected here -->
                 </div>
-                <div class="floating-search">
-                    <div class="tab-nav">
+
+                <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <!-- 1. Tabs (Independent) -->
+                    <div class="tab-nav independent"
+                        style="background: rgba(15, 23, 42, 0.9); padding: 4px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1); display: flex; flex-shrink: 0;">
                         <button class="tab-btn active" data-tab="video">영상</button>
                         <button class="tab-btn" data-tab="map">지도</button>
                     </div>
 
-                    <input type="text" id="video-keyword" class="floating-search-input" placeholder="지역 또는 CCTV 검색"
-                        enterkeyhint="search">
-                    <button id="video-clear-btn" class="floating-clear-btn">✕</button>
+                    <!-- 2. Search Input (Center) -->
+                    <div class="floating-search" style="flex: 1; max-width: 400px; padding-left: 16px;">
+                        <input type="text" id="video-keyword" class="floating-search-input" placeholder="서울역"
+                            enterkeyhint="search" value="서울역">
+                        <button id="video-clear-btn" class="floating-clear-btn">✕</button>
+                        <button id="video-search-btn" class="floating-search-btn">
+                            <svg class="search-icon" viewBox="0 0 24 24">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                        </button>
+                    </div>
 
-                    <button id="video-search-btn" class="floating-search-btn" style="margin-right: 4px;">
-                        <svg class="search-icon" viewBox="0 0 24 24">
-                            <circle cx="11" cy="11" r="8"></circle>
-                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                        </svg>
-                    </button>
-
-                    <!-- Weather Button -->
-                    <button class="weather-btn" id="weather-btn" title="주간 날씨 보기">
+                    <!-- 3. Weather (Independent) -->
+                    <button class="weather-btn independent" id="weather-btn" title="주간 날씨 보기"
+                        style="width: 44px; height: 44px; border-radius: 50%; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.1); margin: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
                         <svg class="weather-icon-btn" viewBox="0 0 24 24">
                             <g class="weather-sun-group">
                                 <path

@@ -216,6 +216,18 @@ function filterGridByLocation(lat, lng) {
     if (statusEl) statusEl.textContent = `"${currentKeyword}" 주변 CCTV ${list.length}개`;
 }
 
+// Globals
+let map;
+let mapInitialized = false;
+let currentLat = 37.5559; // Seoul Station
+let currentLng = 126.9723;
+let currentKeyword = '서울역';
+let allCCTVData = [];
+let currentCctvList = [];
+let videoObserver;
+
+// ...
+
 function initByUrlParams() {
     const params = new URLSearchParams(window.location.search);
     const searchParam = params.get('search');
@@ -225,7 +237,13 @@ function initByUrlParams() {
             if (place) selectPlace(place);
         });
     } else {
-        filterGridByLocation(DEFAULT_LAT, DEFAULT_LNG);
+        // Default: Seoul Station
+        currentKeyword = '서울역';
+        document.getElementById('video-keyword').value = '서울역';
+        // Need to fetch coords for Seoul Station if not hardcoded, 
+        // but easier to just search it initially or use hardcoded coords above.
+        // We set currentLat/Lng above.
+        filterGridByLocation(currentLat, currentLng);
     }
 }
 

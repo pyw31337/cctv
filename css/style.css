@@ -1068,3 +1068,58 @@ div.cctv div.player {
     color: #ef4444;
 }
 
+
+/* --- UI Refinement (Indep components) --- */
+.floating-search-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    pointer-events: auto;
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    position: relative;
+}
+
+.tab-nav.independent {
+    background: rgba(15, 23, 42, 0.95);
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    display: flex;
+    flex-shrink: 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.weather-btn.independent {
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    margin: 0;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    cursor: pointer;
+}
+
+/* Adjust Center Search */
+.floating-search {
+    flex: 1;
+    max-width: 100%; /* Fill flex space */
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.search-results {
+    /* Ensure it floats above/below correctly relative to wrapper */
+    /* Position is set inline in HTML currently, but verify z-index */
+    z-index: 3000;
+}
