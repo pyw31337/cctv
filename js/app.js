@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // === Tab Logic ===
+// === Tab Logic ===
 function switchTab(tabId) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll(`.tab-btn[data-tab="${tabId}"]`).forEach(btn => btn.classList.add('active'));
@@ -48,12 +49,15 @@ function switchTab(tabId) {
             setTimeout(() => {
                 initMap();
                 mapInitialized = true;
+                refreshMapData(); // Ensure markers
             }, 50);
         } else {
             setTimeout(() => {
                 if (map) {
                     map.relayout();
                     map.setCenter(new kakao.maps.LatLng(currentLat, currentLng));
+                    refreshMapData(); // Force marker refresh
+                    updateCenterMarker(); // Ensure pin
                 }
             }, 50);
         }
