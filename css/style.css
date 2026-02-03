@@ -1123,3 +1123,54 @@ div.cctv div.player {
     /* Position is set inline in HTML currently, but verify z-index */
     z-index: 3000;
 }
+
+/* --- Bug Fixes & Refinements (Step 1490+) --- */
+
+/* 1. Restore Thick Green Border for Search Bar */
+.floating-search {
+    border: 2px solid var(--accent) !important;
+    height: 50px; /* Match weather button height approx */
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    border-radius: 25px; /* Ensure pill shape */
+    transition: all 0.2s;
+}
+
+.floating-search:focus-within {
+    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.3);
+}
+
+/* 2. Match Height for Independent Buttons */
+.tab-nav.independent {
+    height: 50px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    border: 1px solid rgba(255,255,255,0.1); /* Keep subtle border for tabs */
+}
+
+.weather-btn.independent {
+    width: 50px;
+    height: 50px;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* 3. Search Results Visibility */
+.search-results {
+    bottom: 120%; /* Position above correctly */
+    z-index: 9999 !important; /* Force top */
+    min-width: 320px;
+    display: none; /* Hidden by default */
+}
+
+.search-results.active {
+    display: block !important;
+}
+
+/* Keyboard Nav Focus Styles */
+.search-item:focus {
+    background: rgba(52, 211, 153, 0.2) !important;
+    outline: none;
+    border-left: 3px solid var(--accent);
+}

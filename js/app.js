@@ -66,27 +66,23 @@ function switchTab(tabId) {
 function initSearchEvents() {
     const vInput = document.getElementById('video-keyword');
     if (vInput) {
-        vInput.addEventListener('focus', () => {
+        const showHistory = () => {
             renderHistoryAndBookmarks(); // Show history/bookmarks
             document.querySelector('.dim-overlay').classList.add('active');
-            document.querySelector('.floating-search-container').classList.add('keyboard-active');
-        });
+            // Maintain keyboard active state for mobile spacing if needed
+            document.querySelector('.floating-search-container')?.classList.add('keyboard-active');
+        };
 
-        // Hide on blur (delayed to allow clicks on items)
-        /* 
-        vInput.addEventListener('blur', () => {
-             setTimeout(() => {
-                 // Only hide if result wasn't clicked
-             }, 200);
-        });
-        */
+        vInput.addEventListener('focus', showHistory);
+        vInput.addEventListener('click', showHistory); // Ensure click also triggers if already focused
     }
 
     // Dim Overlay Click
     document.querySelector('.dim-overlay').addEventListener('click', () => {
         document.getElementById('video-search-results').classList.remove('active');
         document.querySelector('.dim-overlay').classList.remove('active');
-        document.querySelector('.floating-search-container').classList.remove('keyboard-active');
+        document.querySelector('.floating-search-container')?.classList.remove('keyboard-active');
+        // document.getElementById('video-keyword').blur(); // Optional: Keep keyboard if user just dismissed results? No, dismiss keyboard too.
         document.getElementById('video-keyword').blur();
     });
 
@@ -192,14 +188,26 @@ async function selectPlace(place) {
     // Close Search
     document.getElementById('video-search-results').classList.remove('active');
     document.querySelector('.dim-overlay').classList.remove('active');
-    document.querySelector('.floating-search-container').classList.remove('keyboard-active');
+    document.querySelector('.floating-search-container')?.classList.remove('keyboard-active');
+    document.getElementById('video-keyword').blur();
 
-    // Filter Logic
+    // 1. Always update Grid based on new location (Math-based, robust)
+    filterGridByLocation(currentLat, currentLng);
+
+    // 2. Update Map state (if initialized)
     if (map) {
-        map.setCenter(new kakao.maps.LatLng(currentLat, currentLng));
-        refreshMapData();
-    } else {
-        filterGridByLocation(currentLat, currentLng);
+        const moveLatLon = new kakao.maps.LatLng(currentLat, currentLng);
+        map.setCenter(moveLatLon);
+        // We don't rely on refreshMapData for grid here, but we should update map markers if map is visible
+        if (document.getElementById('map-tab').classList.contains('active')) {
+            refreshMapData();
+        } else {
+            // If map hidden, refresh might fail due to bounds. 
+            // We'll rely on switchTab('map') -> relayout -> refresh behavior.
+            // Or update markers blindly? No, bounds are needed. 
+            // Just setting center is enough for next Map view.
+            updateCenterMarker(); // Ensure pin is there
+        }
     }
 }
 
