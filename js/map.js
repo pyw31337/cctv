@@ -42,16 +42,10 @@ function initMap() {
             refreshMapData();
         }
 
-        // Map Interaction Events
-        const refreshBtn = document.getElementById('map-refresh-btn');
-        const showRefreshBtn = () => {
-            if (refreshBtn && !refreshBtn.classList.contains('active')) {
-                refreshBtn.classList.add('active');
-            }
-        };
-
-        kakao.maps.event.addListener(map, 'dragend', showRefreshBtn);
-        kakao.maps.event.addListener(map, 'zoom_changed', showRefreshBtn);
+        // Map Interaction Events (Auto Refresh)
+        // Optimization: Automatically refresh data when map moves
+        kakao.maps.event.addListener(map, 'dragend', refreshMapData);
+        kakao.maps.event.addListener(map, 'zoom_changed', refreshMapData);
 
         // Update Center Marker
         updateCenterMarker();
@@ -110,7 +104,7 @@ function refreshMapData() {
     });
 
     const statusEl = document.getElementById('map-status');
-    const limit = 200; // Increased limit
+    const limit = 300; // Increased limit for Auto-Refresh stability
     const limitedList = inView.slice(0, limit);
 
     // Clear old markers
