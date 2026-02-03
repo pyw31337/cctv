@@ -660,13 +660,14 @@ function createVideoElement(cctv) {
 // Uses UTIC's internal API endpoint via CORS proxy
 async function fetchGyeonggiStreamUrl(cctvip) {
     try {
-        // Use a CORS proxy to bypass server-side security blocking github.io
+        // Use allorigins.win as CORS proxy (returns JSON with contents field)
         const targetUrl = `https://www.utic.go.kr/map/getGyeonggiCctvUrl.do?cctvIp=${cctvip}`;
-        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
 
         const response = await fetch(proxyUrl);
         if (!response.ok) throw new Error('API request failed');
-        const text = await response.text();
+        const json = await response.json();
+        const text = json.contents || '';
         // The response is a plain URL string
         if (text && text.trim().startsWith('http')) {
             return text.trim();
