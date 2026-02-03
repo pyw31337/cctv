@@ -27,25 +27,38 @@ document.addEventListener('DOMContentLoaded', () => {
     initWeatherFeature();
     initSearchEvents();
 
-    // Tab Init
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    // 3. Init UI Components
+    initCenterResizer();
+    initWeatherFeature();
+    initSearchEvents();
+
+    // Tab Init (Event Delegation for Robustness)
+    document.body.addEventListener('click', (e) => {
+        const tabBtn = e.target.closest('.tab-btn');
+        if (tabBtn) {
+            const tabId = tabBtn.dataset.tab;
+            if (tabId) switchTab(tabId);
+        }
     });
 });
 
 // === Tab Logic ===
-// === Tab Logic ===
 function switchTab(tabId) {
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll(`.tab-btn[data-tab="${tabId}"]`).forEach(btn => btn.classList.add('active'));
+    // 1. Immediate UI Update
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        if (btn.dataset.tab === tabId) btn.classList.add('active');
+        else btn.classList.remove('active');
+    });
 
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
 
+    // 2. Logic Update
     // Map Tab Special Handling
     if (tabId === 'map') {
         document.getElementById('map-tab').classList.add('active');
         if (!mapInitialized) {
-            // Tiny delay to ensure visibility before init
             setTimeout(() => {
                 initMap();
                 mapInitialized = true;
@@ -56,8 +69,8 @@ function switchTab(tabId) {
                 if (map) {
                     map.relayout();
                     map.setCenter(new kakao.maps.LatLng(currentLat, currentLng));
-                    refreshMapData(); // Force marker refresh
-                    updateCenterMarker(); // Ensure pin
+                    refreshMapData();
+                    updateCenterMarker();
                 }
             }, 50);
         }
