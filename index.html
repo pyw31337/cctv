@@ -115,6 +115,8 @@
             height: 100vh;
             height: 100dvh;
             overflow: hidden;
+            overflow-x: hidden;
+            /* Prevent horizontal scroll margin */
             background: radial-gradient(circle at top, #0b1120, #020617 55%);
             color: var(--text-main);
             font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -2244,9 +2246,9 @@
             // But existing code puts listeners inline.
         }
 
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
             initCenterResizer();
-            loadCCTVData(); // Load UTIC data
+            await loadCCTVData(); // Wait for data before init logic
             initByUrlParams(); // Handle startup state
         });
 
@@ -2687,8 +2689,14 @@
             };
             map = new kakao.maps.Map(container, options);
 
-            // Load CCTV data
-            loadCCTVData();
+            // Load CCTV data if not already loaded
+            if (allCCTVData.length === 0) {
+                loadCCTVData().then(() => {
+                    loadMarkersInViewport();
+                });
+            } else {
+                loadMarkersInViewport();
+            }
 
             // Add map events
             kakao.maps.event.addListener(map, 'idle', loadMarkersInViewport);
@@ -2710,15 +2718,19 @@
         }
 
         function loadCCTVData() {
-            fetch('cctv_data.json')
+            return fetch('cctv_data.json')
                 .then(res => res.json())
                 .then(data => {
                     // Filter out CCTVs with status 'broken'
                     allCCTVData = data.filter(c => c.url && c.status !== 'broken');
                     console.log(`Loaded ${allCCTVData.length} CCTVs (filtered broken)`);
                     loadMarkersInViewport();
+                    return allCCTVData;
                 })
-                .catch(err => console.error('Error loading CCTV data:', err));
+                .catch(err => {
+                    console.error('Error loading CCTV data:', err);
+                    return [];
+                });
         }
 
         function loadMarkersInViewport() {
