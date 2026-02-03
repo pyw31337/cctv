@@ -10,10 +10,13 @@ const state = {
     keyword: '서울역',
     cctvData: [],
     nearestCctvs: [],
-    mapInitialized: false
+    mapInitialized: false,
+    searchMarker: null // Reference to the red marker
 };
 
 let map = null;
+const SEARCH_MARKER_SRC = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png';
+
 
 // === DOM References (Cached) ===
 const $ = (sel) => document.querySelector(sel);
@@ -308,8 +311,12 @@ function selectPlace(lat, lng, name, address) {
 
     // Update Map if Active
     if (map) {
-        map.setCenter(new kakao.maps.LatLng(lat, lng));
+        const moveLatLon = new kakao.maps.LatLng(lat, lng);
+        map.setCenter(moveLatLon);
     }
+
+    // Update Search Marker (Red Pin)
+    updateSearchMarker(lat, lng);
 }
 
 // === CCTV Logic ===
@@ -342,23 +349,26 @@ function renderVideoGrid() {
     panels.forEach((panel, index) => {
         const cctv = state.nearestCctvs[index];
 
-        // Get or preserve panel controls
-        const controls = panel.querySelector('.panel-controls');
-        const placeholder = panel.querySelector('.video-placeholder');
+        // Ensure Wrapper exists
+        let wrapper = panel.querySelector('.video-content-wrapper');
+        if (!wrapper) {
+            wrapper = document.createElement('div');
+            wrapper.className = 'video-content-wrapper';
+            // Move existing placeholder or video into wrapper if naive structure
+            const existingContent = panel.querySelector('.video-placeholder, iframe, video');
+            if (existingContent) wrapper.appendChild(existingContent);
+            panel.appendChild(wrapper);
+            // Ensure controls are still on top (they are absolute)
+        }
 
-        // Clear video/iframe but preserve controls
-        const existingMedia = panel.querySelector('iframe, video');
-        if (existingMedia) existingMedia.remove();
-        if (placeholder) placeholder.remove();
+        // Clear wrapper content
+        wrapper.innerHTML = '';
 
         if (cctv) {
             // Create and insert video element
             const video = createVideoElement(cctv);
-            if (controls) {
-                controls.after(video);
-            } else {
-                panel.prepend(video);
-            }
+            wrapper.appendChild(video);
+
             panel.dataset.cctvId = cctv.id;
             panel.dataset.slotIndex = index;
 
@@ -375,11 +385,7 @@ function renderVideoGrid() {
             const ph = document.createElement('div');
             ph.className = 'video-placeholder';
             ph.textContent = 'No CCTV';
-            if (controls) {
-                controls.after(ph);
-            } else {
-                panel.prepend(ph);
-            }
+            wrapper.appendChild(ph);
         }
     });
 
@@ -424,10 +430,20 @@ function initPanelControls() {
 
             // Close other dropdowns first
             document.querySelectorAll('.cctv-select-options.active').forEach(opt => {
-                if (opt !== options) opt.classList.remove('active');
+                if (opt !== options) {
+                    opt.classList.remove('active');
+                    // Remove z-active from parent panel
+                    opt.closest('.video-panel').classList.remove('z-active');
+                }
             });
 
-            options.classList.toggle('active');
+            const isActive = options.classList.toggle('active');
+            const panel = trigger.closest('.video-panel');
+            if (isActive) {
+                panel.classList.add('z-active');
+            } else {
+                panel.classList.remove('z-active');
+            }
             return;
         }
 
@@ -446,7 +462,9 @@ function initPanelControls() {
             }
 
             // Close dropdown
-            option.closest('.cctv-select-options').classList.remove('active');
+            const opts = option.closest('.cctv-select-options');
+            opts.classList.remove('active');
+            panel.classList.remove('z-active');
             return;
         }
 
@@ -464,23 +482,25 @@ function initPanelControls() {
     document.addEventListener('click', () => {
         document.querySelectorAll('.cctv-select-options.active').forEach(opt => {
             opt.classList.remove('active');
+            opt.closest('.video-panel').classList.remove('z-active');
         });
     });
 }
 
 function attachStreamToPanel(panel, cctv, cctvIndex) {
-    // Remove existing media
-    const existingMedia = panel.querySelector('iframe, video');
-    if (existingMedia) existingMedia.remove();
+    // Use Wrapper
+    let wrapper = panel.querySelector('.video-content-wrapper');
+    if (!wrapper) {
+        wrapper = document.createElement('div');
+        wrapper.className = 'video-content-wrapper';
+        panel.appendChild(wrapper);
+    }
+
+    wrapper.innerHTML = '';
 
     // Create new video element
     const video = createVideoElement(cctv);
-    const controls = panel.querySelector('.panel-controls');
-    if (controls) {
-        controls.after(video);
-    } else {
-        panel.prepend(video);
-    }
+    wrapper.appendChild(video);
 
     // Update panel data
     panel.dataset.cctvId = cctv.id;
@@ -527,7 +547,7 @@ function createVideoElement(cctv) {
     if (isUtic) {
         const iframe = document.createElement('iframe');
         iframe.src = url;
-        iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;display:block;';
+        iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
         iframe.allow = 'autoplay; fullscreen';
         iframe.scrolling = 'no';
         iframe.setAttribute('allowfullscreen', '');
@@ -537,7 +557,8 @@ function createVideoElement(cctv) {
     // HLS streams (.m3u8 or ktict) - use HLS.js
     if ((isHls || isSecureStream) && Hls.isSupported()) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
+        const video = document.createElement('video');
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
@@ -580,7 +601,7 @@ function createVideoElement(cctv) {
     // Safari native HLS
     if (isHls) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;background:black;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
         video.src = url;
         video.muted = true;
         video.autoplay = true;
@@ -592,7 +613,7 @@ function createVideoElement(cctv) {
     // Fallback: iframe for any other URL type
     const iframe = document.createElement('iframe');
     iframe.src = url;
-    iframe.style.cssText = 'width:100%;height:100%;border:none;background:black;display:block;';
+    iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
     iframe.allow = 'autoplay; fullscreen';
     iframe.scrolling = 'no';
     iframe.setAttribute('allowfullscreen', '');
@@ -614,6 +635,14 @@ function initMap() {
 
     // Add Markers for nearest CCTVs
     renderMapMarkers();
+
+    // Add Search Marker if exists
+    if (state.searchMarker) {
+        state.searchMarker.setMap(map);
+    } else {
+        // Create initial marker based on current center if it matches keyword
+        updateSearchMarker(state.center.lat, state.center.lng);
+    }
 }
 
 function renderMapMarkers() {
@@ -628,6 +657,24 @@ function renderMapMarkers() {
         kakao.maps.event.addListener(marker, 'click', () => {
             openVideoLayer(cctv);
         });
+    });
+}
+
+function updateSearchMarker(lat, lng) {
+    if (state.searchMarker) {
+        state.searchMarker.setMap(null); // Remove existing
+    }
+
+    if (!map) return; // Will be created in initMap
+
+    const imageSize = new kakao.maps.Size(64, 69); // Default size for this red marker
+    const imageOption = { offset: new kakao.maps.Point(27, 69) };
+    const markerImage = new kakao.maps.MarkerImage(SEARCH_MARKER_SRC, imageSize, imageOption);
+
+    state.searchMarker = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(lat, lng),
+        image: markerImage,
+        map: map
     });
 }
 
@@ -715,11 +762,56 @@ function openVideoLayer(cctv) {
     const frame = $('#video-frame');
 
     $('#video-layer-title').textContent = cctv.name;
-    frame.innerHTML = '';
-
     const video = createVideoElement(cctv);
-    video.controls = true;
+    // Remove controls from video element itself if causing layout issues, OR keep them.
+    // video.controls = true; 
+    // HLS video usually needs controls. If iframe, it has its own.
+    if (video.tagName === 'VIDEO') video.controls = true;
+
+    frame.innerHTML = '';
     frame.appendChild(video);
+
+    // Add Expand Toggle Button if not exists
+    let toggleBtn = $('#video-layer-toggle');
+    if (!toggleBtn) {
+        const header = $('.video-layer-header');
+        toggleBtn = document.createElement('button');
+        toggleBtn.id = 'video-layer-toggle';
+        toggleBtn.className = 'layer-toggle-btn';
+        toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
+        toggleBtn.style.marginRight = '8px';
+
+        // Insert before close button
+        const closeBtn = $('#video-layer-close');
+        header.insertBefore(toggleBtn, closeBtn);
+
+        toggleBtn.addEventListener('click', () => {
+            const content = $('.video-layer-content');
+            const isMaximized = content.classList.toggle('maximized');
+
+            if (isMaximized) {
+                // Expanded style handled by CSS
+                content.style.width = '100vw';
+                content.style.maxWidth = 'none';
+                content.style.height = '100vh';
+                content.style.borderRadius = '0';
+                $('.video-frame').style.height = 'calc(100vh - 60px)'; // Adjust for header
+                $('.video-frame').style.aspectRatio = 'unset';
+
+                toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M10 14L3 21"/></svg>`;
+            } else {
+                // Restore style
+                content.style.width = ''; // revert to CSS
+                content.style.maxWidth = '';
+                content.style.height = '';
+                content.style.borderRadius = '';
+                $('.video-frame').style.height = '';
+                $('.video-frame').style.aspectRatio = '';
+
+                toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
+            }
+        });
+    }
 
     layer.classList.add('active');
 }

@@ -44,7 +44,7 @@ body {
     left: 0;
     right: 0;
     background: transparent;
-    padding: 0 16px 20px;
+    padding: 0;
     z-index: 1002;
     /* Above dim overlay */
     pointer-events: none;
@@ -218,14 +218,33 @@ body {
 .video-panel {
     background: var(--bg-primary);
     border-radius: var(--radius-sm);
+    position: relative;
+    /* overflow: visible needed for dropdowns */
+    overflow: visible;
+    transition: z-index 0s;
+}
+
+.video-panel.z-active {
+    z-index: 50;
+}
+
+.video-content-wrapper {
+    width: 100%;
+    height: 100%;
     overflow: hidden;
+    /* Clip video here */
+    border-radius: var(--radius-sm);
     position: relative;
 }
 
-.video-panel video {
+.video-panel video,
+.video-panel iframe {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    /* Force cover */
+    border: none;
+    display: block;
 }
 
 .video-placeholder {
@@ -248,15 +267,16 @@ body {
     justify-content: space-between;
     align-items: flex-start;
     z-index: 20;
-    opacity: 0;
+    opacity: 1;
+    /* Always visible for mobile */
     transition: opacity var(--transition);
-    pointer-events: none;
+    pointer-events: auto;
+    /* Always clickable */
 }
 
 .video-panel:hover .panel-controls,
 .video-panel.expanded .panel-controls {
     opacity: 1;
-    pointer-events: auto;
 }
 
 /* CCTV Dropdown Selector */
@@ -383,6 +403,7 @@ body {
     object-fit: contain;
 }
 
+/* Iframe Fill Optimization */
 /* Iframe Fill Optimization */
 .video-panel iframe {
     width: 100%;
@@ -686,8 +707,9 @@ body {
 }
 
 .video-layer-content {
-    width: 90%;
-    max-width: 800px;
+    width: 95%;
+    max-width: 1000px;
+    /* Widened */
 }
 
 .video-layer-header {
