@@ -1,0 +1,816 @@
+/* Modern Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1f2937;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+}
+
+/* Safe Area for Mobile Notch */
+body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    background-color: #111827;
+    /* Match header color for safe area */
+}
+
+:root {
+    --bg: #020617;
+    --card-bg: #020617;
+    --border: #1e293b;
+    --accent: #22c55e;
+    --accent-dark: #16a34a;
+    --accent-soft: rgba(34, 197, 94, 0.3);
+    --text-main: #e5e7eb;
+    --text-sub: #9ca3af;
+    --safe-area-bottom: env(safe-area-inset-bottom, 20px);
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Dim overlay for search focus */
+.dim-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 99;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+}
+
+.dim-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+body {
+    margin: 0;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    overflow-x: hidden;
+    /* Prevent horizontal scroll margin */
+    background: radial-gradient(circle at top, #0b1120, #020617 55%);
+    color: var(--text-main);
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+@media (min-width: 1536px) {
+    .container {
+        max-width: 1920px;
+    }
+}
+
+/* Tab Navigation - Floating style */
+.tab-nav-container {
+    position: absolute;
+    top: 16px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    z-index: 100;
+    pointer-events: none;
+    align-items: center;
+}
+
+.tab-nav {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: rgba(15, 23, 42, 0.8);
+    border-radius: 999px;
+    pointer-events: auto;
+    /* Enable clicks */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.tab-btn {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-sub);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.tab-btn.active {
+    background: var(--accent);
+    color: #022c22;
+    box-shadow: 0 2px 10px var(--accent-soft);
+}
+
+/* Tab Content */
+.tab-content {
+    display: none;
+    width: 100%;
+    height: 100%;
+}
+
+.tab-content.active {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ===== VIDEO VIEW (4-Panel) ===== */
+#video-tab {
+    padding: 0;
+    position: relative;
+}
+
+.grid-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 2px;
+    background: #000;
+}
+
+/* Disable pointer events during resize for smooth drag over iframes */
+.grid-container.resizing iframe,
+.grid-container.resizing video {
+    pointer-events: none !important;
+}
+
+.cctv-item {
+    position: relative;
+    background: #0f172a;
+    overflow: hidden;
+    overflow: hidden;
+    /* Removed display: flex to avoid layout quirks with video elements */
+    display: block;
+}
+
+.placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--text-sub);
+    background: radial-gradient(circle at center, #1e293b, #0f172a);
+}
+
+.cctv-label {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.cctv-item:hover .cctv-label,
+.cctv-item:active .cctv-label {
+    opacity: 1;
+}
+
+.cctv-fullscreen-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.cctv-fullscreen-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.cctv-item:hover .cctv-fullscreen-btn,
+.cctv-item:active .cctv-fullscreen-btn {
+    opacity: 1;
+}
+
+.cctv-select {
+    width: 100%;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    outline: none;
+    backdrop-filter: blur(4px);
+}
+
+video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+}
+
+/* Hide iOS Native Play Button Overlay */
+video::-webkit-media-controls {
+    display: none !important;
+}
+
+video::-webkit-media-controls-start-playback-button {
+    display: none !important;
+}
+
+/* Resizer Handle */
+.resizer-handle {
+    position: absolute;
+    width: 44px;
+    height: 44px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: var(--accent);
+    border: 3px solid #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3), 0 8px 20px rgba(0, 0, 0, 0.6);
+    cursor: grab;
+    touch-action: none;
+    z-index: 50;
+}
+
+.resizer-icon {
+    width: 20px;
+    height: 20px;
+    stroke: #022c22;
+    stroke-width: 2;
+    fill: none;
+}
+
+/* ===== MAP VIEW ===== */
+#map-tab {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+}
+
+#map-container {
+    width: 100%;
+    height: 100%;
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+}
+
+/* Map "Search Here" Button */
+.map-refresh-btn {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    background: white;
+    color: #0f172a;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 20px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+    display: none;
+    /* Hidden by default */
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.map-refresh-btn:hover {
+    background: #f8fafc;
+    transform: translateX(-50%) scale(1.05);
+    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
+}
+
+.map-refresh-btn.active {
+    display: flex;
+    animation: fadeIn 0.3s forwards;
+}
+
+.map-refresh-btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: var(--accent);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* Video Layer Popup */
+.video-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+}
+
+.video-layer.active {
+    display: flex;
+}
+
+.video-layer-content {
+    background: #1e293b;
+    border-radius: 16px;
+    width: 100%;
+    height: 50vh;
+    max-width: 500px;
+    overflow: hidden;
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    min-height: 400px;
+}
+
+.hd {
+    display: none;
+}
+
+.video-layer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.video-layer-title {
+    font-weight: 600;
+    font-size: 16px;
+    color: white;
+}
+
+.video-layer-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.video-layer-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.video-frame {
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: #000;
+    min-height: 400px;
+}
+
+div.cctv div.player {
+    margin: auto !important;
+}
+
+
+/* Floating Search */
+.floating-search-container {
+    position: absolute;
+    bottom: max(20px, var(--safe-area-bottom));
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    z-index: 100;
+    pointer-events: none;
+    padding: 0 16px;
+    transition: bottom 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+@media (max-width: 768px) {
+    .floating-search-container.keyboard-active {
+        bottom: unset;
+        top: 20px;
+        transform: none;
+        z-index: 2000;
+        /* Ensure it's above everything including Dim Overlay */
+    }
+
+    /* Hide Tab Nav when search is active on mobile */
+    body.search-active .tab-nav-container {
+        display: none;
+    }
+
+    /* Show results below the search bar when it moves to the top */
+    .floating-search-container.keyboard-active .search-results {
+        bottom: auto;
+        top: 100%;
+        margin-bottom: 0;
+        margin-top: 12px;
+    }
+}
+
+.floating-search-wrapper {
+    width: 100%;
+    max-width: 400px;
+    position: relative;
+    pointer-events: auto;
+}
+
+.floating-search {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 8px 8px 16px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 3px solid var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft), 0 10px 30px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+
+.floating-search-input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: white;
+    font-size: 15px;
+    min-width: 0;
+}
+
+.floating-search-input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.floating-search-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #022c22;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.2s;
+}
+
+.floating-search-btn:active {
+    transform: scale(0.95);
+}
+
+.search-icon {
+    width: 20px;
+    height: 20px;
+    stroke: #022c22;
+    stroke-width: 2;
+    fill: none;
+}
+
+.floating-clear-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    color: var(--text-sub);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0;
+    margin-right: -4px;
+    transition: all 0.2s;
+}
+
+.floating-clear-btn:hover {
+    background: rgba(255, 255, 255, 0.4);
+    color: white;
+}
+
+.floating-clear-btn.visible {
+    display: flex;
+}
+
+/* Search Results List */
+.search-results {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    margin-bottom: 12px;
+    max-height: 240px;
+    overflow-y: auto;
+    display: none;
+    flex-direction: column;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+}
+
+.search-results.active {
+    display: flex;
+}
+
+.search-item {
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.search-item:last-child {
+    border-bottom: none;
+}
+
+.search-item:active {
+    background: rgba(34, 197, 94, 0.2);
+}
+
+.search-item-name {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: white;
+}
+
+.search-item-addr {
+    font-size: 12px;
+    color: var(--text-sub);
+}
+
+.status-text {
+    position: absolute;
+    bottom: calc(max(20px, var(--safe-area-bottom)) + 60px);
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.8);
+    z-index: 90;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+}
+
+#video-tab .status-text {
+    position: absolute;
+    bottom: 80px;
+    /* Adjust based on search bar height */
+    left: 0;
+    right: 0;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+    z-index: 90;
+}
+
+@media (max-width: 768px) {
+    .grid-container {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+    }
+
+    .cctv-label {
+        opacity: 1;
+        top: 6px;
+        left: 6px;
+        right: 6px;
+    }
+
+    .cctv-select {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+
+    div.cctv p.hd {
+        display: none;
+    }
+}
+
+/* CCTV Label Wrapper */
+.cctv-label-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.cctv-zoom-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: all 0.2s;
+    padding: 0;
+}
+
+.cctv-zoom-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+    border-color: var(--accent);
+}
+
+.cctv-zoom-btn:active {
+    transform: scale(0.95);
+}
+
+.cctv-zoom-btn svg {
+    width: 18px;
+    height: 18px;
+    stroke: white;
+}
+
+/* Panel Fullscreen Mode */
+.cctv-item.panel-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 3000 !important;
+    border-radius: 0 !important;
+}
+
+.cctv-item.panel-fullscreen .cctv-label {
+    opacity: 1;
+    z-index: 2000;
+}
+
+.cctv-item.panel-fullscreen .cctv-zoom-btn svg {
+    stroke: var(--accent);
+}
+
+/* Ensure inner elements visual presentation in fullscreen */
+.cctv-item.panel-fullscreen {
+    background-color: #000;
+    /* Ensure black background */
+}
+
+/* 
+   REMOVED: Forced sizing styles for video/iframe/div.cctv 
+   Reason: These !important rules conflict with the JavaScript scaleContentToFit() function
+   which calculates precise scaling transforms to fit the content to the viewport correctly.
+   The JS handles width/height/position/transform dynamically.
+*/
+
+/* Custom Dropdown */
+.custom-select-container {
+    position: relative;
+    flex: 1;
+    z-index: 20;
+}
+
+.custom-select-trigger {
+    width: 100%;
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.custom-select-trigger:hover {
+    background: rgba(0, 0, 0, 0.8);
+    border-color: var(--accent);
+}
+
+.custom-select-options {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
+    min-width: 200px;
+    max-width: 90vw;
+    margin-top: 8px;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    max-height: 300px;
+    overflow-y: auto;
+    display: none;
+    flex-direction: column;
+    z-index: 100;
+}
+
+.custom-select-options.active {
+    display: flex;
+}
+
+.custom-option {
+    padding: 12px 20px;
+    font-size: 15px;
+    /* Larger text */
+    color: var(--text-main);
+    cursor: pointer;
+    transition: background 0.2s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.custom-option:last-child {
+    border-bottom: none;
+}
+
+.custom-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.custom-option.selected {
+    color: var(--accent);
+    font-weight: 600;
+}
