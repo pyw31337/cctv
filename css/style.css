@@ -200,7 +200,10 @@ body {
     right: 10px;
     z-index: 50;
     /* Higher than before */
-    opacity: 0;
+    z-index: 50;
+    /* Higher than before */
+    opacity: 1;
+    /* Always visible per user request */
     transition: opacity 0.2s;
     pointer-events: none;
     /* Let clicks pass through gaps */
@@ -286,11 +289,16 @@ iframe {
 
 .cctv-item.panel-fullscreen iframe {
     /* If iframe content is small, we can try to scale it up */
-    /* transform: scale(1.2); */
-    /* transform-origin: center; */
     width: 100%;
     height: 100%;
+    /* Aggressive scaling for fixed-size players (like UTIC) */
+    /* We use a combination of size and object-fit simulation */
+    min-width: 100%;
+    min-height: 100%;
 }
+
+/* Force iframe internal content to be larger if possible? No, we can't touch internal CSS. */
+/* But we can ensure the container is absolute */
 
 /* Hide iOS Native Play Button Overlay */
 video::-webkit-media-controls {
@@ -852,4 +860,15 @@ div.cctv div.player {
 .custom-option.selected {
     color: var(--accent);
     font-weight: 600;
+}
+
+/* Specific Icon Colors as requested */
+#video-location-btn svg {
+    stroke: #34c55e !important;
+    /* Green */
+}
+
+#video-search-btn svg {
+    stroke: #022c22 !important;
+    /* Dark Green */
 }

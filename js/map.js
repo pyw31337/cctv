@@ -97,9 +97,20 @@ function refreshMapData() {
         c.lng >= sw.getLng() && c.lng <= ne.getLng()
     );
 
-    // Limit Makers
+    // Limit Makers (Smart Sort by Distance from Center)
+    const center = map.getCenter();
+    const cLat = center.getLat();
+    const cLng = center.getLng();
+
+    // Sort by distance to center to ensure relevant markers are shown first
+    inView.sort((a, b) => {
+        const distA = (a.lat - cLat) ** 2 + (a.lng - cLng) ** 2;
+        const distB = (b.lat - cLat) ** 2 + (b.lng - cLng) ** 2;
+        return distA - distB;
+    });
+
     const statusEl = document.getElementById('map-status');
-    const limit = 100;
+    const limit = 200; // Increased limit
     const limitedList = inView.slice(0, limit);
 
     // Clear old markers
