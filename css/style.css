@@ -1183,3 +1183,28 @@ div.cctv div.player {
 .floating-search {
     padding: 8px 4px 8px 8px !important;
 }
+
+/* --- Search Results Width Alignment (Step 1550+) --- */
+.floating-search-wrapper {
+    width: fit-content !important; /* Shrink to fit buttons */
+    max-width: 95% !important;     /* Prevent overflow on small screens */
+    margin: 0 auto;
+    position: relative;
+    /* Ensure content is centered if wrapper is smaller than screen */
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.search-results {
+    width: 100%;       /* Match wrapper width exact */
+    left: 0;
+    right: 0;
+    margin: 0;         /* Remove auto margins */
+    max-width: none;   /* Allow full wrapper width */
+    min-width: 0;      /* avoid forcing wider than wrapper */
+}
+
+/* Ensure inner flex container fills wrapper */
+.floating-search-wrapper > div:not(.search-results) {
+    width: 100%;
+}
