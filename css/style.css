@@ -1,1371 +1,474 @@
-/* Modern Scrollbar */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-::-webkit-scrollbar-track {
-    background: #1f2937;
-}
-
-::-webkit-scrollbar-thumb {
-    background: #4b5563;
-    border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: #6b7280;
-}
-
-/* Safe Area for Mobile Notch */
-body {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    background-color: #111827;
-    /* Match header color for safe area */
+/* === CSS Reset & Variables === */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
 :root {
-    --bg: #020617;
-    --card-bg: #020617;
-    --border: #1e293b;
     --accent: #22c55e;
     --accent-dark: #16a34a;
-    --accent-soft: rgba(34, 197, 94, 0.3);
-    --text-main: #e5e7eb;
-    --text-sub: #9ca3af;
-    --safe-area-bottom: env(safe-area-inset-bottom, 20px);
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --border-color: rgba(255, 255, 255, 0.1);
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-full: 999px;
+    --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-* {
-    box-sizing: border-box;
-    -webkit-tap-highlight-color: transparent;
+html,
+body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
 }
 
-/* Dim overlay for search focus */
-.dim-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
+/* === Layout === */
+body {
+    display: flex;
+    flex-direction: column;
+}
+
+#header {
+    flex-shrink: 0;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 12px 16px;
+    z-index: 100;
+}
+
+.header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+#main {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.view {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition), visibility var(--transition);
+}
+
+.view.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* === Segment Control (Sliding Tabs) === */
+.segment-control {
+    display: flex;
+    position: relative;
+    background: var(--bg-primary);
+    border-radius: var(--radius-full);
+    padding: 4px;
+    border: 1px solid var(--border-color);
+}
+
+.segment-indicator {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 44px;
+    height: 44px;
+    background: var(--accent);
+    border-radius: 50%;
+    z-index: 1;
+    transition: transform var(--transition);
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.4);
+}
+
+.segment-btn {
+    position: relative;
+    z-index: 2;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: color var(--transition);
+}
+
+.segment-btn.active {
+    color: var(--bg-primary);
+}
+
+.segment-btn svg {
+    pointer-events: none;
+}
+
+/* === Search Box === */
+.search-box {
+    flex: 1;
+    max-width: 300px;
+    position: relative;
+}
+
+.search-box input {
+    width: 100%;
+    height: 44px;
+    padding: 0 40px 0 16px;
+    background: var(--bg-primary);
+    border: 2px solid var(--accent);
+    border-radius: var(--radius-full);
+    color: var(--text-primary);
+    font-size: 15px;
+    outline: none;
+}
+
+.search-box input::placeholder {
+    color: var(--text-secondary);
+}
+
+.search-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    background: var(--bg-tertiary);
+    border: none;
+    border-radius: 50%;
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+    display: none;
+}
+
+.search-box input:not(:placeholder-shown)+.search-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* === Weather Button === */
+.weather-btn {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+}
+
+.weather-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* === Video Grid === */
+.video-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 4px;
+    height: 100%;
+    padding: 4px;
+    background: var(--bg-tertiary);
+}
+
+.video-panel {
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    position: relative;
+}
+
+.video-panel video {
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.8);
-    z-index: 99;
-    opacity: 0;
+    object-fit: cover;
+}
+
+.video-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* === Map View === */
+#kakao-map {
+    width: 100%;
+    height: 100%;
+}
+
+/* === Overlays === */
+#overlays {
+    position: fixed;
+    inset: 0;
     pointer-events: none;
-    transition: opacity 0.3s;
+    z-index: 1000;
+}
+
+#overlays>* {
+    pointer-events: auto;
+}
+
+.dim-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition), visibility var(--transition);
+    pointer-events: none;
 }
 
 .dim-overlay.active {
     opacity: 1;
+    visibility: visible;
     pointer-events: auto;
 }
 
-body {
-    margin: 0;
-    height: 100vh;
-    height: 100dvh;
-    overflow: hidden;
-    overflow-x: hidden;
-    /* Prevent horizontal scroll margin */
-    background: radial-gradient(circle at top, #0b1120, #020617 55%);
-    color: var(--text-main);
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-.container {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-}
-
-@media (min-width: 1536px) {
-    .container {
-        max-width: 1920px;
-    }
-}
-
-/* Tab Navigation - Floating style */
-.tab-nav-container {
-    position: absolute;
-    top: 16px;
-    left: 0;
-    right: 0;
-    display: flex;
-    justify-content: center;
-    z-index: 100;
-    pointer-events: none;
-    align-items: center;
-}
-
-.tab-nav {
-    display: flex;
-    gap: 4px;
-    padding: 4px;
-    background: rgba(15, 23, 42, 0.8);
-    border-radius: 999px;
-    pointer-events: auto;
-    /* Enable clicks */
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-}
-
-.tab-btn {
-    padding: 8px 20px;
-    border: none;
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text-sub);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    white-space: nowrap;
-}
-
-.tab-btn.active {
-    background: var(--accent);
-    color: #022c22;
-    box-shadow: 0 2px 10px var(--accent-soft);
-}
-
-/* Tab Content */
-.tab-content {
-    display: none;
-    width: 100%;
-    height: 100%;
-}
-
-.tab-content.active {
-    display: flex;
-    flex-direction: column;
-}
-
-/* ===== VIDEO VIEW (4-Panel) ===== */
-#video-tab {
-    padding: 0;
-    position: relative;
-}
-
-.grid-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 2px;
-    background: #000;
-}
-
-/* Disable pointer events during resize for smooth drag over iframes */
-.grid-container.resizing iframe,
-.grid-container.resizing video {
-    pointer-events: none !important;
-}
-
-.cctv-item {
-    position: relative;
-    background: #0f172a;
-    overflow: hidden;
-    overflow: hidden;
-    /* Removed display: flex to avoid layout quirks with video elements */
-    display: block;
-}
-
-.placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    color: var(--text-sub);
-    background: radial-gradient(circle at center, #1e293b, #0f172a);
-}
-
-.cctv-label {
-    display: flex;
-    /* Ensure flex for wrapper */
-    gap: 8px;
-    /* Explicit gap */
-    top: 10px;
-    left: 10px;
-    right: 10px;
-    z-index: 50;
-    /* Higher than before */
-    z-index: 50;
-    /* Higher than before */
-    opacity: 1;
-    /* Always visible per user request */
-    transition: opacity 0.2s;
-    pointer-events: none;
-    /* Let clicks pass through gaps */
-}
-
-/* Enable pointer events for children */
-.cctv-label-wrapper>* {
-    pointer-events: auto;
-}
-
-.cctv-item:hover .cctv-label,
-.cctv-item:active .cctv-label {
-    opacity: 1;
-}
-
-.cctv-fullscreen-btn {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 32px;
-    height: 32px;
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    z-index: 20;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    backdrop-filter: blur(4px);
-    padding: 0;
-    opacity: 0;
-    transition: opacity 0.2s, background 0.2s;
-}
-
-.cctv-fullscreen-btn:hover {
-    background: rgba(0, 0, 0, 0.8);
-    border-color: rgba(255, 255, 255, 0.5);
-}
-
-.cctv-item:hover .cctv-fullscreen-btn,
-.cctv-item:active .cctv-fullscreen-btn {
-    opacity: 1;
-}
-
-.cctv-select {
-    width: 100%;
-    font-size: 12px;
-    padding: 6px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(0, 0, 0, 0.6);
-    color: white;
-    outline: none;
-    backdrop-filter: blur(4px);
-}
-
-video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    /* Force cover per user request */
-    background: #000;
-}
-
-/* Iframe Specific Scaling */
-iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-    background: #000;
-    /* Attempt to force fill */
-    display: block;
-}
-
-/* Fullscreen Optimizations */
-.cctv-item.panel-fullscreen video {
-    object-fit: contain;
-    /* In fullscreen mode, maybe contain is better to see everything? User asked for FILL. sticking to cover or smart toggle. */
-    object-fit: cover !important;
-    /* User said "black area grows... video stays small". This implies contain was active or iframe internal padding. Force cover. */
-}
-
-.cctv-item.panel-fullscreen iframe {
-    /* If iframe content is small, we can try to scale it up */
-    width: 100%;
-    height: 100%;
-    /* Aggressive scaling for fixed-size players (like UTIC) */
-    /* We use a combination of size and object-fit simulation */
-    min-width: 100%;
-    min-height: 100%;
-}
-
-/* Force iframe internal content to be larger if possible? No, we can't touch internal CSS. */
-/* But we can ensure the container is absolute */
-
-/* Hide iOS Native Play Button Overlay */
-video::-webkit-media-controls {
-    display: none !important;
-}
-
-video::-webkit-media-controls-start-playback-button {
-    display: none !important;
-}
-
-/* Resizer Handle */
-.resizer-handle {
-    position: absolute;
-    width: 44px;
-    height: 44px;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    background: var(--accent);
-    border: 3px solid #000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3), 0 8px 20px rgba(0, 0, 0, 0.6);
-    cursor: grab;
-    touch-action: none;
-    z-index: 50;
-}
-
-.resizer-icon {
-    width: 20px;
-    height: 20px;
-    stroke: #022c22;
-    stroke-width: 2;
-    fill: none;
-}
-
-/* ===== MAP VIEW ===== */
-#map-tab {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 0;
-}
-
-#map-container {
-    width: 100%;
-    height: 100%;
-}
-
-#map {
-    width: 100%;
-    height: 100%;
-}
-
-/* Map "Search Here" Button */
-.map-refresh-btn {
-    display: none !important;
-    /* Disabled in favor of Auto-Refresh */
-}
-
-.map-refresh-btn:hover {
-    background: #f8fafc;
-    transform: translateX(-50%) scale(1.05);
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.2);
-}
-
-.map-refresh-btn.active {
-    display: flex;
-    animation: fadeIn 0.3s forwards;
-}
-
-.map-refresh-btn svg {
-    width: 16px;
-    height: 16px;
-    stroke: var(--accent);
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateX(-50%) translateY(-10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateX(-50%) translateY(0);
-    }
-}
-
-/* Video Layer Popup */
-.video-layer {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.9);
-    display: none;
-    justify-content: center;
-    align-items: center;
-    z-index: 2000;
-    padding: 20px;
-    backdrop-filter: blur(10px);
-}
-
-.video-layer.active {
-    display: flex;
-}
-
-.video-layer-content {
-    background: #1e293b;
-    border-radius: 16px;
-    width: 100%;
-    height: 50vh;
-    max-width: 500px;
-    overflow: hidden;
-    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    min-height: 400px;
-}
-
-.hd {
-    display: none;
-}
-
-.video-layer-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.video-layer-title {
-    font-weight: 600;
-    font-size: 16px;
-    color: white;
-}
-
-.video-layer-close {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    font-size: 18px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.video-layer-close:hover {
-    background: rgba(255, 255, 255, 0.2);
-}
-
-.video-frame {
-    width: 100%;
-    aspect-ratio: 4/3;
-    background: #000;
-    min-height: 400px;
-}
-
-div.cctv div.player {
-    margin: auto !important;
-}
-
-
-/* Floating Search */
-.floating-search-container {
-    position: absolute;
-    bottom: max(20px, var(--safe-area-bottom));
-    left: 0;
-    right: 0;
-    display: flex;
-    justify-content: center;
-    z-index: 100;
-    pointer-events: none;
-    padding: 0 16px;
-    transition: bottom 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-
-@media (max-width: 768px) {
-    .floating-search-container.keyboard-active {
-        bottom: unset;
-        top: 20px;
-        transform: none;
-        z-index: 2000;
-        /* Ensure it's above everything including Dim Overlay */
-    }
-
-    /* Hide Tab Nav when search is active on mobile */
-    body.search-active .tab-nav-container {
-        display: none;
-    }
-
-    /* Show results below the search bar when it moves to the top */
-    .floating-search-container.keyboard-active .search-results {
-        bottom: auto;
-        top: 100%;
-        margin-bottom: 0;
-        margin-top: 12px;
-    }
-}
-
-.floating-search-wrapper {
-    width: 100%;
-    max-width: 400px;
-    position: relative;
-    pointer-events: auto;
-}
-
-.floating-search {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 8px 8px 16px;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.9);
-    border: 3px solid var(--accent);
-    box-shadow: 0 0 0 2px var(--accent-soft), 0 10px 30px rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-}
-
-.floating-search-input {
-    flex: 1;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: white;
-    font-size: 15px;
-    min-width: 0;
-}
-
-.floating-search-input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
-}
-
-.floating-search-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: none;
-    background: var(--accent);
-    color: #022c22;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: transform 0.2s;
-}
-
-.floating-search-btn:active {
-    transform: scale(0.95);
-}
-
-.search-icon {
-    width: 20px;
-    height: 20px;
-    stroke: #022c22;
-    stroke-width: 2;
-    fill: none;
-}
-
-.floating-clear-btn {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(255, 255, 255, 0.2);
-    color: var(--text-sub);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-size: 11px;
-    padding: 0;
-    margin-right: -4px;
-    transition: all 0.2s;
-}
-
-.floating-clear-btn:hover {
-    background: rgba(255, 255, 255, 0.4);
-    color: white;
-}
-
-.floating-clear-btn.visible {
-    display: flex;
-}
-
-/* Search Results List */
+/* === Search Results === */
 .search-results {
-    position: absolute;
-    bottom: 100%;
-    left: 0;
-    right: 0;
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    margin-bottom: 12px;
-    max-height: 240px;
-    overflow-y: auto;
-    display: none;
-    flex-direction: column;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-    z-index: 1000;
+    position: fixed;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    max-width: 400px;
+    max-height: 60vh;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: auto;
+    box-shadow: var(--shadow);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition), visibility var(--transition);
 }
 
 .search-results.active {
-    display: flex;
-}
-
-.search-item {
-    padding: 14px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    color: var(--text-main);
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.search-item:last-child {
-    border-bottom: none;
-}
-
-.search-item:active {
-    background: rgba(34, 197, 94, 0.2);
-}
-
-.search-item-name {
-    font-size: 15px;
-    font-weight: 600;
-    margin-bottom: 4px;
-    color: white;
-}
-
-.search-item-addr {
-    font-size: 12px;
-    color: var(--text-sub);
-}
-
-.status-text {
-    position: absolute;
-    bottom: calc(max(20px, var(--safe-area-bottom)) + 60px);
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
-    z-index: 90;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
-    pointer-events: none;
-}
-
-#video-tab .status-text {
-    position: absolute;
-    bottom: 80px;
-    /* Adjust based on search bar height */
-    left: 0;
-    right: 0;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
-    pointer-events: none;
-    z-index: 90;
-}
-
-@media (max-width: 768px) {
-    .grid-container {
-        grid-template-columns: 1fr 1fr;
-        grid-template-rows: 1fr 1fr;
-    }
-
-    .cctv-label {
-        opacity: 1;
-        top: 6px;
-        left: 6px;
-        right: 6px;
-    }
-
-    .cctv-select {
-        padding: 4px 8px;
-        font-size: 11px;
-    }
-
-    div.cctv p.hd {
-        display: none;
-    }
-}
-
-/* CCTV Label Wrapper */
-.cctv-label-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-}
-
-.cctv-zoom-btn {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    backdrop-filter: blur(4px);
-    transition: all 0.2s;
-    padding: 0;
-}
-
-.cctv-zoom-btn:hover {
-    background: rgba(0, 0, 0, 0.8);
-    border-color: var(--accent);
-}
-
-.cctv-zoom-btn:active {
-    transform: scale(0.95);
-}
-
-.cctv-zoom-btn svg {
-    width: 18px;
-    height: 18px;
-    stroke: white;
-}
-
-/* Panel Fullscreen Mode */
-.cctv-item.panel-fullscreen {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    z-index: 3000 !important;
-    border-radius: 0 !important;
-}
-
-.cctv-item.panel-fullscreen .cctv-label {
     opacity: 1;
-    z-index: 2000;
+    visibility: visible;
 }
 
-.cctv-item.panel-fullscreen .cctv-zoom-btn svg {
-    stroke: var(--accent);
-}
-
-/* Ensure inner elements visual presentation in fullscreen */
-.cctv-item.panel-fullscreen {
-    background-color: #000;
-    /* Ensure black background */
-}
-
-/* 
-   REMOVED: Forced sizing styles for video/iframe/div.cctv 
-   Reason: These !important rules conflict with the JavaScript scaleContentToFit() function
-   which calculates precise scaling transforms to fit the content to the viewport correctly.
-   The JS handles width/height/position/transform dynamically.
-*/
-
-.custom-select-container {
-    position: relative;
-    flex: 1;
-    z-index: 20;
-    min-width: 0;
-    /* Allow shrinking */
-}
-
-.custom-select-trigger {
-    width: 100%;
-    font-size: 13px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(0, 0, 0, 0.6);
-    color: white;
+.search-result-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
     cursor: pointer;
-    backdrop-filter: blur(4px);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: all 0.2s;
+    transition: background var(--transition);
 }
 
-.custom-select-trigger:hover {
-    background: rgba(0, 0, 0, 0.8);
-    border-color: var(--accent);
-}
-
-.custom-select-options {
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: max-content;
-    min-width: 200px;
-    max-width: 90vw;
-    margin-top: 8px;
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid var(--accent);
-    border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    max-height: 300px;
-    overflow-y: auto;
-    display: none;
-    flex-direction: column;
-    z-index: 100;
-}
-
-.custom-select-options.active {
-    display: flex;
-}
-
-.custom-option {
-    padding: 12px 20px;
-    font-size: 15px;
-    /* Larger text */
-    color: var(--text-main);
-    cursor: pointer;
-    transition: background 0.2s;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.custom-option:last-child {
+.search-result-item:last-child {
     border-bottom: none;
 }
 
-.custom-option:hover {
-    background: rgba(255, 255, 255, 0.1);
+.search-result-item:hover {
+    background: var(--bg-tertiary);
 }
 
-.custom-option.selected {
-    color: var(--accent);
-    font-weight: 600;
+.search-result-name {
+    font-size: 14px;
+    color: var(--text-primary);
 }
 
-/* Specific Icon Colors as requested */
-#video-location-btn svg {
-    stroke: #34c55e !important;
-    /* Green */
+.search-result-address {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
 }
 
-#video-search-btn svg {
-    stroke: #022c22 !important;
-    /* Dark Green */
-}
-
-/* Weather Feature Styles */
-@keyframes rotate-sun {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.weather-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: none;
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    margin-left: 4px;
-    transition: all 0.2s;
-    padding: 0;
-    flex-shrink: 0;
-}
-
-.weather-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    transform: scale(1.05);
-}
-
-.weather-icon-btn {
-    width: 24px;
-    height: 24px;
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 2;
-}
-
-.weather-sun-group {
-    transform-origin: center;
-    animation: rotate-sun 12s linear infinite;
-}
-
+/* === Weather Layer === */
 .weather-layer {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.8);
-    display: none;
-    justify-content: center;
+    inset: 0;
+    display: flex;
     align-items: center;
-    z-index: 2500;
-    backdrop-filter: blur(2px);
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition), visibility var(--transition);
 }
 
 .weather-layer.active {
-    display: flex;
+    opacity: 1;
+    visibility: visible;
 }
 
 .weather-content {
-    background: #1e293b;
-    border-radius: 28px;
-    padding: 24px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
     width: 90%;
-    max-width: 360px;
-    text-align: center;
-    box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    max-width: 400px;
+    max-height: 80vh;
+    overflow: auto;
+    box-shadow: var(--shadow);
 }
 
 .weather-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border-color);
 }
 
-.weather-title {
-    font-size: 18px;
+.weather-header h2 {
+    font-size: 16px;
     font-weight: 600;
-    color: white;
 }
 
-.weather-close {
-    background: none;
+.weather-header button {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
     border: none;
-    color: var(--text-sub);
-    font-size: 24px;
+    border-radius: 50%;
+    color: var(--text-primary);
+    font-size: 18px;
     cursor: pointer;
-    padding: 0 8px;
-}
-
-.weather-close:hover {
-    color: white;
 }
 
 .weather-list {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-    max-height: 60vh;
-    overflow-y: auto;
+    overflow-x: auto;
+    padding: 16px;
+    gap: 16px;
 }
 
 .weather-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: rgba(255, 255, 255, 0.05);
-    padding: 12px 20px;
-    border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    flex-shrink: 0;
+    text-align: center;
+    min-width: 60px;
 }
 
 .weather-day {
-    font-weight: 500;
-    width: 40px;
-    text-align: left;
-    color: var(--text-main);
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
 }
 
-.weather-icon-display {
-    font-size: 20px;
-    width: 30px;
+.weather-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
 }
 
 .weather-temp {
+    font-size: 16px;
     font-weight: 600;
-    color: var(--accent);
-    width: 40px;
-    text-align: right;
 }
 
-.weather-temp-range {
-    color: var(--text-sub);
-    font-size: 12px;
-    width: 60px;
-    text-align: right;
+.weather-range {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
 }
 
-/* Updated Tab Nav (Inside Search) */
-.floating-search .tab-nav {
-    display: flex;
-    gap: 0px;
-    margin-right: 8px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    padding: 2px;
-}
-
-.floating-search .tab-btn {
-    padding: 6px 12px;
-    font-size: 13px;
-    color: var(--text-sub);
-    background: transparent;
-    border-radius: 14px;
-    white-space: nowrap;
-}
-
-.floating-search .tab-btn.active {
-    background: var(--accent);
-    color: #022c22;
-    box-shadow: none;
-}
-
-/* Bookmark Styles in Search Results */
-.bookmark-section {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    margin-bottom: 8px;
-    padding-bottom: 8px;
-}
-
-.search-item.bookmark-item {
+/* === Video Layer === */
+.video-layer {
+    position: fixed;
+    inset: 0;
     display: flex;
     align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.9);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition), visibility var(--transition);
+}
+
+.video-layer.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.video-layer-content {
+    width: 90%;
+    max-width: 800px;
+}
+
+.video-layer-header {
+    display: flex;
     justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
 }
 
-.bookmark-icon {
-    width: 16px;
-    height: 16px;
-    fill: #eab308;
-    /* Yellow star */
-    stroke: none;
-    margin-right: 8px;
-    flex-shrink: 0;
+.video-layer-header h2 {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
 }
 
-.bookmark-info {
-    flex: 1;
-    min-width: 0;
+.video-layer-header button {
+    width: 36px;
+    height: 36px;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.bookmark-del-btn {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
     border: none;
-    color: var(--text-sub);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    margin-left: 8px;
-    font-size: 12px;
-}
-
-.bookmark-del-btn:hover {
-    background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-}
-
-
-/* --- UI Refinement (Indep components) --- */
-.floating-search-wrapper {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    pointer-events: auto;
-    width: 100%;
-    max-width: 600px;
-    margin: 0 auto;
-    position: relative;
-}
-
-.tab-nav.independent {
-    background: rgba(15, 23, 42, 0.95);
-    padding: 4px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    display: flex;
-    flex-shrink: 0;
-    backdrop-filter: blur(10px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.weather-btn.independent {
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    width: 44px;
-    height: 44px;
     border-radius: 50%;
-    margin: 0;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    backdrop-filter: blur(10px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    color: var(--text-primary);
+    font-size: 20px;
     cursor: pointer;
 }
 
-/* Adjust Center Search */
-.floating-search {
-    flex: 1;
-    max-width: 100%;
-    /* Fill flex space */
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.search-results {
-    /* Ensure it floats above/below correctly relative to wrapper */
-    /* Position is set inline in HTML currently, but verify z-index */
-    z-index: 3000;
-}
-
-/* --- Bug Fixes & Refinements (Step 1490+) --- */
-
-/* 1. Restore Thick Green Border for Search Bar */
-.floating-search {
-    border: 2px solid var(--accent) !important;
-    height: 50px;
-    /* Match weather button height approx */
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    display: flex;
-    align-items: center;
-    border-radius: 25px;
-    /* Ensure pill shape */
-    transition: all 0.2s;
-}
-
-.floating-search:focus-within {
-    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.3);
-}
-
-/* 2. Match Height for Independent Buttons */
-.tab-nav.independent {
-    height: 50px;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    /* Keep subtle border for tabs */
-}
-
-.weather-btn.independent {
-    width: 50px;
-    height: 50px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-/* 3. Search Results Visibility */
-.search-results {
-    bottom: 120%;
-    /* Position above correctly */
-    z-index: 9999 !important;
-    /* Force top */
-    min-width: 320px;
-    display: none;
-    /* Hidden by default */
-}
-
-.search-results.active {
-    display: block !important;
-}
-
-/* Keyboard Nav Focus Styles */
-.search-item:focus {
-    background: rgba(52, 211, 153, 0.2) !important;
-    outline: none;
-    border-left: 3px solid var(--accent);
-}
-
-/* --- User Requested Refinements (Step 1530+) --- */
-.tab-btn {
-    padding: 12px 20px !important;
-}
-
-.floating-search {
-    padding: 8px 4px 8px 8px !important;
-}
-
-/* --- Search Results Width Alignment (Step 1550+) --- */
-.floating-search-wrapper {
-    width: fit-content !important;
-    /* Shrink to fit buttons */
-    max-width: 95% !important;
-    /* Prevent overflow on small screens */
-    margin: 0 auto;
-    /* Centering handled by parent flex container */
-    position: relative;
-    /* Removed conflicting left/transform hacks */
-    pointer-events: auto;
-    /* Ensure clicks work */
-}
-
-/* Ensure Independent Buttons are clickable */
-.tab-nav.independent,
-.weather-btn.independent,
-.floating-search {
-    pointer-events: auto !important;
-    position: relative;
-    z-index: 10;
-    /* Ensure above wrapper */
-}
-
-.search-results {
+.video-frame {
     width: 100%;
-    /* Match wrapper width exact */
-    left: 0;
-    right: 0;
-    margin: 0;
-    /* Remove auto margins */
-    max-width: none;
-    min-width: 320px;
-    /* Minimum width for usability */
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: var(--radius-md);
+    overflow: hidden;
 }
 
-/* Ensure inner flex container fills wrapper */
-.floating-search-wrapper>div:not(.search-results) {
+.video-frame video {
     width: 100%;
+    height: 100%;
+    object-fit: contain;
 }
 
-/* --- User Requested Refinement (Step 1572) --- */
-.bookmark-del-btn {
-    padding: 8px 4px 8px 8px !important;
-}
-
-/* --- User Requested Refinement (Step 1608) --- */
-.floating-search {
-    padding: 8px 4px 8px 18px !important;
-}
-
-/* --- UI Refinement: Responsive Tab Icons & Text (Step 1660+) --- */
-.tab-btn {
-    display: flex !important;
-    align-items: center;
-    gap: 6px;
-    padding: 12px 20px !important;
-    white-space: nowrap;
-}
-
-.tab-btn svg {
-    flex-shrink: 0;
-}
-
-/* 3-Stage Responsive Text Logic */
-.tab-text {
-    font-size: 14px;
-    line-height: 1;
-}
-
-/* Medium Screens (e.g. Mobile Landscape / Small Desktop): Show Short Text ("영상") */
+/* === Responsive === */
 @media (max-width: 600px) {
-    .tab-text {
-        font-size: 0 !important;
-        /* Hide original text */
+    .header-inner {
+        gap: 8px;
     }
 
-    .tab-text::after {
-        content: attr(data-short);
-        /* Show short text */
-        font-size: 14px;
-        display: inline-block;
-    }
-}
-
-/* Small Screens (Mobile Portrait): Show Icon Only */
-@media (max-width: 400px) {
-    .tab-text {
-        display: none !important;
+    .search-box {
+        max-width: none;
     }
 
-    .tab-btn {
-        padding: 12px !important;
-        /* Reduce padding for icon-only */
-        justify-content: center;
-        width: 44px;
-        /* Force square-ish */
-        height: 44px;
-        /* Same as weather button */
+    .video-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: repeat(4, 1fr);
     }
-}
-
-/* --- Icon-Only Tabs Refinement (Step 1720+) --- */
-.tab-btn {
-    padding: 12px !important;
-    gap: 0 !important;
-    width: 44px;
-    /* Force uniform square/circle size */
-    height: 44px;
-    justify-content: center;
-}
-
-/* Cleanup defunct responsive text rules */
-.tab-text {
-    display: none !important;
-}
-
-/* --- Sliding Tab Indicator (Step 1750+) --- */
-.tab-indicator {
-    position: absolute;
-    top: 4px;
-    /* match padding */
-    left: 4px;
-    width: 44px;
-    height: 44px;
-    background: var(--accent);
-    border-radius: 50%;
-    /* Circle */
-    z-index: 10;
-    /* Behind text/icon but above bg */
-    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-    box-shadow: 0 2px 10px rgba(34, 197, 94, 0.4);
-    pointer-events: none;
-}
-
-/* Ensure buttons are above indicator */
-.tab-btn {
-    z-index: 20;
-    position: relative;
-    background: transparent !important;
-    /* Remove individual bg */
-    transition: color 0.2s;
-}
-
-.tab-btn.active {
-    box-shadow: none !important;
-    color: #022c22 !important;
-    /* Dark text on green pill */
-}
-
-/* Inactive buttons: lighter text/icon */
-.tab-btn:not(.active) {
-    color: var(--text-sub);
-}
-
-/* Sliding Logic Handled by JS for Robustness */
-.tab-indicator {
-    position: absolute;
-    top: 4px;
-    height: 44px;
-    background: var(--accent);
-    border-radius: 50%;
-    z-index: 10;
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-    box-shadow: 0 2px 10px rgba(34, 197, 94, 0.4);
-    pointer-events: none;
-    /* Initial state set by JS or default to left:4px */
-    left: 0;
-    width: 44px;
-    /* variable, but fixed for icons */
 }
