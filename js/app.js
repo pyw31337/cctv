@@ -88,8 +88,27 @@ function setupEventListeners() {
         if (e.target.id === 'video-layer') closeVideoLayer();
     });
 
-    // Search Results Click
+    // Search Results Click (Delegation for items, bookmark, delete)
     $('#search-results').addEventListener('click', (e) => {
+        const actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+            e.stopPropagation();
+            const item = actionBtn.closest('.search-result-item');
+            const itemData = {
+                lat: parseFloat(item.dataset.lat),
+                lng: parseFloat(item.dataset.lng),
+                name: item.dataset.name,
+                address: item.dataset.address
+            };
+
+            if (actionBtn.dataset.action === 'bookmark') {
+                toggleBookmark(itemData);
+            } else if (actionBtn.dataset.action === 'delete') {
+                deleteHistoryItem(itemData.name);
+            }
+            return;
+        }
+
         const item = e.target.closest('.search-result-item');
         if (item) selectSearchResult(item);
     });
@@ -139,39 +158,79 @@ function updateSegmentIndicator() {
 function showSearchHistory() {
     const resultsEl = $('#search-results');
     const history = getSearchHistory();
+    const bookmarks = getBookmarks();
 
-    if (history.length === 0) {
-        resultsEl.innerHTML = '<div class="search-empty">최근 검색 기록이 없습니다</div>';
-    } else {
-        resultsEl.innerHTML = history.map(item => `
-            <div class="search-result-item" data-lat="${item.lat}" data-lng="${item.lng}" data-name="${item.name}">
-                <div class="search-result-name">${item.name}</div>
-                <div class="search-result-address">${item.address || ''}</div>
-            </div>
-        `).join('');
+    let html = '';
+
+    // Bookmarks Section (if any)
+    if (bookmarks.length > 0) {
+        html += `<div class="search-section-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z"/></svg>
+            북마크
+        </div>`;
+        html += bookmarks.map(item => renderSearchItem(item, true)).join('');
     }
 
+    // History Section
+    if (history.length > 0) {
+        html += `<div class="search-section-title">최근 검색</div>`;
+        html += history.map(item => renderSearchItem(item, false)).join('');
+    }
+
+    // Empty State
+    if (history.length === 0 && bookmarks.length === 0) {
+        html = '<div class="search-empty">최근 검색어가 없습니다</div>';
+    }
+
+    resultsEl.innerHTML = html;
     resultsEl.classList.add('active');
     $('#dim-overlay').classList.add('active');
 }
 
+function renderSearchItem(item, isBookmarked) {
+    const bookmarkClass = isBookmarked ? 'active' : '';
+    return `
+        <div class="search-result-item" data-lat="${item.lat}" data-lng="${item.lng}" data-name="${item.name}" data-address="${item.address || ''}">
+            <div class="search-result-info">
+                <div class="search-result-name">${item.name}</div>
+                <div class="search-result-address">${item.address || ''}</div>
+            </div>
+            <div class="search-result-actions">
+                <button class="btn-bookmark ${bookmarkClass}" data-action="bookmark" title="북마크">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="${isBookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
+                        <path d="M5 5c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z"/>
+                    </svg>
+                </button>
+                <button class="btn-delete" data-action="delete" title="삭제">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 async function handleSearchInput(e) {
     const query = e.target.value.trim();
-    if (query.length < 2) {
+    if (query.length < 1) {
         showSearchHistory();
         return;
     }
 
-    // Kakao Local Search
+    // Kakao Local Search (supports 초성)
     const ps = new kakao.maps.services.Places();
     ps.keywordSearch(query, (data, status) => {
         const resultsEl = $('#search-results');
 
-        if (status === kakao.maps.services.Status.OK) {
+        if (status === kakao.maps.services.Status.OK && data.length > 0) {
+            // Search results only - no history/bookmarks
             resultsEl.innerHTML = data.slice(0, 10).map(place => `
-                <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}">
-                    <div class="search-result-name">${place.place_name}</div>
-                    <div class="search-result-address">${place.address_name || ''}</div>
+                <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+                    <div class="search-result-info">
+                        <div class="search-result-name">${place.place_name}</div>
+                        <div class="search-result-address">${place.address_name || ''}</div>
+                    </div>
                 </div>
             `).join('');
         } else {
@@ -441,4 +500,40 @@ function saveSearchHistory(item) {
     history.unshift(item);
     history = history.slice(0, 10);
     localStorage.setItem('cctv_search_history', JSON.stringify(history));
+}
+
+// === Local Storage (Bookmarks) ===
+function getBookmarks() {
+    try {
+        return JSON.parse(localStorage.getItem('cctv_bookmarks') || '[]');
+    } catch {
+        return [];
+    }
+}
+
+function toggleBookmark(item) {
+    let bookmarks = getBookmarks();
+    const exists = bookmarks.find(b => b.name === item.name);
+
+    if (exists) {
+        bookmarks = bookmarks.filter(b => b.name !== item.name);
+    } else {
+        bookmarks.unshift(item);
+    }
+
+    localStorage.setItem('cctv_bookmarks', JSON.stringify(bookmarks));
+    showSearchHistory(); // Refresh
+}
+
+function deleteHistoryItem(name) {
+    let history = getSearchHistory();
+    history = history.filter(h => h.name !== name);
+    localStorage.setItem('cctv_search_history', JSON.stringify(history));
+
+    // Also remove from bookmarks if exists
+    let bookmarks = getBookmarks();
+    bookmarks = bookmarks.filter(b => b.name !== name);
+    localStorage.setItem('cctv_bookmarks', JSON.stringify(bookmarks));
+
+    showSearchHistory(); // Refresh
 }
