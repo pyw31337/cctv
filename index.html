@@ -2765,14 +2765,31 @@
         });
 
         // ===== MAP VIEW Functions =====
+        let mapRetryCount = 0;
         function initMap() {
-            try {
-                if (!window.kakao || !window.kakao.maps) {
-                    console.error('Kakao Maps API not loaded.');
-                    document.getElementById('map-status').textContent = '지도 API 로드 실패. 인터넷 연결을 확인하세요.';
+            // Check for load failure first
+            if (window.kakaoScriptFailed) {
+                console.error('Kakao Script failed to load.');
+                document.getElementById('map-status').textContent = '지도 스크립트 로드 실패 (차단됨/네트워크 오류). 광고 차단 기능을 끄고 새로고침 하세요.';
+                return;
+            }
+
+            // Retry logic if Kakao is not ready yet
+            if (!window.kakao || !window.kakao.maps) {
+                if (mapRetryCount < 10) { // Try for 5 seconds (10 * 500ms)
+                    mapRetryCount++;
+                    console.warn(`Kakao API not ready, retrying... (${mapRetryCount}/10)`);
+                    document.getElementById('map-status').textContent = `지도 로딩 중... (${mapRetryCount})`;
+                    setTimeout(initMap, 500);
+                    return;
+                } else {
+                    console.error('Kakao Maps API timeout.');
+                    document.getElementById('map-status').textContent = '지도 로딩 시간 초과. (API키 도메인 미등록 또는 쿼터 초과 가능성)';
                     return;
                 }
+            }
 
+            try {
                 const container = document.getElementById('map');
                 const options = {
                     center: new kakao.maps.LatLng(currentLat, currentLng),
