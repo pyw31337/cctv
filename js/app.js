@@ -247,9 +247,29 @@ function handleSearchSubmit() {
 
     const ps = new kakao.maps.services.Places();
     ps.keywordSearch(query, (data, status) => {
+        const resultsEl = $('#search-results');
+
         if (status === kakao.maps.services.Status.OK && data.length > 0) {
-            const place = data[0];
-            selectPlace(place.y, place.x, place.place_name, place.address_name);
+            if (data.length === 1) {
+                // Only 1 result - select it directly
+                const place = data[0];
+                selectPlace(place.y, place.x, place.place_name, place.address_name);
+            } else {
+                // Multiple results - show them for user to choose
+                resultsEl.innerHTML = data.slice(0, 10).map(place => `
+                    <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+                        <div class="search-result-info">
+                            <div class="search-result-name">${place.place_name}</div>
+                            <div class="search-result-address">${place.address_name || ''}</div>
+                        </div>
+                    </div>
+                `).join('');
+                resultsEl.classList.add('active');
+                $('#dim-overlay').classList.add('active');
+            }
+        } else {
+            resultsEl.innerHTML = '<div class="search-empty">검색 결과가 없습니다</div>';
+            resultsEl.classList.add('active');
         }
     });
 }
