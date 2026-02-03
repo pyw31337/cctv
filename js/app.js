@@ -162,24 +162,23 @@ function showSearchHistory() {
 
     let html = '';
 
-    // Bookmarks Section (if any)
+    // Bookmarks Section (always show)
+    html += `<div class="search-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z"/></svg>
+        북마크
+    </div>`;
     if (bookmarks.length > 0) {
-        html += `<div class="search-section-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z"/></svg>
-            북마크
-        </div>`;
         html += bookmarks.map(item => renderSearchItem(item, true)).join('');
+    } else {
+        html += '<div class="search-section-empty">최근 북마크된 주소가 없습니다</div>';
     }
 
-    // History Section
+    // History Section (always show)
+    html += `<div class="search-section-title">최근 검색</div>`;
     if (history.length > 0) {
-        html += `<div class="search-section-title">최근 검색</div>`;
         html += history.map(item => renderSearchItem(item, false)).join('');
-    }
-
-    // Empty State
-    if (history.length === 0 && bookmarks.length === 0) {
-        html = '<div class="search-empty">최근 검색어가 없습니다</div>';
+    } else {
+        html += '<div class="search-section-empty">최근 검색 주소가 없습니다</div>';
     }
 
     resultsEl.innerHTML = html;
