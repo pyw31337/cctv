@@ -1248,6 +1248,7 @@ div.cctv div.player {
 .floating-search {
     padding: 8px 4px 8px 18px !important;
 }
+
 /* --- UI Refinement: Responsive Tab Icons & Text (Step 1660+) --- */
 .tab-btn {
     display: flex !important;
@@ -1270,10 +1271,13 @@ div.cctv div.player {
 /* Medium Screens (e.g. Mobile Landscape / Small Desktop): Show Short Text ("영상") */
 @media (max-width: 600px) {
     .tab-text {
-        font-size: 0 !important; /* Hide original text */
+        font-size: 0 !important;
+        /* Hide original text */
     }
+
     .tab-text::after {
-        content: attr(data-short); /* Show short text */
+        content: attr(data-short);
+        /* Show short text */
         font-size: 14px;
         display: inline-block;
     }
@@ -1284,11 +1288,15 @@ div.cctv div.player {
     .tab-text {
         display: none !important;
     }
+
     .tab-btn {
-        padding: 12px !important; /* Reduce padding for icon-only */
+        padding: 12px !important;
+        /* Reduce padding for icon-only */
         justify-content: center;
-        width: 44px; /* Force square-ish */
-        height: 44px; /* Same as weather button */
+        width: 44px;
+        /* Force square-ish */
+        height: 44px;
+        /* Same as weather button */
     }
 }
 
@@ -1296,7 +1304,8 @@ div.cctv div.player {
 .tab-btn {
     padding: 12px !important;
     gap: 0 !important;
-    width: 44px; /* Force uniform square/circle size */
+    width: 44px;
+    /* Force uniform square/circle size */
     height: 44px;
     justify-content: center;
 }
@@ -1309,13 +1318,16 @@ div.cctv div.player {
 /* --- Sliding Tab Indicator (Step 1750+) --- */
 .tab-indicator {
     position: absolute;
-    top: 4px; /* match padding */
+    top: 4px;
+    /* match padding */
     left: 4px;
     width: 44px;
     height: 44px;
     background: var(--accent);
-    border-radius: 50%; /* Circle */
-    z-index: 10; /* Behind text/icon but above bg */
+    border-radius: 50%;
+    /* Circle */
+    z-index: 10;
+    /* Behind text/icon but above bg */
     transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
     box-shadow: 0 2px 10px rgba(34, 197, 94, 0.4);
     pointer-events: none;
@@ -1323,15 +1335,17 @@ div.cctv div.player {
 
 /* Ensure buttons are above indicator */
 .tab-btn {
-    z-index: 20; 
+    z-index: 20;
     position: relative;
-    background: transparent !important; /* Remove individual bg */
+    background: transparent !important;
+    /* Remove individual bg */
     transition: color 0.2s;
 }
 
 .tab-btn.active {
     box-shadow: none !important;
-    color: #022c22 !important; /* Dark text on green pill */
+    color: #022c22 !important;
+    /* Dark text on green pill */
 }
 
 /* Inactive buttons: lighter text/icon */
@@ -1339,7 +1353,19 @@ div.cctv div.player {
     color: var(--text-sub);
 }
 
-/* Sliding Logic based on Parent Class */
-.tab-nav.map-active .tab-indicator {
-    transform: translateX(100%); /* Move 44px right */
+/* Sliding Logic Handled by JS for Robustness */
+.tab-indicator {
+    position: absolute;
+    top: 4px;
+    height: 44px;
+    background: var(--accent);
+    border-radius: 50%;
+    z-index: 10;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 2px 10px rgba(34, 197, 94, 0.4);
+    pointer-events: none;
+    /* Initial state set by JS or default to left:4px */
+    left: 0;
+    width: 44px;
+    /* variable, but fixed for icons */
 }

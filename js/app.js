@@ -37,16 +37,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Ensure Initial State matches Default (Video)
-    // switchTab('video'); // optional, but good practice
+    // Run after a slight delay to ensure layout is ready
+    setTimeout(() => switchTab('video'), 50);
 });
 
 // === Tab Logic ===
 function switchTab(tabId) {
-    // 1. Sliding Indicator Update (Parent Class)
+    // 1. Sliding Indicator Update (JS Calculation)
     const navContainer = document.querySelector('.tab-nav.independent');
-    if (navContainer) {
-        if (tabId === 'map') navContainer.classList.add('map-active');
-        else navContainer.classList.remove('map-active');
+    const indicator = document.querySelector('.tab-indicator');
+    const targetBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+
+    if (navContainer && indicator && targetBtn) {
+        // Calculate relative position
+        const rectNav = navContainer.getBoundingClientRect();
+        const rectBtn = targetBtn.getBoundingClientRect();
+
+        // Relative Left within Container
+        const relLeft = rectBtn.left - rectNav.left;
+
+        indicator.style.left = `${relLeft}px`;
+        indicator.style.width = `${rectBtn.width}px`;
+        indicator.style.height = `${rectBtn.height}px`;
+        indicator.style.top = `${rectBtn.top - rectNav.top}px`; // Robust vertical alignment
     }
 
     // 2. Button State Update
