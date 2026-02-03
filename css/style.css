@@ -1248,3 +1248,46 @@ div.cctv div.player {
 .floating-search {
     padding: 8px 4px 8px 18px !important;
 }
+/* --- UI Refinement: Responsive Tab Icons & Text (Step 1660+) --- */
+.tab-btn {
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 20px !important;
+    white-space: nowrap;
+}
+
+.tab-btn svg {
+    flex-shrink: 0;
+}
+
+/* 3-Stage Responsive Text Logic */
+.tab-text {
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* Medium Screens (e.g. Mobile Landscape / Small Desktop): Show Short Text ("영상") */
+@media (max-width: 600px) {
+    .tab-text {
+        font-size: 0 !important; /* Hide original text */
+    }
+    .tab-text::after {
+        content: attr(data-short); /* Show short text */
+        font-size: 14px;
+        display: inline-block;
+    }
+}
+
+/* Small Screens (Mobile Portrait): Show Icon Only */
+@media (max-width: 400px) {
+    .tab-text {
+        display: none !important;
+    }
+    .tab-btn {
+        padding: 12px !important; /* Reduce padding for icon-only */
+        justify-content: center;
+        width: 44px; /* Force square-ish */
+        height: 44px; /* Same as weather button */
+    }
+}
