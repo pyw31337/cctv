@@ -238,6 +238,160 @@ body {
     font-size: 14px;
 }
 
+/* === Panel Controls (Dropdown + Expand) === */
+.panel-controls {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity var(--transition);
+    pointer-events: none;
+}
+
+.video-panel:hover .panel-controls,
+.video-panel.expanded .panel-controls {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* CCTV Dropdown Selector */
+.cctv-select-container {
+    position: relative;
+    max-width: 60%;
+}
+
+.cctv-select-trigger {
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    transition: all var(--transition);
+}
+
+.cctv-select-trigger:hover {
+    border-color: var(--accent);
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.cctv-select-options {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 200px;
+    max-width: 280px;
+    max-height: 300px;
+    overflow-y: auto;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(16px);
+    display: none;
+    flex-direction: column;
+    z-index: 100;
+}
+
+.cctv-select-options.active {
+    display: flex;
+}
+
+.cctv-option {
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background var(--transition);
+}
+
+.cctv-option:last-child {
+    border-bottom: none;
+}
+
+.cctv-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.cctv-option.selected {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* Panel Expand/Collapse Button */
+.panel-expand-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+
+.panel-expand-btn:hover {
+    border-color: var(--accent);
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.panel-expand-btn svg {
+    pointer-events: none;
+}
+
+/* Panel Expanded (Fullscreen) State */
+.video-panel.expanded {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 2000 !important;
+    border-radius: 0 !important;
+    background: #000;
+}
+
+.video-panel.expanded .panel-controls {
+    opacity: 1;
+    pointer-events: auto;
+    top: 16px;
+    left: 16px;
+    right: 16px;
+}
+
+.video-panel.expanded iframe,
+.video-panel.expanded video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* Iframe Fill Optimization */
+.video-panel iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+    background: #000;
+}
+
 /* === Map View === */
 #kakao-map {
     width: 100%;

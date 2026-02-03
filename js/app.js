@@ -330,15 +330,179 @@ function renderVideoGrid() {
     panels.forEach((panel, index) => {
         const cctv = state.nearestCctvs[index];
 
+        // Get or preserve panel controls
+        const controls = panel.querySelector('.panel-controls');
+        const placeholder = panel.querySelector('.video-placeholder');
+
+        // Clear video/iframe but preserve controls
+        const existingMedia = panel.querySelector('iframe, video');
+        if (existingMedia) existingMedia.remove();
+        if (placeholder) placeholder.remove();
+
         if (cctv) {
+            // Create and insert video element
             const video = createVideoElement(cctv);
-            panel.innerHTML = '';
-            panel.appendChild(video);
+            if (controls) {
+                controls.after(video);
+            } else {
+                panel.prepend(video);
+            }
             panel.dataset.cctvId = cctv.id;
+            panel.dataset.slotIndex = index;
+
+            // Update dropdown trigger text
+            const trigger = panel.querySelector('.cctv-select-trigger');
+            if (trigger) {
+                trigger.textContent = cctv.name || `CCTV ${index + 1}`;
+            }
+
+            // Populate dropdown options (up to 20 nearby CCTVs)
+            populateSelectOptions(panel, index);
         } else {
-            panel.innerHTML = '<div class="video-placeholder">No CCTV</div>';
+            // Show placeholder
+            const ph = document.createElement('div');
+            ph.className = 'video-placeholder';
+            ph.textContent = 'No CCTV';
+            if (controls) {
+                controls.after(ph);
+            } else {
+                panel.prepend(ph);
+            }
         }
     });
+
+    // Attach event listeners (delegated)
+    initPanelControls();
+}
+
+function populateSelectOptions(panel, currentIndex) {
+    const optionsContainer = panel.querySelector('.cctv-select-options');
+    if (!optionsContainer) return;
+
+    // Clear existing options
+    optionsContainer.innerHTML = '';
+
+    // Add up to 20 nearest CCTVs as options
+    const cctvList = state.nearestCctvs.slice(0, 20);
+    cctvList.forEach((cctv, i) => {
+        const option = document.createElement('div');
+        option.className = 'cctv-option' + (i === currentIndex ? ' selected' : '');
+        option.textContent = cctv.name || `CCTV ${i + 1}`;
+        option.dataset.cctvIndex = i;
+        optionsContainer.appendChild(option);
+    });
+}
+
+function initPanelControls() {
+    // Event delegation for panel controls
+    const grid = $('#video-grid');
+
+    // Remove existing listeners by cloning (simple approach)
+    // Actually, we'll use a flag to prevent duplicate listeners
+    if (grid.dataset.initialized === 'true') return;
+    grid.dataset.initialized = 'true';
+
+    // Dropdown trigger click
+    grid.addEventListener('click', (e) => {
+        const trigger = e.target.closest('.cctv-select-trigger');
+        if (trigger) {
+            e.stopPropagation();
+            const container = trigger.parentElement;
+            const options = container.querySelector('.cctv-select-options');
+
+            // Close other dropdowns first
+            document.querySelectorAll('.cctv-select-options.active').forEach(opt => {
+                if (opt !== options) opt.classList.remove('active');
+            });
+
+            options.classList.toggle('active');
+            return;
+        }
+
+        // Option click
+        const option = e.target.closest('.cctv-option');
+        if (option) {
+            e.stopPropagation();
+            const panel = option.closest('.video-panel');
+            const slotIndex = parseInt(panel.dataset.slotIndex);
+            const cctvIndex = parseInt(option.dataset.cctvIndex);
+            const cctv = state.nearestCctvs[cctvIndex];
+
+            if (cctv) {
+                // Switch this panel to selected CCTV
+                attachStreamToPanel(panel, cctv, cctvIndex);
+            }
+
+            // Close dropdown
+            option.closest('.cctv-select-options').classList.remove('active');
+            return;
+        }
+
+        // Expand button click
+        const expandBtn = e.target.closest('.panel-expand-btn');
+        if (expandBtn) {
+            e.stopPropagation();
+            const panel = expandBtn.closest('.video-panel');
+            togglePanelExpand(panel, expandBtn);
+            return;
+        }
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', () => {
+        document.querySelectorAll('.cctv-select-options.active').forEach(opt => {
+            opt.classList.remove('active');
+        });
+    });
+}
+
+function attachStreamToPanel(panel, cctv, cctvIndex) {
+    // Remove existing media
+    const existingMedia = panel.querySelector('iframe, video');
+    if (existingMedia) existingMedia.remove();
+
+    // Create new video element
+    const video = createVideoElement(cctv);
+    const controls = panel.querySelector('.panel-controls');
+    if (controls) {
+        controls.after(video);
+    } else {
+        panel.prepend(video);
+    }
+
+    // Update panel data
+    panel.dataset.cctvId = cctv.id;
+
+    // Update trigger text
+    const trigger = panel.querySelector('.cctv-select-trigger');
+    if (trigger) {
+        trigger.textContent = cctv.name || `CCTV ${cctvIndex + 1}`;
+    }
+
+    // Update selected option
+    const options = panel.querySelectorAll('.cctv-option');
+    options.forEach((opt, i) => {
+        opt.classList.toggle('selected', i === cctvIndex);
+    });
+}
+
+function togglePanelExpand(panel, btn) {
+    const isExpanded = panel.classList.toggle('expanded');
+
+    // Update button icon
+    if (isExpanded) {
+        // Minimize icon
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M10 14L3 21"/>
+        </svg>`;
+        btn.title = '축소';
+    } else {
+        // Expand icon
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>
+        </svg>`;
+        btn.title = '확대';
+    }
 }
 
 function createVideoElement(cctv) {
