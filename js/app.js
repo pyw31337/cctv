@@ -293,8 +293,9 @@ function selectSearchResult(item) {
     const lat = parseFloat(item.dataset.lat);
     const lng = parseFloat(item.dataset.lng);
     const name = item.dataset.name;
+    const address = item.dataset.address || '';
 
-    selectPlace(lat, lng, name, '');
+    selectPlace(lat, lng, name, address);
 }
 
 function selectPlace(lat, lng, name, address) {
@@ -1143,15 +1144,15 @@ function setupVideoLayerPan() {
         const touch = e.touches ? e.touches[0] : e;
         const deltaX = (touch.clientX - startX) * 0.15;
         const deltaY = (touch.clientY - startY) * 0.15;
-        
+
         currentX = Math.max(0, Math.min(100, currentX - deltaX));
         currentY = Math.max(0, Math.min(100, currentY - deltaY));
-        
+
         const video = getVideoElement();
         if (video) {
             video.style.objectPosition = `${currentX}% ${currentY}%`;
         }
-        
+
         startX = touch.clientX;
         startY = touch.clientY;
     };
