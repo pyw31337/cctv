@@ -991,3 +991,20 @@ body {
 .panel-floating-close:active {
     transform: scale(0.95);
 }
+/* === Draggable Video Pan for Video Layer (Map Popup) === */
+.video-layer-content.maximized .video-frame video,
+.video-layer-content.maximized .video-frame iframe {
+    cursor: grab;
+    object-position: center center;
+    transition: object-position 0.1s ease-out;
+}
+
+.video-layer-content.maximized .video-frame video:active,
+.video-layer-content.maximized .video-frame iframe:active {
+    cursor: grabbing;
+}
+
+.video-layer-content.maximized.dragging .video-frame video,
+.video-layer-content.maximized.dragging .video-frame iframe {
+    transition: none;
+}

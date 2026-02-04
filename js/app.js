@@ -1116,3 +1116,65 @@ if (document.readyState === 'loading') {
 } else {
     setupVideoPan();
 }
+
+// === Drag to Pan for Video Layer (Map Popup) ===
+function setupVideoLayerPan() {
+    const content = document.querySelector('.video-layer-content');
+    if (!content) return;
+
+    let isDragging = false;
+    let startX, startY;
+    let currentX = 50, currentY = 50;
+
+    const getVideoElement = () => document.querySelector('#video-frame video, #video-frame iframe');
+
+    const onStart = (e) => {
+        if (!content.classList.contains('maximized')) return;
+        isDragging = true;
+        content.classList.add('dragging');
+        const touch = e.touches ? e.touches[0] : e;
+        startX = touch.clientX;
+        startY = touch.clientY;
+    };
+
+    const onMove = (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+        const touch = e.touches ? e.touches[0] : e;
+        const deltaX = (touch.clientX - startX) * 0.15;
+        const deltaY = (touch.clientY - startY) * 0.15;
+        
+        currentX = Math.max(0, Math.min(100, currentX - deltaX));
+        currentY = Math.max(0, Math.min(100, currentY - deltaY));
+        
+        const video = getVideoElement();
+        if (video) {
+            video.style.objectPosition = `${currentX}% ${currentY}%`;
+        }
+        
+        startX = touch.clientX;
+        startY = touch.clientY;
+    };
+
+    const onEnd = () => {
+        isDragging = false;
+        content.classList.remove('dragging');
+    };
+
+    const frame = document.getElementById('video-frame');
+    if (frame) {
+        frame.addEventListener('mousedown', onStart);
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+        frame.addEventListener('touchstart', onStart, { passive: true });
+        frame.addEventListener('touchmove', onMove, { passive: false });
+        frame.addEventListener('touchend', onEnd);
+    }
+}
+
+// Initialize video layer pan
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupVideoLayerPan);
+} else {
+    setupVideoLayerPan();
+}
