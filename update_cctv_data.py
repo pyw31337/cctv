@@ -137,9 +137,16 @@ def process_utic_item(item):
         url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
     
     # [Optimization] Deep Inspection for HLS
-    # Many UTIC streams are actually HLS wrapped in JSP.
-    # [Optimization Removed] Deep Inspection caused broken URLs
-    # We now trust the JSP URL directly.
+    try:
+        resp = requests.get(url, timeout=3, verify=False)
+        if resp.status_code == 200:
+            match = re.search(r'source\s+src="([^"]+\.m3u8)"', resp.text)
+            if match:
+                hls_url = match.group(1)
+                if hls_url.startswith("http"):
+                    url = hls_url
+    except Exception:
+        pass
 
     
     return {
