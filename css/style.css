@@ -818,10 +818,12 @@ body {
 .video-layer-content.maximized .video-frame video {
     width: auto !important;
     height: 100% !important;
-    max-width: none !important;
-    object-fit: fill !important;
-    flex-shrink: 0;
     min-width: 100%;
+    /* Ensure it fills at least width */
+    max-width: none !important;
+    object-fit: contain !important;
+    /* Ensure video isn't cropped inside the element */
+    flex-shrink: 0;
 }
 
 /* === Responsive === */
