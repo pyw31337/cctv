@@ -1061,7 +1061,26 @@ body {
     .video-panel.expanded .utic-iframe,
     .video-layer-content.maximized .utic-iframe {
         --scale: 1.35;
-        --default-y: -2%;
-        /* Slight shift up if needed for header/footer balance */
+        --default-y: 10%;
+        /* Shift DOWN (positive) to reveal top part */
+    }
+}
+
+/* Ensure container centers the iframe for consistent scaling origin behavior */
+.video-frame {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+/* Adjust Desktop default Y to be lower (positive) to show top part */
+@media (min-width: 1025px) {
+
+    .video-panel.expanded .utic-iframe,
+    .video-layer-content.maximized .utic-iframe {
+        --scale: 1.35;
+        --default-y: 10%;
+        /* Shift DOWN to reveal top */
     }
 }
