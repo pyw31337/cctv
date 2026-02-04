@@ -15,7 +15,7 @@ const state = {
 };
 
 let map = null;
-const SEARCH_MARKER_SRC = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png';
+const SEARCH_MARKER_SRC = 'https://maps.google.com/mapfiles/ms/icons/red-dot.png';
 
 
 // === DOM References (Cached) ===
@@ -1002,11 +1002,11 @@ function setupPwaInstallPrompt() {
     // Handle click
     prompt.addEventListener('click', async () => {
         if (!deferredPrompt) return;
-        
+
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
         console.log('PWA Install:', outcome);
-        
+
         deferredPrompt = null;
         hideInstallPrompt();
     });
@@ -1040,4 +1040,67 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', setupPwaInstallPrompt);
 } else {
     setupPwaInstallPrompt();
+}
+
+// === Drag to Pan for Expanded Video Panels ===
+function setupVideoPan() {
+    const panels = document.querySelectorAll('.video-panel');
+    
+    panels.forEach(panel => {
+        let isDragging = false;
+        let startX, startY;
+        let currentX = 50, currentY = 50; // Object position percentages
+
+        const getVideoElement = () => panel.querySelector('video, iframe');
+
+        const onStart = (e) => {
+            if (!panel.classList.contains('expanded')) return;
+            isDragging = true;
+            panel.classList.add('dragging');
+            const touch = e.touches ? e.touches[0] : e;
+            startX = touch.clientX;
+            startY = touch.clientY;
+        };
+
+        const onMove = (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            const touch = e.touches ? e.touches[0] : e;
+            const deltaX = (touch.clientX - startX) * 0.15; // Sensitivity
+            const deltaY = (touch.clientY - startY) * 0.15;
+            
+            currentX = Math.max(0, Math.min(100, currentX - deltaX));
+            currentY = Math.max(0, Math.min(100, currentY - deltaY));
+            
+            const video = getVideoElement();
+            if (video) {
+                video.style.objectPosition = `${currentX}% ${currentY}%`;
+            }
+            
+            startX = touch.clientX;
+            startY = touch.clientY;
+        };
+
+        const onEnd = () => {
+            isDragging = false;
+            panel.classList.remove('dragging');
+        };
+
+        // Mouse events
+        panel.addEventListener('mousedown', onStart);
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+
+        // Touch events
+        panel.addEventListener('touchstart', onStart, { passive: true });
+        panel.addEventListener('touchmove', onMove, { passive: false });
+        panel.addEventListener('touchend', onEnd);
+    });
+}
+
+// Initialize pan feature
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupVideoPan);
+} else {
+    setupVideoPan();
 }

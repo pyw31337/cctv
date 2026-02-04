@@ -927,3 +927,21 @@ body {
 .pwa-prompt.collapsed:hover {
     transform: scale(1.1);
 }
+
+/* === Draggable Video Pan (for expanded panels) === */
+.video-panel.expanded video,
+.video-panel.expanded iframe {
+    cursor: grab;
+    object-position: center center;
+    transition: object-position 0.1s ease-out;
+}
+
+.video-panel.expanded video:active,
+.video-panel.expanded iframe:active {
+    cursor: grabbing;
+}
+
+.video-panel.expanded.dragging video,
+.video-panel.expanded.dragging iframe {
+    transition: none;
+}
