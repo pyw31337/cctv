@@ -137,9 +137,19 @@ def process_utic_item(item):
         url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
     
     # [Optimization] Direct Pattern Construction (Instant, no server request)
-    # 1. Changhyeon/Maseok Server (211.57.45.101)
+    # 1. Changhyeon/Maseok Server (211.57.45.101) - Uses 'cctvid'
     if 'cctvip=211.57.45.101' in url and cctvid:
         url = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
+    
+    # 2. Incheon/Gyeonggi Servers (210.95.12.126, 211.114.87.164) - Uses 'id' param, HTTP port 80
+    elif ('cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url):
+        # Extract 'id' param (distinct from cctvid)
+        id_match = re.search(r'[?&]id=([^&]+)', url)
+        if id_match:
+            real_id = id_match.group(1)
+            # Find which IP is used
+            ip = '210.95.12.126' if 'cctvip=210.95.12.126' in url else '211.114.87.164'
+            url = f"http://{ip}/media/{real_id}/chunklist.m3u8"
     else:
         # [Optimization] Deep Inspection for HLS (Only if not already optimized)
         # We try to find the real video URL (.m3u8 or .mp4) to avoid black bars in iframe
@@ -262,14 +272,24 @@ def refine_cctv_data(cctv_list):
     optimized_count = 0
     for item in cctv_list:
         url = item.get('url', '')
-        # Only process if it's UTIC and NOT already optimized (still has .jsp)
-        if item.get('source') == 'UTIC' and 'jsp' in url and 'cctvip=211.57.45.101' in url:
-            # Extract cctvid
-            match = re.search(r'cctvid=([^&]+)', url)
-            if match:
-                cctvid = match.group(1)
-                item['url'] = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
-                optimized_count += 1
+        if item.get('source') == 'UTIC' and 'jsp' in url:
+            
+            # Pattern A: 211.57.45.101 (uses cctvid)
+            if 'cctvip=211.57.45.101' in url:
+                match = re.search(r'cctvid=([^&]+)', url)
+                if match:
+                    cctvid = match.group(1)
+                    item['url'] = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
+                    optimized_count += 1
+            
+            # Pattern B: 210.95.12.126, 211.114.87.164 (uses id param)
+            elif 'cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url:
+                match = re.search(r'[?&]id=([^&]+)', url)
+                if match:
+                    real_id = match.group(1)
+                    ip = '210.95.12.126' if 'cctvip=210.95.12.126' in url else '211.114.87.164'
+                    item['url'] = f"http://{ip}/media/{real_id}/chunklist.m3u8"
+                    optimized_count += 1
     
     print(f"Direct Pattern Optimization applied to {optimized_count} items (Instant).")
 
