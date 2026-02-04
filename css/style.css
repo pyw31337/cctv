@@ -842,3 +842,88 @@ body {
     color: var(--text-secondary);
     margin-left: 4px;
 }
+/* === PWA Install Prompt === */
+.pwa-prompt {
+    position: fixed;
+    bottom: 80px; /* Above header/search bar */
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+    color: white;
+    padding: 12px 16px;
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow), 0 0 20px rgba(34, 197, 94, 0.3);
+    cursor: pointer;
+    z-index: 1003;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    max-width: 300px;
+}
+
+.pwa-prompt.hidden {
+    opacity: 0;
+    transform: translateY(20px) scale(0.9);
+    pointer-events: none;
+}
+
+.pwa-prompt.visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.pwa-prompt-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+}
+
+.pwa-prompt-icon svg {
+    animation: bounce 1s ease-in-out infinite;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+
+.pwa-prompt-text {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Collapsed state (circular button) */
+.pwa-prompt.collapsed {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+}
+
+.pwa-prompt.collapsed .pwa-prompt-text {
+    opacity: 0;
+    width: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.pwa-prompt.collapsed .pwa-prompt-icon svg {
+    animation: none;
+}
+
+.pwa-prompt:hover {
+    transform: scale(1.05);
+    box-shadow: var(--shadow), 0 0 30px rgba(34, 197, 94, 0.5);
+}
+
+.pwa-prompt.collapsed:hover {
+    transform: scale(1.1);
+}

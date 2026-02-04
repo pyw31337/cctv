@@ -978,3 +978,66 @@ function setupMobileKeyboardHandling() {
         setTimeout(resetLayout, 100);
     });
 }
+
+// === PWA Install Prompt ===
+let deferredPrompt = null;
+
+function setupPwaInstallPrompt() {
+    const prompt = document.getElementById('pwa-install-prompt');
+    if (!prompt) return;
+
+    // Check if already installed (standalone mode)
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        prompt.remove();
+        return;
+    }
+
+    // Listen for beforeinstallprompt
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        showInstallPrompt();
+    });
+
+    // Handle click
+    prompt.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log('PWA Install:', outcome);
+        
+        deferredPrompt = null;
+        hideInstallPrompt();
+    });
+}
+
+function showInstallPrompt() {
+    const prompt = document.getElementById('pwa-install-prompt');
+    if (!prompt) return;
+
+    // Show as expanded banner
+    prompt.classList.remove('hidden', 'collapsed');
+    prompt.classList.add('visible');
+
+    // Collapse to button after 2.5 seconds
+    setTimeout(() => {
+        prompt.classList.add('collapsed');
+    }, 2500);
+}
+
+function hideInstallPrompt() {
+    const prompt = document.getElementById('pwa-install-prompt');
+    if (!prompt) {
+        return;
+    }
+    prompt.classList.remove('visible');
+    prompt.classList.add('hidden');
+}
+
+// Initialize on DOM ready (add to existing DOMContentLoaded or call separately)
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupPwaInstallPrompt);
+} else {
+    setupPwaInstallPrompt();
+}
