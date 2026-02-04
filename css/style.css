@@ -958,8 +958,10 @@ body {
 /* === Floating Close Button for Expanded Panel === */
 .panel-floating-close {
     display: none;
-    position: absolute;
-    bottom: calc(80px + env(safe-area-inset-bottom, 16px));
+    position: fixed;
+    /* Fixed to viewport, not panel */
+    bottom: 72px;
+    /* Above header (header-inner padding + content ~60px + gap) */
     right: 16px;
     width: 48px;
     height: 48px;
