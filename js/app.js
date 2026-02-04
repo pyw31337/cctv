@@ -478,6 +478,18 @@ function initPanelControls() {
             togglePanelExpand(panel, expandBtn);
             return;
         }
+
+        // Floating close button click (collapse expanded panel)
+        const floatingClose = e.target.closest('.panel-floating-close');
+        if (floatingClose) {
+            e.stopPropagation();
+            const panel = floatingClose.closest('.video-panel');
+            if (panel && panel.classList.contains('expanded')) {
+                const expandBtn = panel.querySelector('.panel-expand-btn');
+                togglePanelExpand(panel, expandBtn);
+            }
+            return;
+        }
     });
 
     // Close dropdowns when clicking outside
@@ -1045,7 +1057,7 @@ if (document.readyState === 'loading') {
 // === Drag to Pan for Expanded Video Panels ===
 function setupVideoPan() {
     const panels = document.querySelectorAll('.video-panel');
-    
+
     panels.forEach(panel => {
         let isDragging = false;
         let startX, startY;
@@ -1068,15 +1080,15 @@ function setupVideoPan() {
             const touch = e.touches ? e.touches[0] : e;
             const deltaX = (touch.clientX - startX) * 0.15; // Sensitivity
             const deltaY = (touch.clientY - startY) * 0.15;
-            
+
             currentX = Math.max(0, Math.min(100, currentX - deltaX));
             currentY = Math.max(0, Math.min(100, currentY - deltaY));
-            
+
             const video = getVideoElement();
             if (video) {
                 video.style.objectPosition = `${currentX}% ${currentY}%`;
             }
-            
+
             startX = touch.clientX;
             startY = touch.clientY;
         };

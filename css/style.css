@@ -945,3 +945,38 @@ body {
 .video-panel.expanded.dragging iframe {
     transition: none;
 }
+
+/* === Floating Close Button for Expanded Panel === */
+.panel-floating-close {
+    display: none;
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    width: 48px;
+    height: 48px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    z-index: 15;
+    transition: all var(--transition);
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+}
+
+.video-panel.expanded .panel-floating-close {
+    display: flex;
+}
+
+.panel-floating-close:hover {
+    background: rgba(239, 68, 68, 0.8);
+    border-color: rgba(239, 68, 68, 0.8);
+    transform: scale(1.1);
+}
+
+.panel-floating-close:active {
+    transform: scale(0.95);
+}
