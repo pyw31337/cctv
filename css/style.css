@@ -815,14 +815,19 @@ body {
 }
 
 /* Maximized Video Styling: Allow panning */
+/* Maximized Video Styling: Allow panning */
 .video-layer-content.maximized .video-frame video {
     width: auto !important;
     height: 100% !important;
     min-width: 100%;
-    /* Ensure it fills at least width */
     max-width: none !important;
-    object-fit: contain !important;
-    /* Ensure video isn't cropped inside the element */
+
+    /* FORCE Width expansion based on Height */
+    aspect-ratio: 16 / 9 !important;
+
+    /* Fill this forced box */
+    object-fit: fill !important;
+
     flex-shrink: 0;
 }
 
