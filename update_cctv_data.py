@@ -136,14 +136,18 @@ def process_utic_item(item):
     elif "E63" in cctv_id_str:
         url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
     
-    # [Optimization] Deep Inspection for HLS
-    # [Optimization] Deep Inspection for HLS
-    # We try to find the real video URL (.m3u8 or .mp4) to avoid black bars in iframe
-    try:
-        resp = requests.get(url, timeout=4, verify=False)
-        if resp.status_code == 200:
-            html = resp.text
-            found_video = False
+    # [Optimization] Direct Pattern Construction (Instant, no server request)
+    # 1. Changhyeon/Maseok Server (211.57.45.101)
+    if 'cctvip=211.57.45.101' in url and cctvid:
+        url = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
+    else:
+        # [Optimization] Deep Inspection for HLS (Only if not already optimized)
+        # We try to find the real video URL (.m3u8 or .mp4) to avoid black bars in iframe
+        try:
+            resp = requests.get(url, timeout=4, verify=False)
+            if resp.status_code == 200:
+                html = resp.text
+                found_video = False
             
             # Pattern 1: src="...m3u8"
             match = re.search(r'src="([^"]+\.m3u8[^"]*)"', html)
@@ -180,8 +184,8 @@ def process_utic_item(item):
                         log.write(f"\n--- FAIL: {cctv_id} ({name}) ---\n")
                         log.write(html[:1000] + "...\n")
 
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     
     return {
@@ -254,7 +258,22 @@ def refine_cctv_data(cctv_list):
     """
     print(f"Refining {len(cctv_list)} items for Deep Inspection...")
     
-    # Filter items that need inspection (UTIC source, JSP url OR HRFCO popup)
+    # 1. Apply Direct Pattern Construction FIRST (Instant, no server request)
+    optimized_count = 0
+    for item in cctv_list:
+        url = item.get('url', '')
+        # Only process if it's UTIC and NOT already optimized (still has .jsp)
+        if item.get('source') == 'UTIC' and 'jsp' in url and 'cctvip=211.57.45.101' in url:
+            # Extract cctvid
+            match = re.search(r'cctvid=([^&]+)', url)
+            if match:
+                cctvid = match.group(1)
+                item['url'] = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
+                optimized_count += 1
+    
+    print(f"Direct Pattern Optimization applied to {optimized_count} items (Instant).")
+
+    # 2. Filter items that need inspection (UTIC source, JSP url OR HRFCO popup)
     targets = [
         item for item in cctv_list 
         if item.get('source') == 'UTIC' and ('openDataCctvStream.jsp' in item.get('url', '') or 'cctvPopup.do' in item.get('url', ''))
