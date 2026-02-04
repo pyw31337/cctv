@@ -101,10 +101,12 @@ function setupEventListeners() {
 
     // Search Results Click (Delegation for items, bookmark, delete)
     $('#search-results').addEventListener('click', (e) => {
+        const item = e.target.closest('.search-result-item');
+        if (!item) return;
+
         const actionBtn = e.target.closest('[data-action]');
         if (actionBtn) {
             e.stopPropagation();
-            const item = actionBtn.closest('.search-result-item');
             const itemData = {
                 lat: parseFloat(item.dataset.lat),
                 lng: parseFloat(item.dataset.lng),
@@ -120,7 +122,7 @@ function setupEventListeners() {
             return;
         }
 
-        if (item) selectSearchResult(item);
+        selectSearchResult(item);
     });
 
     // Mobile Keyboard Handling
@@ -788,18 +790,34 @@ function openVideoLayer(cctv) {
     frame.appendChild(video);
 
     // Add Expand Toggle Button if not exists
+    const header = $('.video-layer-header');
+    let actionContainer = header.querySelector('.video-header-actions');
+
+    // Create container if it doesn't exist (and move close button into it)
+    if (!actionContainer) {
+        actionContainer = document.createElement('div');
+        actionContainer.className = 'video-header-actions';
+
+        const closeBtn = $('#video-layer-close');
+        // temporarily remove close button to append it to container
+        if (closeBtn && closeBtn.parentNode === header) {
+            header.removeChild(closeBtn);
+        }
+
+        header.appendChild(actionContainer);
+        if (closeBtn) actionContainer.appendChild(closeBtn);
+    }
+
     let toggleBtn = $('#video-layer-toggle');
     if (!toggleBtn) {
-        const header = $('.video-layer-header');
         toggleBtn = document.createElement('button');
         toggleBtn.id = 'video-layer-toggle';
         toggleBtn.className = 'layer-toggle-btn';
         toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
-        toggleBtn.style.marginRight = '8px';
 
-        // Insert before close button
+        // Insert before close button in the container
         const closeBtn = $('#video-layer-close');
-        header.insertBefore(toggleBtn, closeBtn);
+        actionContainer.insertBefore(toggleBtn, closeBtn);
 
         toggleBtn.addEventListener('click', () => {
             const content = $('.video-layer-content');
