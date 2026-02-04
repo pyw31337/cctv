@@ -140,7 +140,8 @@ def process_utic_item(item):
     try:
         resp = requests.get(url, timeout=3, verify=False)
         if resp.status_code == 200:
-            match = re.search(r'source\s+src="([^"]+\.m3u8)"', resp.text)
+            # Simplified regex: just look for src="...m3u8"
+            match = re.search(r'src="([^"]+\.m3u8)"', resp.text)
             if match:
                 hls_url = match.group(1)
                 if hls_url.startswith("http"):
