@@ -991,6 +991,7 @@ body {
 .panel-floating-close:active {
     transform: scale(0.95);
 }
+
 /* === Draggable Video Pan for Video Layer (Map Popup) === */
 .video-layer-content.maximized .video-frame video,
 .video-layer-content.maximized .video-frame iframe {
@@ -1014,21 +1015,53 @@ body {
     --scale: 1.0;
     --tx: 0px;
     --ty: 0px;
-    transform: scale(var(--scale)) translate(var(--tx), var(--ty));
+    --default-y: 0px;
+    /* Vertical centering adjustment */
+
+    /* Combine scale, drag translation, and default vertical offset */
+    transform: scale(var(--scale)) translate(var(--tx), calc(var(--ty) + var(--default-y)));
     transform-origin: center center;
     transition: transform 0.1s ease-out;
+    will-change: transform;
 }
 
-/* Expanded/Maximized State: Scale Up */
+/* Expanded/Maximized State: Device-Specific Tuning */
 .video-panel.expanded .utic-iframe,
 .video-layer-content.maximized .utic-iframe {
     --scale: 1.35;
-    /* Allows centering logic via transform */
+    --default-y: 0px;
+    object-fit: fill !important;
 }
 
-/* Disable object-fit/position logic for UTIC iframes (since we use transform) */
-.video-panel.expanded .utic-iframe,
-.video-layer-content.maximized .utic-iframe {
-    object-fit: fill !important; 
-    /* object-position is irrelevant for iframe content, so we rely on transform */
+/* Mobile (Portrait) - Center alignment focus */
+@media (max-width: 480px) {
+
+    .video-panel.expanded .utic-iframe,
+    .video-layer-content.maximized .utic-iframe {
+        --scale: 1.45;
+        /* Slightly larger on small screens to fill width */
+        --default-y: 0px;
+        /* Usually centered by flex/grid, but adjust if video has top/bottom bars */
+    }
+}
+
+/* Tablet / Large Mobile Landscape */
+@media (min-width: 481px) and (max-width: 1024px) {
+
+    .video-panel.expanded .utic-iframe,
+    .video-layer-content.maximized .utic-iframe {
+        --scale: 1.35;
+        --default-y: 0px;
+    }
+}
+
+/* Desktop */
+@media (min-width: 1025px) {
+
+    .video-panel.expanded .utic-iframe,
+    .video-layer-content.maximized .utic-iframe {
+        --scale: 1.35;
+        --default-y: -2%;
+        /* Slight shift up if needed for header/footer balance */
+    }
 }
