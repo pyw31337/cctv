@@ -254,13 +254,13 @@ def refine_cctv_data(cctv_list):
     """
     print(f"Refining {len(cctv_list)} items for Deep Inspection...")
     
-    # Filter items that need inspection (UTIC source, JSP url)
+    # Filter items that need inspection (UTIC source, JSP url OR HRFCO popup)
     targets = [
         item for item in cctv_list 
-        if item.get('source') == 'UTIC' and 'openDataCctvStream.jsp' in item.get('url', '')
+        if item.get('source') == 'UTIC' and ('openDataCctvStream.jsp' in item.get('url', '') or 'cctvPopup.do' in item.get('url', ''))
     ]
     
-    print(f"Found {len(targets)} items needing Deep Inspection (JSP wrapper).")
+    print(f"Found {len(targets)} items needing Deep Inspection (JSP wrapper/HRFCO).")
     if not targets:
         return cctv_list
 
@@ -272,11 +272,12 @@ def refine_cctv_data(cctv_list):
             if resp.status_code == 200:
                 html = resp.text
                 
-                # Regex patterns (same as process_utic_item)
+                # Regex patterns (same as process_utic_item + HRFCO vars)
                 patterns = [
                     r'src="([^"]+\.m3u8[^"]*)"',
                     r'src="([^"]+\.mp4[^"]*)"',
-                    r'source\s+src="([^"]+)"\s+type="application/x-mpegURL"'
+                    r'source\s+src="([^"]+)"\s+type="application/x-mpegURL"',
+                    r'var\s+[lh]url\s*=\s*"([^"]+)"'  # HRFCO: var lurl = "..."
                 ]
                 
                 for pat in patterns:
