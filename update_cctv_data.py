@@ -335,12 +335,32 @@ def refine_cctv_data(cctv_list):
 
     # Process in parallel (Ultra-Safe Mode: SEQUENTIAL to avoid blocking)
     modified_count = 0
-    # max_workers=1 essentially makes it sequential, but keeps the futures interface.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        # We process 'targets' but 'item' is a reference to the dict in 'cctv_list',
-        # so modifying 'item' modifies the original list.
-        results = list(executor.map(inspect_item, targets))
-        modified_count = sum(1 for r in results if r)
+    save_interval = 10
+    total_targets = len(targets)
+    
+    print(f"Starting sequential inspection of {total_targets} items with incremental saving...")
+    
+    # Use simple loop for maximum safety and easy incremental saving
+    for i, item in enumerate(targets):
+        if inspect_item(item):
+            modified_count += 1
+            print(f"[Fixed] {item.get('name')}")
+        
+        # Save every 10 items
+        if (i + 1) % save_interval == 0:
+            print(f"Progress: {i+1}/{total_targets} (Modified: {modified_count}). Saving data...")
+            try:
+                # Save the ENTIRE cctv_list (since item is a ref to it)
+                # Ensure we are saving to the correct path. Ideally pass path or use global constant?
+                # Using 'cctv_data.json' relative path as per existing code convention
+                with open('cctv_data.json', 'w', encoding='utf-8') as f:
+                    json.dump(cctv_list, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"Error saving data: {e}")
+                
+    # Final save
+    with open('cctv_data.json', 'w', encoding='utf-8') as f:
+        json.dump(cctv_list, f, indent=2, ensure_ascii=False)
 
     print(f"Deep Inspection completed. Optimized {modified_count} URLs.")
     return cctv_list
