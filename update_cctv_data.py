@@ -313,9 +313,10 @@ def refine_cctv_data(cctv_list):
             
         return False # Not modified
 
-    # Process in parallel (Ultra-Safe Mode: VERY Low concurrency)
+    # Process in parallel (Ultra-Safe Mode: SEQUENTIAL to avoid blocking)
     modified_count = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    # max_workers=1 essentially makes it sequential, but keeps the futures interface.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         # We process 'targets' but 'item' is a reference to the dict in 'cctv_list',
         # so modifying 'item' modifies the original list.
         results = list(executor.map(inspect_item, targets))
