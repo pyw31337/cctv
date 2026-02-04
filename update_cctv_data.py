@@ -265,7 +265,7 @@ def refine_cctv_data(cctv_list):
         return cctv_list
 
     def inspect_item(item):
-        time.sleep(0.5) # Politeness delay
+        time.sleep(1.0) # Ultra-Safe Politeness delay
         url = item['url']
         try:
             resp = requests.get(url, timeout=4, verify=False)
@@ -287,13 +287,16 @@ def refine_cctv_data(cctv_list):
                         if new_url.startswith("http"):
                             item['url'] = new_url
                             return True # Modified
-        except Exception:
-            pass
+        except Exception as e:
+            # Smart Backoff: If we hit a timeout/error, wait 15s to clear the "3 errors in 10s" window
+            print(f"[Smart Backoff] Error inspecting {item.get('name')}: {e}. Sleeping 15s...")
+            time.sleep(15)
+            
         return False # Not modified
 
-    # Process in parallel (Safe Mode: Low concurrency)
+    # Process in parallel (Ultra-Safe Mode: VERY Low concurrency)
     modified_count = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         # We process 'targets' but 'item' is a reference to the dict in 'cctv_list',
         # so modifying 'item' modifies the original list.
         results = list(executor.map(inspect_item, targets))
