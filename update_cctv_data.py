@@ -57,12 +57,17 @@ def fetch_its_data():
             lat = float(item.get("coordy"))
             cctv_id = f"NTIC_{cctv_name}_{lng}"
             
+
+            url = item.get("cctvurl")
+            if url and "cctvsec.ktict.co.kr" in url and url.startswith("http://"):
+                url = url.replace("http://", "https://")
+
             cctv_entry = {
                 "id": cctv_id,
                 "name": cctv_name,
                 "lat": lat,
                 "lng": lng,
-                "url": item.get("cctvurl"),
+                "url": url,
                 "source": "NTIC",
                 "status": "active"
             }
