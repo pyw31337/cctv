@@ -1025,45 +1025,11 @@ body {
     will-change: transform;
 }
 
-/* Expanded/Maximized State: Device-Specific Tuning */
+/* Expanded/Maximized State: Device-Specific Tuning managed by JS updateUticLayout() */
 .video-panel.expanded .utic-iframe,
 .video-layer-content.maximized .utic-iframe {
-    --scale: 1.35;
-    --default-y: 0px;
     object-fit: fill !important;
-}
-
-/* Mobile (Portrait) - Center alignment focus */
-@media (max-width: 480px) {
-
-    .video-panel.expanded .utic-iframe,
-    .video-layer-content.maximized .utic-iframe {
-        --scale: 1.45;
-        /* Slightly larger on small screens to fill width */
-        --default-y: 0px;
-        /* Usually centered by flex/grid, but adjust if video has top/bottom bars */
-    }
-}
-
-/* Tablet / Large Mobile Landscape */
-@media (min-width: 481px) and (max-width: 1024px) {
-
-    .video-panel.expanded .utic-iframe,
-    .video-layer-content.maximized .utic-iframe {
-        --scale: 1.35;
-        --default-y: 0px;
-    }
-}
-
-/* Desktop */
-@media (min-width: 1025px) {
-
-    .video-panel.expanded .utic-iframe,
-    .video-layer-content.maximized .utic-iframe {
-        --scale: 1.35;
-        --default-y: 10%;
-        /* Shift DOWN (positive) to reveal top part */
-    }
+    /* Transformation handled by JS dynamically */
 }
 
 /* Ensure container centers the iframe for consistent scaling origin behavior */
@@ -1072,15 +1038,4 @@ body {
     align-items: center;
     justify-content: center;
     overflow: hidden;
-}
-
-/* Adjust Desktop default Y to be lower (positive) to show top part */
-@media (min-width: 1025px) {
-
-    .video-panel.expanded .utic-iframe,
-    .video-layer-content.maximized .utic-iframe {
-        --scale: 1.35;
-        --default-y: 10%;
-        /* Shift DOWN to reveal top */
-    }
 }

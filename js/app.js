@@ -552,6 +552,9 @@ function togglePanelExpand(panel, btn) {
         </svg>`;
         btn.title = '확대';
     }
+
+    // Update layout for UTIC scaling
+    setTimeout(updateUticLayout, 50); // Small delay for transition
 }
 
 function createVideoElement(cctv) {
@@ -865,6 +868,8 @@ function openVideoLayer(cctv) {
             } else {
                 toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
             }
+
+            setTimeout(updateUticLayout, 50); // Recalculate layout
         });
     }
 
@@ -1253,3 +1258,78 @@ if (document.readyState === 'loading') {
 } else {
     setupVideoLayerPan();
 }
+
+// === Dynamic UTIC Layout Calculation ===
+function updateUticLayout() {
+    const panels = document.querySelectorAll('.video-panel.expanded .utic-iframe');
+    const layer = document.querySelector('.video-layer-content.maximized .utic-iframe');
+    const targets = [...panels];
+    if (layer) targets.push(layer);
+
+    targets.forEach(iframe => {
+        const container = iframe.closest('.video-panel') || iframe.closest('.video-layer-content');
+        if (!container) return;
+
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        const cRatio = cw / ch;
+        const vRatio = 16 / 9; // Assume standard 16:9 stream
+
+        // Calculate scale to COVER the container
+        // Original iframe size is 100% w, 100% h.
+        // Aspect ratio of iframe box is cRatio.
+        // We act as if the content is vRatio.
+
+        let scale = 1;
+        // If container is taller than video (Portrait like):
+        // Video has top/bottom bars. Content fills width.
+        // Content Height = cw / vRatio.
+        // We want Content Height >= ch.
+        // Scale = ch / (cw / vRatio) = (ch * vRatio) / cw.
+
+        // If container is wider than video (Landscape like):
+        // Video has side bars. Content fills height.
+        // Content Width = ch * vRatio.
+        // We want Content Width >= cw.
+        // Scale = (ch * vRatio) / cw ?? No.
+        // If content is filling height, current rendered width is ch * vRatio.
+        // Wait, if iframe is 100% w/h, and internal player preserves aspect ratio:
+        // Case A (Tall Container): Player fits width (100% cw). Height is cw/vRatio.
+        // To fill height: scale = ch / (cw/vRatio).
+
+        // Case B (Wide Container): Player fits height (100% ch). Width is ch*vRatio.
+        // But iframe width is cw.
+        // The player renders in center with side bars.
+        // Rendered Width = ch * vRatio.
+        // To fill width: scale = cw / (ch * vRatio).
+
+        // Let's implement this logic:
+        if (cRatio < vRatio) {
+            // Container is Taller (narrower) than Video (e.g. Mobile Portrait)
+            // Video fits width. Height is small.
+            // Scale to fill height.
+            scale = (ch * vRatio) / cw;
+        } else {
+            // Container is Wider than Video (e.g. PC Landscape)
+            // Video fits height. Width is small.
+            // Scale to fill width.
+            scale = cw / (ch * vRatio);
+        }
+
+        // Apply a minimum scale of 1.0 and maybe a slight bonus for safety
+        scale = Math.max(scale, 1.0) * 1.01;
+
+        // Apply to CSS variable
+        iframe.style.setProperty('--scale', scale.toFixed(3));
+
+        // Reset default-y as we handle centering via drag/flex mostly,
+        // but let's keep it 0 to rely on transform centering.
+        iframe.style.setProperty('--default-y', '0px');
+    });
+}
+
+// Bind events
+window.addEventListener('resize', updateUticLayout);
+// Call periodically or on hooks? 
+// We'll call checking visibility in animation loops or mutation observers?
+// Simplest is to call whenever we expand/collapse.
