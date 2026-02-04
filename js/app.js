@@ -10,6 +10,7 @@ const state = {
     keyword: '서울역',
     cctvData: [],
     nearestCctvs: [],
+    markers: [], // Array to store Kakao map markers
     mapInitialized: false,
     searchMarker: null // Reference to the red marker
 };
@@ -311,6 +312,7 @@ function selectPlace(lat, lng, name, address) {
     // Update CCTVs
     updateNearestCctvs();
     renderVideoGrid();
+    renderMapMarkers(); // Update markers on map
 
     // Update Map if Active
     if (map) {
@@ -664,6 +666,19 @@ function initMap() {
     map = new kakao.maps.Map(container, options);
     state.mapInitialized = true;
 
+    // Map Move Event handler
+    const handleMapMove = () => {
+        const center = map.getCenter();
+        state.center = { lat: center.getLat(), lng: center.getLng() };
+        updateNearestCctvs();
+        renderMapMarkers();
+        // Also update video grid so it stays in sync when switching back
+        renderVideoGrid();
+    };
+
+    kakao.maps.event.addListener(map, 'dragend', handleMapMove);
+    kakao.maps.event.addListener(map, 'zoom_changed', handleMapMove);
+
     // Add Markers for nearest CCTVs
     renderMapMarkers();
 
@@ -679,15 +694,23 @@ function initMap() {
 function renderMapMarkers() {
     if (!map) return;
 
+    // Clear existing markers
+    state.markers.forEach(marker => marker.setMap(null));
+    state.markers = [];
+
+    // Render new markers (max 50 to prevent clutter)
     state.nearestCctvs.slice(0, 50).forEach(cctv => {
         const marker = new kakao.maps.Marker({
             position: new kakao.maps.LatLng(cctv.lat, cctv.lng),
-            map: map
+            map: map,
+            title: cctv.name // Add hover title
         });
 
         kakao.maps.event.addListener(marker, 'click', () => {
             openVideoLayer(cctv);
         });
+
+        state.markers.push(marker);
     });
 }
 
