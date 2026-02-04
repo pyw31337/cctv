@@ -546,23 +546,14 @@ function createVideoElement(cctv) {
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
 
     // UTIC Portal URLs - use iframe (kind=EE CCTVs are filtered out in updateNearestCctvs)
-    // UTIC Portal URLs - use iframe with crop wrapper
     if (isUtic) {
-        // Wrapper for cropping (zooms in to hide black bars/header)
-        const wrapper = document.createElement('div');
-        wrapper.className = 'iframe-crop-wrapper';
-        wrapper.style.cssText = 'width:100%;height:100%;overflow:hidden;position:relative;background:#000;';
-
         const iframe = document.createElement('iframe');
         iframe.src = url;
-        iframe.className = 'utic-iframe-crop';
-        // Force scrolling no on the iframe
-        iframe.scrolling = 'no';
+        iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
         iframe.allow = 'autoplay; fullscreen';
+        iframe.scrolling = 'no';
         iframe.setAttribute('allowfullscreen', '');
-
-        wrapper.appendChild(iframe);
-        return wrapper;
+        return iframe;
     }
 
     // HLS streams (.m3u8 or ktict) - use HLS.js
