@@ -1008,3 +1008,27 @@ body {
 .video-layer-content.maximized.dragging .video-frame iframe {
     transition: none;
 }
+
+/* === UTIC Iframe Scaling & Drag === */
+.utic-iframe {
+    --scale: 1.0;
+    --tx: 0px;
+    --ty: 0px;
+    transform: scale(var(--scale)) translate(var(--tx), var(--ty));
+    transform-origin: center center;
+    transition: transform 0.1s ease-out;
+}
+
+/* Expanded/Maximized State: Scale Up */
+.video-panel.expanded .utic-iframe,
+.video-layer-content.maximized .utic-iframe {
+    --scale: 1.35;
+    /* Allows centering logic via transform */
+}
+
+/* Disable object-fit/position logic for UTIC iframes (since we use transform) */
+.video-panel.expanded .utic-iframe,
+.video-layer-content.maximized .utic-iframe {
+    object-fit: fill !important; 
+    /* object-position is irrelevant for iframe content, so we rely on transform */
+}

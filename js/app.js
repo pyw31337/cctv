@@ -564,6 +564,7 @@ function createVideoElement(cctv) {
     if (isUtic) {
         const iframe = document.createElement('iframe');
         iframe.src = url;
+        iframe.className = 'utic-iframe'; // Add class for specific styling
         iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
         iframe.allow = 'autoplay; fullscreen';
         iframe.scrolling = 'no';
@@ -1085,7 +1086,8 @@ function setupVideoPan() {
     panels.forEach(panel => {
         let isDragging = false;
         let startX, startY;
-        let currentX = 50, currentY = 50; // Object position percentages
+        let currentX = 50, currentY = 50; // Object position percentages (Video)
+        let transX = 0, transY = 0; // Transform pixels (UTIC Iframe)
 
         const getVideoElement = () => panel.querySelector('video, iframe');
 
@@ -1102,20 +1104,40 @@ function setupVideoPan() {
             const touch = e.touches ? e.touches[0] : e;
             startX = touch.clientX;
             startY = touch.clientY;
+
+            // Initialize transformation values from current element style
+            const video = getVideoElement();
+            if (video && video.classList.contains('utic-iframe')) {
+                transX = parseFloat(video.style.getPropertyValue('--tx')) || 0;
+                transY = parseFloat(video.style.getPropertyValue('--ty')) || 0;
+            }
         };
 
         const onMove = (e) => {
             if (!isDragging) return;
             e.preventDefault();
             const touch = e.touches ? e.touches[0] : e;
-            const deltaX = (touch.clientX - startX) * 0.15; // Sensitivity
-            const deltaY = (touch.clientY - startY) * 0.15;
-
-            currentX = Math.max(0, Math.min(100, currentX - deltaX));
-            currentY = Math.max(0, Math.min(100, currentY - deltaY));
 
             const video = getVideoElement();
-            if (video) {
+            if (!video) return;
+
+            // UTIC Iframe: Use Transform Translate
+            if (video.classList.contains('utic-iframe')) {
+                const dx = (touch.clientX - startX);
+                const dy = (touch.clientY - startY);
+
+                transX += dx;
+                transY += dy;
+
+                video.style.setProperty('--tx', `${transX}px`);
+                video.style.setProperty('--ty', `${transY}px`);
+            } else {
+                // Normal Video: Object Position (Percent)
+                const deltaX = (touch.clientX - startX) * 0.15;
+                const deltaY = (touch.clientY - startY) * 0.15;
+
+                currentX = Math.max(0, Math.min(100, currentX - deltaX));
+                currentY = Math.max(0, Math.min(100, currentY - deltaY));
                 video.style.objectPosition = `${currentX}% ${currentY}%`;
             }
 
@@ -1155,6 +1177,7 @@ function setupVideoLayerPan() {
     let isDragging = false;
     let startX, startY;
     let currentX = 50, currentY = 50;
+    let transX = 0, transY = 0; // Transform pixels
 
     const getVideoElement = () => document.querySelector('#video-frame video, #video-frame iframe');
 
@@ -1165,20 +1188,42 @@ function setupVideoLayerPan() {
         const touch = e.touches ? e.touches[0] : e;
         startX = touch.clientX;
         startY = touch.clientY;
+
+        // Initialize transformation values from current element style
+        // This ensures smoothness if we pause/resume or switch videos
+        const video = getVideoElement();
+        if (video && video.classList.contains('utic-iframe')) {
+            const style = window.getComputedStyle(video);
+            // We use CSS variables --tx/--ty, so read them directly from inline style or computed?
+            // Inline style is safest for what we set.
+            transX = parseFloat(video.style.getPropertyValue('--tx')) || 0;
+            transY = parseFloat(video.style.getPropertyValue('--ty')) || 0;
+        }
     };
 
     const onMove = (e) => {
         if (!isDragging) return;
         e.preventDefault();
         const touch = e.touches ? e.touches[0] : e;
-        const deltaX = (touch.clientX - startX) * 0.15;
-        const deltaY = (touch.clientY - startY) * 0.15;
-
-        currentX = Math.max(0, Math.min(100, currentX - deltaX));
-        currentY = Math.max(0, Math.min(100, currentY - deltaY));
 
         const video = getVideoElement();
-        if (video) {
+        if (!video) return;
+
+        if (video.classList.contains('utic-iframe')) {
+            const dx = (touch.clientX - startX);
+            const dy = (touch.clientY - startY);
+
+            transX += dx;
+            transY += dy;
+
+            video.style.setProperty('--tx', `${transX}px`);
+            video.style.setProperty('--ty', `${transY}px`);
+        } else {
+            const deltaX = (touch.clientX - startX) * 0.15;
+            const deltaY = (touch.clientY - startY) * 0.15;
+
+            currentX = Math.max(0, Math.min(100, currentX - deltaX));
+            currentY = Math.max(0, Math.min(100, currentY - deltaY));
             video.style.objectPosition = `${currentX}% ${currentY}%`;
         }
 
