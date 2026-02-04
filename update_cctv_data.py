@@ -265,6 +265,7 @@ def refine_cctv_data(cctv_list):
         return cctv_list
 
     def inspect_item(item):
+        time.sleep(0.5) # Politeness delay
         url = item['url']
         try:
             resp = requests.get(url, timeout=4, verify=False)
@@ -289,9 +290,9 @@ def refine_cctv_data(cctv_list):
             pass
         return False # Not modified
 
-    # Process in parallel
+    # Process in parallel (Safe Mode: Low concurrency)
     modified_count = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         # We process 'targets' but 'item' is a reference to the dict in 'cctv_list',
         # so modifying 'item' modifies the original list.
         results = list(executor.map(inspect_item, targets))
