@@ -1068,6 +1068,12 @@ function setupVideoPan() {
 
         const onStart = (e) => {
             if (!panel.classList.contains('expanded')) return;
+
+            // Ignore if touching controls (select box, buttons)
+            if (e.target.closest('.panel-controls') || e.target.closest('.panel-floating-close')) {
+                return;
+            }
+
             isDragging = true;
             panel.classList.add('dragging');
             const touch = e.touches ? e.touches[0] : e;
