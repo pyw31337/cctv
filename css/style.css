@@ -842,10 +842,12 @@ body {
     color: var(--text-secondary);
     margin-left: 4px;
 }
+
 /* === PWA Install Prompt === */
 .pwa-prompt {
     position: fixed;
-    bottom: 80px; /* Above header/search bar */
+    bottom: 80px;
+    /* Above header/search bar */
     right: 16px;
     display: flex;
     align-items: center;
@@ -887,8 +889,15 @@ body {
 }
 
 @keyframes bounce {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-3px); }
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-3px);
+    }
 }
 
 .pwa-prompt-text {
@@ -950,7 +959,7 @@ body {
 .panel-floating-close {
     display: none;
     position: absolute;
-    bottom: 16px;
+    bottom: calc(80px + env(safe-area-inset-bottom, 16px));
     right: 16px;
     width: 48px;
     height: 48px;

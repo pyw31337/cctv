@@ -15,7 +15,7 @@ const state = {
 };
 
 let map = null;
-const SEARCH_MARKER_SRC = 'https://maps.google.com/mapfiles/ms/icons/red-dot.png';
+const SEARCH_MARKER_SRC = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png';
 
 
 // === DOM References (Cached) ===
