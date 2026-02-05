@@ -624,6 +624,7 @@ function createVideoElement(cctv) {
     const isHls = url.includes('.m3u8');
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
+    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev'); // Our RTSP/SSL Proxy
 
     // UTIC Portal URLs - use iframe
     if (isUtic) {
@@ -637,8 +638,8 @@ function createVideoElement(cctv) {
         return iframe;
     }
 
-    // HLS streams (.m3u8 or ktict) - use HLS.js
-    if ((isHls || isSecureStream) && Hls.isSupported()) {
+    // HLS streams (.m3u8 or ktict or proxy) - use HLS.js
+    if ((isHls || isSecureStream || isProxy) && Hls.isSupported()) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
         video.muted = true;

@@ -1,0 +1,36 @@
+# fly.toml app configuration file generated for cctv-proxy-server on 2026-02-05
+
+app = "cctv-proxy-hoon-001"  # Updated to user's unique app name
+primary_region = "nrt"     # Tokyo (nearest to Korea)
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1
+  cpu_kind = "shared"
+
+[checks]
+  [checks.http_get]
+    grace_period = "5s"
+    interval = "15s"
+    method = "GET"
+    path = "/"
+    port = 8080
+    timeout = "2s"
+    type = "http"
+
+# LIMITS for Zero Cost Safety
+[services.concurrency]
+  type = "requests"
+  hard_limit = 20
+  soft_limit = 15
