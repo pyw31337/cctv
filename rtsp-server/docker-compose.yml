@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  # Nginx HLS Server - serves converted HLS streams
+  nginx-hls:
+    image: nginx:alpine
+    container_name: rtsp-hls-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./hls:/var/www/hls:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    depends_on:
+      - rtsp-converter
+
+  # RTSP to HLS Converter using FFmpeg
+  rtsp-converter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rtsp-hls-converter
+    volumes:
+      - ./hls:/hls
+      - ./streams.json:/app/streams.json:ro
+    environment:
+      - TZ=Asia/Seoul
+    restart: unless-stopped
+
+volumes:
+  hls:
