@@ -559,15 +559,74 @@ function togglePanelExpand(panel, btn) {
 
 function createVideoElement(cctv) {
     const url = cctv.url;
+
+    // Handle inactive streams (404 during health check)
+    if (cctv.status === 'inactive') {
+        const div = document.createElement('div');
+        div.className = 'stream-unavailable';
+        div.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#888;text-align:center;padding:1rem;">
+                <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                <p style="margin-top:0.5rem;font-size:0.9rem;">스트림 일시 중단</p>
+                <p style="font-size:0.75rem;opacity:0.7;">점검 중입니다</p>
+            </div>
+        `;
+        return div;
+    }
+
+    // Handle SSL issue streams
+    if (cctv.sslIssue) {
+        const div = document.createElement('div');
+        div.className = 'stream-ssl-issue';
+        div.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#f39c12;text-align:center;padding:1rem;">
+                <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                <p style="margin-top:0.5rem;font-size:0.9rem;">보안 인증서 문제</p>
+                <p style="font-size:0.75rem;opacity:0.7;">프록시 연결 필요</p>
+            </div>
+        `;
+        return div;
+    }
+
+    // Handle Daejeon dynamic MP4 URLs
+    if (cctv.urlType === 'daejeon_mp4_dynamic') {
+        // Generate current date URL
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const timeStr = now.toTimeString().slice(0, 5).replace(':', '') + '00';
+
+        // Replace date in URL pattern
+        let dynamicUrl = url.replace(/\d{8}\.\d{6}\.000/, `${dateStr}.${timeStr}.000`);
+
+        const video = document.createElement('video');
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        video.src = dynamicUrl;
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+
+        // Fallback on error
+        video.onerror = () => {
+            video.outerHTML = `
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#888;text-align:center;padding:1rem;">
+                    <p style="font-size:0.9rem;">대전 스트림 로딩 중...</p>
+                    <p style="font-size:0.75rem;opacity:0.7;">잠시 후 재시도해주세요</p>
+                </div>
+            `;
+        };
+        return video;
+    }
+
     const isHls = url.includes('.m3u8');
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
 
-    // UTIC Portal URLs - use iframe (kind=EE CCTVs are filtered out in updateNearestCctvs)
+    // UTIC Portal URLs - use iframe
     if (isUtic) {
         const iframe = document.createElement('iframe');
         iframe.src = url;
-        iframe.className = 'utic-iframe'; // Add class for specific styling
+        iframe.className = 'utic-iframe';
         iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
         iframe.allow = 'autoplay; fullscreen';
         iframe.scrolling = 'no';
