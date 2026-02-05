@@ -1374,7 +1374,115 @@ function updateUticLayout() {
 
         // Apply to CSS variable
         iframe.style.setProperty('--scale', scale.toFixed(3));
+
+        // Enable drag if scaled
+        if (scale > 1.01 && !iframe.dataset.dragEnabled) {
+            enableIframeDrag(iframe);
+        }
     });
+}
+
+// === UTIC Iframe Drag Handler ===
+function enableIframeDrag(iframe) {
+    if (iframe.dataset.dragEnabled) return;
+    iframe.dataset.dragEnabled = 'true';
+
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let translateX = 0, translateY = 0;
+    let currentX = 0, currentY = 0;
+
+    // Create drag overlay (to capture events over iframe)
+    const overlay = document.createElement('div');
+    overlay.className = 'utic-drag-overlay';
+    overlay.style.cssText = `
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        cursor: grab;
+        z-index: 10;
+        touch-action: none;
+    `;
+
+    const container = iframe.parentElement;
+    container.style.position = 'relative';
+    container.appendChild(overlay);
+
+    function getEventPos(e) {
+        if (e.touches && e.touches.length > 0) {
+            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+        return { x: e.clientX, y: e.clientY };
+    }
+
+    function onStart(e) {
+        isDragging = true;
+        const pos = getEventPos(e);
+        startX = pos.x - currentX;
+        startY = pos.y - currentY;
+        overlay.style.cursor = 'grabbing';
+        e.preventDefault();
+    }
+
+    function onMove(e) {
+        if (!isDragging) return;
+        e.preventDefault();
+
+        const pos = getEventPos(e);
+        currentX = pos.x - startX;
+        currentY = pos.y - startY;
+
+        // Get scale and calculate bounds
+        const scale = parseFloat(iframe.style.getPropertyValue('--scale')) || 1;
+        const rect = container.getBoundingClientRect();
+        const maxX = (rect.width * (scale - 1)) / 2;
+        const maxY = (rect.height * (scale - 1)) / 2;
+
+        // Clamp to bounds
+        currentX = Math.max(-maxX, Math.min(maxX, currentX));
+        currentY = Math.max(-maxY, Math.min(maxY, currentY));
+
+        iframe.style.setProperty('--translate-x', `${currentX}px`);
+        iframe.style.setProperty('--translate-y', `${currentY}px`);
+    }
+
+    function onEnd() {
+        isDragging = false;
+        overlay.style.cursor = 'grab';
+    }
+
+    // Mouse events
+    overlay.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+
+    // Touch events
+    overlay.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+
+    // Double-tap to reset
+    let lastTap = 0;
+    overlay.addEventListener('click', (e) => {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+            // Double tap - reset position
+            currentX = 0;
+            currentY = 0;
+            iframe.style.setProperty('--translate-x', '0px');
+            iframe.style.setProperty('--translate-y', '0px');
+        }
+        lastTap = now;
+    });
+
+    // Store cleanup function
+    iframe._cleanupDrag = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onEnd);
+        document.removeEventListener('touchmove', onMove);
+        document.removeEventListener('touchend', onEnd);
+        overlay.remove();
+        delete iframe.dataset.dragEnabled;
+    };
 }
 
 // Bind events
