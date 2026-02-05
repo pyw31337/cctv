@@ -261,6 +261,9 @@ function handleSearchSubmit() {
     const query = $('#search-input').value.trim();
     if (!query) return;
 
+    // Hide mobile keyboard
+    $('#search-input').blur();
+
     const ps = new kakao.maps.services.Places();
     ps.keywordSearch(query, (data, status) => {
         const resultsEl = $('#search-results');
