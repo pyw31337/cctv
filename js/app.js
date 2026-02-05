@@ -1289,6 +1289,10 @@ function updateUticLayout() {
             // We want Inner Video Height >= CH.
             // Scale * (CW / vRatio) = CH  => Scale = (CH * vRatio) / CW.
             scale = (ch * vRatio) / cw;
+
+            // Mobile Portrait often pushes top-aligned video up if scaling from center.
+            // Force origin to TOP to keep video visible.
+            iframe.style.setProperty('--origin-y', '0%');
         } else {
             // Container is Wider (PC Landscape): Scale to fill WIDTH
             // Original: W=100%, H=100% (of container).
@@ -1296,6 +1300,9 @@ function updateUticLayout() {
             // We want Inner Video Width >= CW.
             // Scale * (CH * vRatio) = CW => Scale = CW / (CH * vRatio).
             scale = cw / (ch * vRatio);
+
+            // PC Landscape: Center origin is usually fine, or maintain previous center logic
+            iframe.style.setProperty('--origin-y', '50%');
         }
 
         // Apply a minimum scale of 1.0 and maybe a slight bonus for safety
