@@ -554,7 +554,7 @@ function togglePanelExpand(panel, btn) {
     }
 
     // Update layout for UTIC scaling
-    setTimeout(updateUticLayout, 50); // Small delay for transition
+    setTimeout(updateUticLayout, 350); // Small delay for transition
 }
 
 function createVideoElement(cctv) {
@@ -869,11 +869,12 @@ function openVideoLayer(cctv) {
                 toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
             }
 
-            setTimeout(updateUticLayout, 50); // Recalculate layout
+            setTimeout(updateUticLayout, 350); // Recalculate layout after transition
         });
     }
 
     layer.classList.add('active');
+    setTimeout(updateUticLayout, 350); // Initial check
 }
 
 function closeVideoLayer() {
@@ -1266,6 +1267,10 @@ function updateUticLayout() {
     const targets = [...panels];
     if (layer) targets.push(layer);
 
+    if (targets.length === 0) return;
+
+    console.log('[Layout] Updating UTIC Layout for', targets.length, 'elements');
+
     targets.forEach(iframe => {
         const container = iframe.closest('.video-panel') || iframe.closest('.video-layer-content');
         if (!container) return;
@@ -1275,49 +1280,28 @@ function updateUticLayout() {
         const cRatio = cw / ch;
         const vRatio = 16 / 9; // Assume standard 16:9 stream
 
-        // Calculate scale to COVER the container
-        // Original iframe size is 100% w, 100% h.
-        // Aspect ratio of iframe box is cRatio.
-        // We act as if the content is vRatio.
-
         let scale = 1;
-        // If container is taller than video (Portrait like):
-        // Video has top/bottom bars. Content fills width.
-        // Content Height = cw / vRatio.
-        // We want Content Height >= ch.
-        // Scale = ch / (cw / vRatio) = (ch * vRatio) / cw.
 
-        // If container is wider than video (Landscape like):
-        // Video has side bars. Content fills height.
-        // Content Width = ch * vRatio.
-        // We want Content Width >= cw.
-        // Scale = (ch * vRatio) / cw ?? No.
-        // If content is filling height, current rendered width is ch * vRatio.
-        // Wait, if iframe is 100% w/h, and internal player preserves aspect ratio:
-        // Case A (Tall Container): Player fits width (100% cw). Height is cw/vRatio.
-        // To fill height: scale = ch / (cw/vRatio).
-
-        // Case B (Wide Container): Player fits height (100% ch). Width is ch*vRatio.
-        // But iframe width is cw.
-        // The player renders in center with side bars.
-        // Rendered Width = ch * vRatio.
-        // To fill width: scale = cw / (ch * vRatio).
-
-        // Let's implement this logic:
         if (cRatio < vRatio) {
-            // Container is Taller (narrower) than Video (e.g. Mobile Portrait)
-            // Video fits width. Height is small.
-            // Scale to fill height.
+            // Container is Taller (Mobile Portrait): Scale to fill HEIGHT
+            // Original: W=100%, H=100% (of container).
+            // Inner Video Width = CW. Inner Video Height = CW / vRatio.
+            // We want Inner Video Height >= CH.
+            // Scale * (CW / vRatio) = CH  => Scale = (CH * vRatio) / CW.
             scale = (ch * vRatio) / cw;
         } else {
-            // Container is Wider than Video (e.g. PC Landscape)
-            // Video fits height. Width is small.
-            // Scale to fill width.
+            // Container is Wider (PC Landscape): Scale to fill WIDTH
+            // Original: W=100%, H=100% (of container).
+            // Inner Video Height = CH. Inner Video Width = CH * vRatio.
+            // We want Inner Video Width >= CW.
+            // Scale * (CH * vRatio) = CW => Scale = CW / (CH * vRatio).
             scale = cw / (ch * vRatio);
         }
 
         // Apply a minimum scale of 1.0 and maybe a slight bonus for safety
-        scale = Math.max(scale, 1.0) * 1.01;
+        scale = Math.max(scale, 1.001);
+
+        console.log(`[Layout] Container: ${cw}x${ch} (R:${cRatio.toFixed(2)}), Video R:${vRatio}, Scale: ${scale.toFixed(3)}`);
 
         // Apply to CSS variable
         iframe.style.setProperty('--scale', scale.toFixed(3));
