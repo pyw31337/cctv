@@ -368,12 +368,12 @@ def refine_cctv_data(cctv_list):
 def main():
     print(f"Starting CCTV data update at {time.strftime('%Y-%m-%d %H:%M:%S')}...")
     
-    # 1. Fetch Data
-    its_data = fetch_its_data()
-    utic_data = fetch_utic_data()
-    
-    # 2. Load Existing Data
+    # 1. Load Existing Data
     existing_data_map = load_existing_data(OUTPUT_FILE)
+    
+    # 2. Fetch Data (Processing with Delta Sync)
+    its_data = fetch_its_data()
+    utic_data = fetch_utic_data(existing_data_map)
     
     # 3. Merge & Prioritize (Prefer UTIC for Highways/Duplicates)
     print("Merging data (Prioritizing UTIC)...")
