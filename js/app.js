@@ -1321,10 +1321,6 @@ function updateUticLayout() {
 
         // Apply to CSS variable
         iframe.style.setProperty('--scale', scale.toFixed(3));
-
-        // Reset default-y as we handle centering via drag/flex mostly,
-        // but let's keep it 0 to rely on transform centering.
-        iframe.style.setProperty('--default-y', '0px');
     });
 }
 
