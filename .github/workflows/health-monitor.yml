@@ -1,0 +1,79 @@
+name: Stream Health Monitor
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install requests
+      
+      - name: Run health check
+        id: health
+        continue-on-error: true
+        run: python monitor_health.py
+      
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-report-${{ github.run_number }}
+          path: health_report_*.txt
+          retention-days: 30
+      
+      - name: Send email alert on failure
+        if: steps.health.outcome == 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "⚠️ CCTV Stream Health Alert - Issues Detected"
+          to: ${{ secrets.ALERT_EMAIL }}
+          from: CCTV Monitor <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            CCTV Stream Health Check Failed!
+            
+            Time: ${{ github.event.head_commit.timestamp || 'Scheduled run' }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            Issues were detected during the health check.
+            Please review the attached report and take necessary action.
+            
+            ---
+            This is an automated message from the CCTV Monitoring System.
+          attachments: health_report_*.txt
+      
+      - name: Create issue on failure
+        if: steps.health.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const files = fs.readdirSync('.').filter(f => f.startsWith('health_report_'));
+            let report = 'No report found';
+            if (files.length > 0) {
+              report = fs.readFileSync(files[0], 'utf8');
+            }
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⚠️ Stream Health Alert - ${new Date().toISOString().split('T')[0]}`,
+              body: `## Health Check Failed\n\n\`\`\`\n${report}\n\`\`\`\n\n[View Run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`,
+              labels: ['alert', 'monitoring']
+            });
