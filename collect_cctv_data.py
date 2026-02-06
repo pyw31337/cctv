@@ -137,37 +137,49 @@ def process_item(cctv_id, existing_item=None):
         # For Optimization, we'll mark as active if construction succeeded.
         status = "active" 
         
-        # Preserve "direct_source" if valid
-        current_tags = details.get("tags") or []
-        is_direct = "direct_source" in current_tags or (existing_item and "direct_source" in existing_item.get("tags", []))
-        
-        # VIP PROTECTION: If name contains key regions, FORCE retain existing URL/TAGS if they seem special
-        # ideally we trust "direct_source", but let's double down for specific keywords users complain about
-        vip_keywords = ["파주", "남양주", "부산", "해운대", "진도", "구리", "왕숙천", "왕숙교", "역곡", "부천"]
-        is_vip = existing_item and any(k in existing_item.get("name", "") for k in vip_keywords)
-        
-        if is_vip and is_direct:
-            print(f"  [LOCKED] VIP Region Stream (Protected): {cctv_name}")
-            return existing_item # Return exactly what we have, ZERO changes allowed.
+OVERRIDES_FILE = "cctv_overrides.json"
 
+def load_overrides():
+    if not os.path.exists(OVERRIDES_FILE):
+        return {}
+    try:
+        with open(OVERRIDES_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return {item['id']: item for item in data}
+    except Exception as e:
+        print(f"Error loading overrides: {e}")
+        return {}
 
+def process_item(cctv_id, existing_item=None):
+    """Worker function for threading"""
+    # Dynamic sleep based on target duration
+    # Add random jitter +/- 20%
+    jitter = random.uniform(0.8, 1.2)
+    time.sleep(WORKER_SLEEP_DELAY * jitter)
+    
+    with requests.Session() as session:
+        details = fetch_cctv_details(cctv_id, session)
+        if not details:
+            return None
+            
+        cctv_name = details.get("CCTVNAME", "")
+        # Remove Jindo check print to reduce noise
+            
+        url = construct_url(cctv_id, details)
+        if not url:
+            return None
+            
+        status = "active" 
+        
+        # Hardcoded VIP logic REMOVED in favor of Golden Record (Overrides)
         
         final_url = url
         final_tags = existing_item.get("tags", []) if existing_item else []
         
-        if is_direct and existing_item:
-            # Check if existing Direct URL is still valid (Simple HEAD)
-            direct_url = existing_item.get("url")
-            if direct_url != url:
-                try:
-                    # Quick check (timeout 2s)
-                    with requests.head(direct_url, timeout=2, verify=False) as r:
-                         if r.status_code == 200:
-                             final_url = direct_url
-                             if "direct_source" not in final_tags: final_tags.append("direct_source")
-                except:
-                     pass # If check fails, fall back to new UTIC URL
-
+        # Only preserve "direct_source" tag if it exists, but URL logic is now largely handled by Overrides if critical.
+        # However, for non-overridden items that happen to be direct, we still want to keep the tag?
+        # Yes, standard logic applies.
+        
         return {
             "id": cctv_id,
             "name": details.get("CCTVNAME"),
@@ -188,9 +200,11 @@ def main():
     
     print(f"Starting Optimized CCTV Sync at {datetime.now()} (Force: {args.force}, Target: {args.duration}h)...")
     
-    # 1. Load Local & Remote
+    # 1. Load Local, Remote, AND Overrides
     local_data = load_local_data()
     remote_ids = get_remote_ids()
+    overrides = load_overrides()
+    print(f"  Loaded {len(overrides)} Golden Records (Overrides).")
     
     if not remote_ids:
         print("Failed to fetch remote IDs. Aborting.")
@@ -207,11 +221,15 @@ def main():
     print(f"  Analysis: {len(new_ids)} New, {len(removed_ids)} Removed, {len(common_ids)} Existing.")
     
     # 3. Identify Stale Items
-    # Check "lastUpdated" or "lastRenewed" to decide if re-fetch is needed
     stale_ids = []
     threshold = datetime.now() - timedelta(days=STALE_DAYS)
     
     for cid in common_ids:
+        # If item is in overrides, we might NOT want to scrape it at all to save time/risk?
+        # Actually, we should scrape it to get updated Metadata (Lat/Lng/Name changes) if possible?
+        # But if the ID is dead in UTIC (Jindo), we won't scrape it anyway (unless we force it).
+        # Let's trust the logic: Scrape what we can from UTIC. Overrides apply at the end.
+        
         if args.force:
             stale_ids.append(cid)
             continue
@@ -223,7 +241,6 @@ def main():
             continue
             
         try:
-            # Handle variable date formats safely
             last_date = datetime.fromisoformat(last_up)
             if last_date < threshold:
                 stale_ids.append(cid)
@@ -233,36 +250,29 @@ def main():
     print(f"  Stale items (older than {STALE_DAYS} days): {len(stale_ids)}")
     
     # 4. Processing Queue
-    # We update NEW + STALE. 
-    # Existing FRESH items are kept as is (Passthrough).
     to_process = new_ids + stale_ids
     print(f"  Processing {len(to_process)} items with {MAX_WORKERS} threads...")
     
-    final_results = []
+    # Use a dict for results to easily merge
+    results_map = {}
     
-    # Keep fresh existing items
+    # Load existing fresh items first
     for cid in common_ids:
         if cid not in stale_ids:
-            final_results.append(local_data[cid])
+            results_map[cid] = local_data[cid]
             
     # Calculate throttling
     total_items = len(to_process)
     if total_items > 0:
         target_seconds = args.duration * 3600
-        # safety margin: 90% of target time to ensure completion
         delay_per_item = (target_seconds * 0.9) / total_items
-        # workers impact: with N workers, effective delay is delay * N
         worker_delay = delay_per_item * MAX_WORKERS
-        
-        # Clamp delay
         worker_delay = max(0.1, worker_delay)
         print(f"  Throttling: {total_items} items over {args.duration}h")
-        print(f"  -> {total_items / (args.duration * 3600):.2f} req/sec globally")
         print(f"  -> {worker_delay:.2f}s sleep per worker (Workers: {MAX_WORKERS})")
     else:
         worker_delay = 0.1
 
-    # Update global variable for worker access (hacky but works for script)
     global WORKER_SLEEP_DELAY
     WORKER_SLEEP_DELAY = worker_delay
 
@@ -274,20 +284,68 @@ def main():
         for future in as_completed(futures):
             res = future.result()
             if res:
-                final_results.append(res)
+                results_map[res['id']] = res
             
             processed_count += 1
             if processed_count % 50 == 0:
                 print(f"    Progress: {processed_count}/{len(to_process)}")
                 
-    # 5. Statistics
+    # 5. GOLDEN RECORD MERGE (The Fix)
+    print(f"  Applying {len(overrides)} Golden Record overrides...")
+    override_count = 0
+    restored_count = 0
+    
+    for oid, oitem in overrides.items():
+        # If item exists in results, update it
+        if oid in results_map:
+            # We ONLY update critical fields from override, but maybe keep fresh metadata?
+            # User wants "manual fix" to win.
+            # Usually manual fix implies URL and Tags are the important part. Name maybe.
+            target = results_map[oid]
+            target['url'] = oitem['url']
+            target['tags'] = oitem.get('tags', target.get('tags', []))
+            if oitem.get('name'): target['name'] = oitem['name']
+            
+            # Ensure direct_source tag if it was in override
+            if 'direct_source' in oitem.get('tags', []) and 'direct_source' not in target['tags']:
+                target['tags'].append('direct_source')
+                
+            results_map[oid] = target
+            override_count += 1
+        else:
+            # Item does NOT exist in scraped results (e.g., Jindo deleted from UTIC)
+            # Restore it fully from override
+            # We need Lat/Lng. Hopefully override has them?
+            # If `extract_vip_overrides.py` captured full object, we are good.
+            # If it only captured subset, we might miss data.
+            # The extraction script captured: id, name, url, tags.
+            # It missed Lat/Lng!
+            # Valid point. We should check if we need to enrich overrides with Lat/Lng from previous local_data if missing.
+            
+            # Use local_data to fill gaps if available
+            restored_item = oitem.copy()
+            if oid in local_data:
+                # Fill missing lat/lng from old local data
+                if 'lat' not in restored_item: restored_item['lat'] = local_data[oid].get('lat', 0)
+                if 'lng' not in restored_item: restored_item['lng'] = local_data[oid].get('lng', 0)
+            
+            # Default if still missing
+            if 'lat' not in restored_item: restored_item['lat'] = 0
+            if 'lng' not in restored_item: restored_item['lng'] = 0
+            if 'status' not in restored_item: restored_item['status'] = 'active'
+            if 'lastUpdated' not in restored_item: restored_item['lastUpdated'] = datetime.now().isoformat()
+            
+            results_map[oid] = restored_item
+            restored_count += 1
+
+    print(f"  -> Applied {override_count} overrides to existing items.")
+    print(f"  -> Restored {restored_count} items (Ghost/Deleted from UTIC).")
+
+    # 6. Save
+    final_results = list(results_map.values())
     print(f"Sync Complete.")
     print(f"  Total Items: {len(final_results)}")
-    print(f"  New/Updated: {len(to_process)}")
-    print(f"  Unchanged: {len(common_ids) - len(stale_ids)}")
-    print(f"  Removed: {len(removed_ids)}")
     
-    # 6. Save
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         json.dump(final_results, f, ensure_ascii=False, indent=2)
     print(f"Saved to {OUTPUT_FILE}")
