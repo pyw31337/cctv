@@ -234,58 +234,106 @@ async function handleSearchInput(e) {
         return;
     }
 
-    // Kakao Local Search (supports 초성)
-    const ps = new kakao.maps.services.Places();
-    ps.keywordSearch(query, (data, status) => {
-        const resultsEl = $('#search-results');
-
-        if (status === kakao.maps.services.Status.OK && data.length > 0) {
-            // Search results only - no history/bookmarks
-            resultsEl.innerHTML = data.slice(0, 10).map(place => `
-                <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
-                    <div class="search-result-info">
-                        <div class="search-result-name">${place.place_name}</div>
-                        <div class="search-result-address">${place.address_name || ''}</div>
-                    </div>
-                </div>
-            `).join('');
-        } else {
-            resultsEl.innerHTML = '<div class="search-empty">검색 결과가 없습니다</div>';
-        }
-
-        resultsEl.classList.add('active');
-    });
+    // Debounce is handled by event listener, but ensuring async behavior
+    try {
+        const results = await performHybridSearch(query);
+        renderSearchResults(results);
+    } catch (error) {
+        console.error("Search failed:", error);
+    }
 }
 
-function handleSearchSubmit() {
+async function handleSearchSubmit() {
     const query = $('#search-input').value.trim();
     if (!query) return;
 
     // Hide mobile keyboard
     $('#search-input').blur();
 
-    const ps = new kakao.maps.services.Places();
-    ps.keywordSearch(query, (data, status) => {
-        const resultsEl = $('#search-results');
+    try {
+        const results = await performHybridSearch(query);
+        renderSearchResults(results);
 
-        if (status === kakao.maps.services.Status.OK && data.length > 0) {
-            // Multiple results or Single result - ALWAYS show them for user to choose
-            // (Removed auto-select single result logic to prevent startling redirects)
-            resultsEl.innerHTML = data.slice(0, 10).map(place => `
-                <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
-                    <div class="search-result-info">
-                        <div class="search-result-name">${place.place_name}</div>
-                        <div class="search-result-address">${place.address_name || ''}</div>
-                    </div>
-                </div>
-            `).join('');
-            resultsEl.classList.add('active');
-            $('#dim-overlay').classList.add('active');
-        } else {
-            resultsEl.innerHTML = '<div class="search-empty">검색 결과가 없습니다</div>';
-            resultsEl.classList.add('active');
-        }
+        // If we want to auto-select ONLY if it's a perfect Region match?
+        // User disliked auto-select for "Guri City Hall" -> "Meat Shop".
+        // But for "Chuncheon", if we get "Chuncheon-si" (Region) as top result, maybe we DO want to move there?
+        // For now, let's Stick to "Always Show List" as requested for stability.
+
+    } catch (error) {
+        console.error("Search submit failed:", error);
+    }
+}
+
+// === Hybrid Search Logic ===
+function performHybridSearch(query) {
+    return new Promise(async (resolve) => {
+        const ps = new kakao.maps.services.Places();
+        const geocoder = new kakao.maps.services.Geocoder();
+
+        // 1. Places Search
+        const placePromise = new Promise((res) => {
+            ps.keywordSearch(query, (data, status) => {
+                if (status === kakao.maps.services.Status.OK) {
+                    res(data);
+                } else {
+                    res([]);
+                }
+            });
+        });
+
+        // 2. Address/Region Search
+        const regionPromise = new Promise((res) => {
+            geocoder.addressSearch(query, (data, status) => {
+                if (status === kakao.maps.services.Status.OK) {
+                    // Normalize to match Place format
+                    const normalized = data.map(item => ({
+                        place_name: item.address_name, // Use address as name for regions
+                        address_name: item.address_name,
+                        y: item.y,
+                        x: item.x,
+                        isRegion: true // Flag to style differently if needed
+                    }));
+                    res(normalized);
+                } else {
+                    res([]);
+                }
+            });
+        });
+
+        // Execute Parallel
+        const [places, regions] = await Promise.all([placePromise, regionPromise]);
+
+        // Merge: Regions FIRST, then Places
+        // Deduplicate?
+        // Sometimes Region "Chuncheon" and Place "Chuncheon City Hall" might coexist.
+        // We want generic "Chuncheon-si" (Region) at top.
+
+        const combined = [...regions, ...places];
+        resolve(combined);
     });
+}
+
+function renderSearchResults(data) {
+    const resultsEl = $('#search-results');
+
+    if (data.length > 0) {
+        resultsEl.innerHTML = data.slice(0, 15).map(place => {
+            const icon = place.isRegion ? '🏙️' : '📍';
+            return `
+            <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+                <div class="search-result-icon">${icon}</div>
+                <div class="search-result-info">
+                    <div class="search-result-name">${place.place_name}</div>
+                    <div class="search-result-address">${place.address_name || ''}</div>
+                </div>
+            </div>
+        `}).join('');
+        resultsEl.classList.add('active');
+        $('#dim-overlay').classList.add('active');
+    } else {
+        resultsEl.innerHTML = '<div class="search-empty">검색 결과가 없습니다</div>';
+        resultsEl.classList.add('active');
+    }
 }
 
 function selectSearchResult(item) {
