@@ -1,0 +1,39 @@
+name: Auto-Renew CCTV URLs
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Run daily at 02:00 UTC (11:00 KST)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  renew-urls:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests urllib3
+
+      - name: Run Health Check (Detect Failures)
+        run: python monitor_health.py || true # Allow failure to proceed to renewal
+
+      - name: Run Auto-Renewal
+        run: python scripts/renew_cctv_urls.py
+
+      - name: Commit and Push Changes
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "chore: auto-renew broken cctv urls"
+          file_pattern: "cctv_data.json"
+          branch: main

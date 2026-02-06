@@ -1,0 +1,876 @@
+
+
+
+
+
+<!--
+
+-->
+
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ko" xml:lang="ko">
+
+<head>
+    <title>UTIC 도시교통정보센터</title>
+
+    
+    
+    
+    
+    
+    
+    <link rel="stylesheet" type="text/css" href="/css/global.css"/>
+    <link rel="stylesheet" type="text/css" href="/css/map/sub_map.css"/>
+    <link rel="stylesheet" type="text/css" href="/js/video-js.css"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <script language="javascript" type="text/javascript"
+            src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>
+    <script type="text/javascript" src="/js/cctvStream.js?ver=2.3" charset="utf-8"></script>
+    <script type="text/javascript" src="/js/block.js" charset="utf-8"></script>
+    <script src="/js/AC_ActiveX.js" type="text/javascript"></script>
+    <script src="/js/AC_RunActiveContent.js" type="text/javascript"></script>
+    
+    
+    
+
+    <script type="text/javascript">
+        var streamCctv;
+        var startDate, endDate;
+
+        function onVidError() {
+            var param = "/jsp/map/cctvStream.jsp?";
+            param += "cctvid=L310096";
+            param += "&cctvname=";
+            param += "&kind=EEE";
+            param += "&cctvip=";
+            param += "&cctvch=4";
+            param += "&id=1021";
+            param += "&cctvpasswd=";
+            param += "&cctvport=";
+            param += "&minX=";
+            param += "&minY=";
+            param += "&maxX=";
+            param += "&maxY=";
+
+            location.href = param;
+        }
+
+        $(document).ready(function () {
+            streamCctv = new StreamCctv('L310096');
+
+            $('p.hd').prepend(streamCctv.gCctvName);
+            $('p.bot02>a').prepend(streamCctv.gCenterName);
+            // KBS 재난포털 cctv 처리 로직
+            if (-1 != 'v'.indexOf("KB")) {
+                var getCctvUrl = '/map/getGyeonggiCctvUrl.do?cctvIp=' + streamCctv.gCctvIp;
+                if ('EEE' == 'v') {
+                    getCctvUrl = '/map/getGyeonggiCctvUrlFromIts.do?cctvIp=' + streamCctv.gCctvIp;
+                    onVidError = function () {
+                    };
+                }
+
+                $.ajax({
+                    url: getCctvUrl,
+                    async: false,
+                    success: function (data) {
+                        if (data === "null\n") {
+                            $('#innerObject').html("점검중입니다.").css({
+                                'color': 'red',
+                                'font-weight': 'bold',
+                                'text-align': 'center',
+                                'font-size': '20px',
+                                'position': 'relative',
+                                'left': '34%'
+                            });
+                        } else {
+                            var video = $('video')[0];
+
+                            // HLS 스트림인 경우
+                            if (data && (data.indexOf('.m3u8') !== -1 || data.indexOf('m3u8') !== -1 || data.indexOf('kbsapi.loomex.net') !== -1)) {
+                                // 우선 HLS를 지원하는지 체크
+                                if (video.canPlayType('vnd.apple.mpegurl')) {
+                                    video.src = data;
+                                    video.play();
+                                // HLS를 지원하지 않는다면 hls.js를 사용
+                                } else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                                    var hls = new Hls();
+                                    hls.on(Hls.Events.ERROR, function (event, data) {
+                                        console.error('HLS Error:', data);
+                                        if (data.fatal) {
+                                            onVidError();
+                                        }
+                                    });
+                                    hls.loadSource(data);
+                                    hls.attachMedia(video);
+                                    video.play().catch(function(error) {
+                                        console.error('Video play error:', error);
+                                        onVidError();
+                                    });
+                                } else {
+                                    onVidError();
+                                }
+                            } else {
+                                // MP4 스트림인 경우
+                                var videoJq = $('video');
+                                var source = $('<source>');
+                                source.attr('src', data);
+                                source.attr('type', 'video/mp4');
+                                videoJq.append(source);
+
+                                if ('function' == typeof video.load) {
+                                    video.load();
+                                    video.play();
+                                } else {
+                                    onVidError();
+                                }
+                            }
+                        }
+                    },
+                    error: function (error, xhr, code) {
+                        onVidError();
+
+                    }
+                });
+            }
+
+            $.extend({
+                getTime: function () {
+                    endDate = new Date();
+                    var diff = Math.floor((endDate - startDate) / 1000);
+                    var hh = Math.floor(Math.floor(diff / 60) / 60);
+                    var mi = Math.floor(diff / 60) % 60;
+                    var ss = diff % 60;
+                    var result = mi * 60 + ss;
+                    return result;
+                },
+                hit: function (conn) {
+                    $.ajax({
+                        type: "GET",
+                        dataType: "html",
+                        contentType: "text/html; charset=utf-8",
+                        url: "http://smartway.seoul.go.kr/infoImg/cctv/countCCTV.do",
+                        //접속종료유무 ConnEnd = 0:종료 1:접속
+                        data: "cctvID=L160006&connEnd=" + conn + "&connPeriod=" + (parseInt(conn) == 0 ? "0" : $.getTime()),
+                        complete: function (xhr, status) {
+                            //xml = xhr.responseText;
+                        },
+                        success: function (xml) {
+                        },
+                        error: function (xhr, status, error) {
+                            $.msg('error\n' + error);
+                        }
+                    }); // end ajax
+                },
+                msg: function (a) {
+                    alert(a);
+                }
+            });
+
+            if ($("#innerObject")) {
+                //브라우저 체크
+                var brwoserChk = navigator.userAgent.toLowerCase();
+                var element = $(".video.shad.cctv");
+                var atHeight = element.outerHeight();
+                var atWidth = element.outerWidth();
+
+                if (atHeight > 330) {
+                    //IE일시 사이즈를 더 감소
+                    if ((navigator.appName == 'Netscape' && navigator.userAgent.search('Trident') != -1) || (brwoserChk.indexOf("msie") != -1)) {
+                        window.resizeTo(atWidth, atHeight + 50);
+                    } else {
+                        window.resizeTo(atWidth, atHeight + 50);
+                    }
+                }
+            }
+        });
+
+        /**************************************************************************************
+         * 0000
+         **************************************************************************************/
+        function changeCCTV(id) {
+            var f = document.cctvForm;
+
+            f.cctvID.value = id;
+            f.submit(f);
+        }
+
+        /**************************************************************************************
+         * 0000
+         **************************************************************************************/
+        function Connect(ip) {
+            try {
+                var isConn;
+                var activex = document.getElementById("axPlayer");
+
+                if (!activex) {
+                } else {
+                    activex.URL = ip;
+                    isConn = activex.Connect();
+
+                    if (!isConn) {
+                        var mmpd = document.getElementById('mmp-div');
+                        mmpd.removeChild(document.getElementById('axPlayer'));
+                        mmpd.innerHTML = '<div style="width:400px; height:135px; padding-top:130px; text-align:center; background:#2a2a2a; color: white; font-size:0.85em;">시스템 점검중입니다.</div>';
+                    }
+                }
+            } catch (e) {
+                self.status = e;
+            }
+        }
+
+        function RotaCCTV2() {
+            this.cctvList = [];
+            this.layer;
+            this.minlevel = 6;
+            this.maxlevel = 8;
+            this.getCctv = function (c) {
+                var a = this.cctvList.length;
+                for (var b = 0; b < a; b++) {
+                    if (this.cctvList[b].CCTVID == c) {
+                        return this.cctvList[b];
+                    }
+                }
+                return null;
+            };
+            this.isLoad = function () {
+                if (this.cctvList.length == 0) {
+                    return false;
+                } else {
+                    return true;
+                }
+            };
+            this.getCCTVTooltipInfo = function (b) {
+                var a = '<table border="0" cellspacing="0" cellpadding="0"><tr><td width="1" height="1"></td><td bgcolor="#1B4E99"></td><td width="1" height="1"></td></tr><tr><td bgcolor="#1B4E99"></td><td><table width="100%" border="0" cellpadding="0" cellspacing="0"><tr><td bgcolor="#1B4E99"><table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td height="20"><table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td style="padding:3px 3px 3px 3px;color:#ffffff;font-weight:bold;font-size:11px;">'
+                    + b
+                    + '</td></tr></table></td></tr></table></td></tr></table></td><td bgcolor="#1B4E99"></td></tr><tr><td width="1" height="1"></td><td bgcolor="#1B4E99"></td><td width="1" height="1"></td></tr></table>';
+                return a;
+            };
+            this.popupCctvImage = function (c) {
+                var b = this.getCctv(c);
+                if (b.LOCATE == null && b.MOVIE == "Y") {
+                    this.popupCctvStream(c);
+                    return;
+                }
+                var a = new StreamCctv(b);
+                var d = Mando.wgs84ToMandoMap(a.gDx, a.gDy);
+                cctvPopup.displayPopup(true, new UTISMap.LonLat(d.lon, d.lat), a.getImageHtml(), c);
+                weblog(c, "cctv");
+            };
+            this.popupCctvStream = function (cctvid, key) {
+                var url = '/map/mapcctvonoff.do?cctvid=' + cctvid;
+                var obj = this;
+                $.getJSON(url, function (data) {
+                    if (data.length == 1) {
+                        if (data[0] == '0') {
+                            var width = 350; <!--322;-->
+                            var height = 330; <!--239;-->
+                            var top = (window.screen.height - height) / 2;
+                            var left = (window.screen.width - width) / 2;
+                            var features = 'width=' + width + ',height=' + height + ',top=' + top + ',left=' + left + ',toolbar=no,scrollbars=no,status=no,resizable=no,location=no';
+                            var popCctv;
+                            popCctv = window.open('/map/cctvUgo.jsp', 'UTIC도시교통정보센터', features);
+                            popCctv.focus();
+                        } else {
+                            var streamCctv = new StreamCctv(cctvid);
+                            var width = 346;
+                            var height = 330;
+
+                            if (streamCctv.gKind == "H") { // 대구
+                                width = 345;
+                            } else if (streamCctv.gCh != null) {
+                                width = 325;
+                                height = 345;
+                            } else if (streamCctv.gKind == "F") { //전주
+                                width = 343;
+                            } else if (streamCctv.gKind == "Y") { //창원
+                                width = 345;
+                            } else if (streamCctv.gKind == "J") { //울산
+                                width = 340;
+                                height = 257;
+                            } else if (streamCctv.gKind == "C") { //수원
+                                width = 345;
+                                height = 330;
+                            } else if (streamCctv.gKind == "y") { //여수
+                                width = 345;
+                                height = 330;
+                            } else if (streamCctv.gKind == "II") { //공주
+                                width = 345;
+                                height = 330;
+                            } else if (streamCctv.gKind == "HH") { //진주
+                                width = 345;
+                                height = 330;
+                            }
+
+                            var top = (window.screen.height + height) / 2;
+                            var left = (window.screen.width + width) / 2;
+                            var popCctv;
+
+                            popCctv = window.open('/jsp/map/openDataCctvStream.jsp?key=' + key + '&cctvid=' + cctvid + '&cctvName=' + encodeURI(encodeURIComponent(streamCctv.gCctvName)) + '&kind=' + streamCctv.gKind + '&cctvip=' + streamCctv.gCctvIp + '&cctvch=' + streamCctv.gCh + '&id=' + streamCctv.gId + '&cctvpasswd=' + streamCctv.gPasswd + '&cctvport=' + streamCctv.gPort, 'PopupCctv', "top=" + top + "px, left=" + left + "px, width=" + width + "px, height=" + height + "px, menubar=no, location=no, toolbar=no, scrollbars=no, status=no, resizable=no");
+                            popCctv.focus();
+                            weblog(cctvid, 'cctv');
+                        }
+                    } else {
+                        var streamCctv = new StreamCctv(cctvid);
+                        var width = 346;
+                        var height = 325;
+
+                        if (streamCctv.gKind == "H") { // 대구
+                            width = 345;
+                        } else if (streamCctv.gCh != null) {
+                            width = 365;
+                            height = 375;
+                        } else if (streamCctv.gKind == "F") { //전주
+                            width = 343;
+                        } else if (streamCctv.gKind == "Y") { //창원
+                            width = 375;
+                        } else if (streamCctv.gKind == "J") { //울산
+                            width = 340;
+                            height = 257;
+                        } else if (streamCctv.gKind == "C") { //수원
+                            width = 345;
+                            height = 330;
+                        } else if (streamCctv.gKind == "y") { //여수
+                            width = 345;
+                            height = 330;
+                        } else if (streamCctv.gKind == "II") { //공주
+                            width = 345;
+                            height = 330;
+                        } else if (streamCctv.gKind == "HH") { //진주
+                            width = 345;
+                            height = 330;
+                        }
+
+                        var top = (window.screen.height - height) / 2;
+                        var left = (window.screen.width - width) / 2;
+                        var popCctv;
+                        popCctv = window.open('/jsp/map/openDataCctvStream.jsp?key=' + key + '&cctvid=' + cctvid + '&cctvName=' + encodeURI(encodeURIComponent(streamCctv.gCctvName)) + '&kind=' + streamCctv.gKind + '&cctvip=' + streamCctv.gCctvIp + '&cctvch=' + streamCctv.gCh + '&id=' + streamCctv.gId + '&cctvpasswd=' + streamCctv.gPasswd + '&cctvport=' + streamCctv.gPort, 'PopupCctv', "top=" + top + "px, left=" + left + "px, width=" + width + "px, height=" + height + "px, menubar=no, location=no, toolbar=no, scrollbars=no, status=no, resizable=no");
+                        popCctv.focus();
+                        weblog(cctvid, 'cctv');
+                    }
+                });
+            };
+            this.popupCctvUgo = function (cctvid) {
+                var width = 322;
+                var height = 239;
+                var top = (window.screen.height - height) / 2;
+                var left = (window.screen.width - width) / 2;
+                var features = 'width=' + width + ',height=' + height + ',top=' + top + ',left=' + left + ',toolbar=no,scrollbars=no,status=no,resizable=no,location=no';
+                window.open('/view/map/cctvUgo.jsp', 'UTIC도시교통정보센터', features);
+                weblog(cctvid, 'cctv');
+            };
+            this.popupLiveVideo = function (e, d) {
+                var b = this.getCctv(e);
+                var c = b.locate;
+                var a = getCctvSteamHTML(c, b.cctvname);
+                displayPopup(true, d, new UTISMap.Size(340, 298), new UTISMap.Size(0, -298 - IconType.IconCCTV.size.h), a);
+            };
+            this.getCctvFileName = function (b) {
+                var c = b;
+                if (c == undefined) {
+                    return "";
+                }
+                var a = c.lastIndexOf("/");
+                if (a > -1) {
+                    return c.substring(a + 1, c.length);
+                }
+                return "";
+            };
+            this.getRealtimeCctvPath = function (b, c) {
+                var e = networkCheck.getCctvPath();
+                var a = "./../map/mapcctvinfo.do?cctvid=" + b.cctvid;
+                var d = this;
+                $.getJSON(a, function (j) {
+                    var k = null;
+                    if (j.length == 1) {
+                        k = j[0];
+                    }
+                    var h;
+                    if (j.length == 0 || k == null || k.locate == undefined) {
+                        h = "/images/map/cctv_no.gif";
+                    } else {
+                        var g = k.locate;
+                        var i = d.getCctvFileName(g);
+                        h = e + i;
+                    }
+                    var f = d.getCctvHTML(b, h, c);
+                    cctvPopup.displayPopup(true, c, f);
+                });
+            };
+            this.playCCTV = function () {
+                if (!confirm("해당 컨텐츠는 지속적으로 인터넷 패킷을 사용합니다.\n\n 3G 망에서 시청시 과도한 요금이 부가될 수 있습니다.\n\n동영상을 재생하시겠습니까?")) {
+                    return
+                }
+                document.getElementById("mov").play();
+            };
+            this.getCctvSteamHTML = function (c, e) {
+                var d = c.locate;
+                var b = '<video id="mov" width="500" height="224" src="' + d + '" onclick="playCCTV()"/>';
+                var a = '<div class="video shad cctv"><p>'
+                    + c.cctvname
+                    + "<span><a onclick=\"javascript:cctv.popupCctv2('"
+                    + c.cctvid
+                    + "',"
+                    + e.lon
+                    + ","
+                    + e.lat
+                    + ',\'stop\');" class="pdr"><img src="/images/map/btn_stop_video.gif" alt="정지영상보기" /></a><a href="javascript:cctvPopup.hidePopup(\''
+                    + c.cctvid
+                    + '\');"><img src="/images/map/btn_cctv_clse.gif" alt="닫기" /></a></span></p><div class="cctv_area player">'
+                    + b + "</div></div>";
+                return a;
+            };
+            this.getCctvHTML = function (c, b, d) {
+                var a = '<div class="screenshop shad cctv" unselectable="on" style="-webkit-user-select: none;" ><p unselectable="on" style="-webkit-user-select: none;" >'
+                    + c.cctvname
+                    + "<span><a onclick=\"javascript:cctv.popupLiveVideo('"
+                    + c.cctvid
+                    + "',"
+                    + d.lon
+                    + ","
+                    + d.lat
+                    + ');" class="pdr"><img src=/images/map/btn_live_video.gif" alt="동영상보기" /></a><a onclick="javascript:cctvPopup.hidePopup(\''
+                    + c.cctvid
+                    + '\');"><img src=/images/map/btn_cctv_clse.gif" alt="닫기" /></a></span></p><div class="screenshot_area player"><img src="'
+                    + b
+                    + '" alt="" width="100%" height="100%" /></div></div>';
+                return a;
+            };
+            this.popupCctv2 = function (b, e, d, a) {
+                var c = Mando.wgs84ToMandoMap(e, d);
+                this.popupCctv(b, new UTISMap.LonLat(c.lon, c.lat), a);
+            };
+            this.popupCctv = function (d, e, c) {
+                var b = this.getCctv(d);
+                var f = null;
+                if (b.type == "02") {
+                    f = true;
+                }
+                if (!c && f) {
+                    var a = this.getCctvSteamHTML(b, e);
+                    cctvPopup.displayPopup(true, e, a);
+                } else {
+                    this.getRealtimeCctvPath(b, e);
+                    return;
+                }
+            };
+            this.openCctvIPhone = function (a) {
+                var b = document.getElementById("mov");
+                b.src = a;
+            };
+        }
+
+        var cctv = new RotaCCTV2();
+        // 송출
+
+        var streamCctv = new StreamCctv('L310096');
+
+        /**************************************************************************************
+         * 0000
+         **************************************************************************************/
+        function cctvOff() {
+            try {
+                var mmp = document.getElementById('axPlayer');
+                if (mmp) {
+                    if (mmp.controls)
+                        mmp.controls.Close();
+                    else
+                        mmp.Close();
+
+                    mmp.Destroy(); // 해제옵션.
+
+                    var mmpd = document.getElementById('mmp-div');
+                    mmpd.removeChild(mmp);
+                    mmpd.innerHTML = '<div style="width:400px; height:135px; padding-top:130px; text-align:center; background:#2a2a2a; color: white; font-size:0.85em;">CCTV 영상정보는 1분만 제공됩니다.</div>';
+                }
+                $.hit(1);
+            } catch (e) {
+                self.status = e;
+            }
+        }
+    </script>
+    <script src="/js/video.js"></script>
+    <script src="/js/videojs-contrib-hls.js"></script>
+    <script src="/js/hls.js"></script>
+
+</head>
+<body style="overflow-x:hidden;overflow-y:hidden;padding:0 0 0 0; margin: 0 0 0 0" scroll="no">
+<div id="cctvarea">
+
+    <!-- 세종시  -->
+    
+
+    <!-- 경기도교통정보센터 -->
+    
+
+    <!-- 서울내부순환 -->
+    
+
+
+    <!-- 전주 -->
+    
+
+<!-- 광주 -->
+
+
+<!-- 대구 -->
+
+
+<!-- 대전 2017_0215 by indi -->
+
+
+<!-- 울산 -->
+
+
+<!-- 제주 -->
+
+
+<!-- 마산 창원 -->
+
+
+<!-- 천안 -->
+<!-- 2018_10 수정 -->
+
+
+<!-- 서울외곽순환 -->
+
+
+<!-- 청주 -->
+<!-- 2018_10_29 수정 RTMP->HTTPSTREAMING -->
+
+
+<!-- 순천 -->
+<!-- 2018_10_26 수정 -->
+<!-- -->
+
+
+<!-- 평택 -->
+<!-- 2018_10_26 수정 -->
+
+
+<!-- 경주 -->
+
+
+<!-- 인천 -->
+
+
+<!-- 원주 2017_0630 by indi -->
+
+
+
+<!-- 부천 -->
+<!-- 2018_10_26수정 -->
+
+
+<!-- 광양 -->
+
+
+<!-- 안양 -->
+
+
+<!-- 과천 -->
+
+
+<!-- 성남  -->
+
+
+<!-- 고양 -->
+
+
+<!-- 파주  -->
+
+
+<!-- 아산  -->
+
+
+<!-- 양주 -->
+
+
+<!-- 의정부 -->
+
+
+<!-- 김포 -->
+
+
+<!-- 의왕 -->
+
+
+<!-- 군포 -->
+
+
+<!-- 남양주 -->
+
+
+<!-- 수원 -->
+
+
+<!-- 경기광주 -->
+
+
+<!-- 구리 : 2020.01.06 by INDI -->
+
+
+<!-- 하남 -->
+
+
+<!-- 부산 -->
+
+
+
+<!-- 양산 -->
+<!-- 2018_10_26수정  -->
+
+
+<!-- 김해 -->
+<!-- 2018_10_26수정 'http://211.236.72.94:1935/live/video.stream/playlist.m3u8-->
+
+
+<!-- 거제 -->
+<!-- 2018_10_26 수정 -->
+
+
+<!-- Seoul 2018.0910. by INDI -->
+
+
+<!-- 용인 -->
+<!-- 2018_10_26 -->
+
+
+<!-- 전라광주 -->
+
+    <div class='video shad cctv'>
+        <p class='hd'>
+    <span>
+      <a onclick='javascript:self.close();'><img src='/images/map/btn_cctv_clse.gif' alt='닫기'/></a>
+    </span>
+        </p>
+        <object id="innerObject">
+            <div class='cctv_area player' style="width:320px; height:240px;">
+                <video id="video" autoplay muted width='320' height='240'></video>
+                <script>
+                    var video = document.getElementById('video');
+                    var videoSrc = 'https://gjtic.go.kr/cctv4/livehttp/1021_video2/chunklist.m3u8'; // <- 테스트 URL 이므로 본인의 URL 작성
+
+                    if (video.canPlayType('vnd.apple.mpegurl')) {
+                        video.src = videoSrc;
+
+                    } else if (Hls.isSupported()) {
+                        var hls = new Hls();
+                        hls.loadSource(videoSrc);
+                        hls.attachMedia(video);
+                    }
+                </script>
+            </div>
+            <p class='bot03'>(동영상 재생은 60초만 제공합니다.)</p>
+            <p class='bot02'>
+                <a href="#" onclick="window.open('http://www.gjtic.go.kr')">
+
+                </a>
+            </p>
+        </object>
+    </div>
+
+
+<!-- 포항 -->
+<!-- 2018_10_26 수정 -->
+
+
+<!-- 구미 -->
+
+<!-- 충주  -->
+
+
+<!-- 국가교통정보센터(국도,고속도로) -->
+
+
+<!-- 안산 -->
+
+
+<!-- 군산 -->
+
+
+<!-- 목포   -->
+
+
+<!-- 여수  -->
+
+
+<!-- 경산   -->
+
+
+
+
+<!-- 공주  CCTV영상 재생로직  -->
+
+
+<!-- 진주  CCTV영상 재생로직  -->
+
+
+<!-- 당진  CCTV영상 재생로직  -->
+
+
+<!-- 제천  CCTV영상 재생로직  -->
+
+
+<!-- 화성  CCTV영상 재생로직  -->
+
+
+<!-- 한강홍수통제소 -->
+
+
+
+<!-- 낙동강홍수통제소 -->
+
+
+<!-- 금강홍수통제소 -->
+
+
+<!-- 영산강홍수통제소 -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- KBS 재난포털 -->
+
+
+</div>
+
+<script type="text/javascript">
+    window.onload = cctvInit;
+    window.onunload = cctvFinish;
+
+    function cctvInit() {
+
+        try {
+            var kind = 'v';
+            var cctvch = '4';
+            var cctvip = '';
+            var id = '1021';
+            var port = streamCctv.gPort;
+            var cctvId = streamCctv.gCctvId;
+
+            cctvId = cctvId.substring(0, 3) + cctvId.substring(cctvId.length - 3, cctvId.length);
+
+            switch (kind) {
+                case 'Q': //대전국토(CENTERID : E19)
+                    if (cctvip.substring(0, 3) == 'dvr')
+                        initObject(cctvip, id);
+                    break;
+                case 'U'://서울외곽순환(CENTERID :E23)
+                    Connect("rtsp://" + cctvip + "/Ch1:D");
+                    break;
+                case 'N': //인천(CENTERID : L02)
+                case 'L02':
+                    Connect("rtsp://61.40.94.7/" + id + "/video" + cctvch);
+                    break;
+                case 'X': //안양(CENTERID : L05)
+                    init();
+                    break;
+                case 'a': //과천(CENTERID : L06)
+                    Connect("rtsp://61.108.209.254/" + cctvId + "/video1");
+                    break;
+                case 'f': //양주(CENTERID : L13)
+                    Connect("rtsp://61.108.209.254/" + cctvId + "/video1");
+                    break;
+                case 'g': //의정부(CENTERID : L14)
+                    Connect("rtsp://61.108.209.254/" + cctvId.substring(0, 3) + "" + cctvId.substring(3, 6) + "/video1");
+                    break;
+                case 'h': //의왕(CENTERID : L16)
+                    Connect("rtsp://218.148.33.151/" + id);
+                    break;
+                case 'j': //경기광주(CENTERID :L20)
+                    Connect("rtsp://211.175.58.104/" + port + "/video3");
+                    break;
+                default:
+                    break;
+            }
+            setTimeout(function () {
+                location.reload()
+            }, 1000 * 30); <!-- 기존 setInterval("self.close()", 1000 * 60); -->
+            <!-- 송출 -->
+        } catch (e) {
+            setTimeout(function () {
+                location.reload()
+            }, 1000 * 30);
+        }
+    }
+
+    function cctvFinish() {
+        try {
+            var kind = 'v';
+            if (kind == 'J') {
+
+                var CCTVVIEW = document.getElementById("CCTVVIEW");
+                CCTVVIEW.Disconnect();
+
+            } else if (kind == 'I') {
+
+                if (!'4') {
+
+                    if (lChID == 0) {
+
+                        return;
+                    }
+
+                    document.Tvs.Pause(lChID);
+                    document.Tvs.SetMute(lChID, 1);
+                    document.Tvs.Disconnect(lChID);
+                    lChID = 0;
+                }
+            } else if (kind == 'k') {
+
+                var player = document.getElementById("IP_CAM");
+                player.DisconnectSrv();
+            }
+        } catch (e) {
+        }
+    }
+
+    function goyangConn() {
+        var player = document.getElementById("IP_CAM");
+        player.DisconnectSrv();
+        player.ConnectSrv('root', 'vas7264', '210.95.12.', 0, 0, 1, 0, 0);
+    }
+</script>
+<iframe id="logifrm" src="" style="display: none; width:100%; height:0px; padding:0; margin:0;" frameborder="0"
+        marginwidth="0" marginheight="0" scrolling="no"></iframe>
+</body>
+
+</html>

@@ -10,12 +10,20 @@ import sys
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import urllib3
+
+# Suppress SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configuration
 CCTV_DATA_FILE = "cctv_data.json"
 SAMPLE_SIZE = 100  # Check a sample of streams to avoid rate limiting
 TIMEOUT = 10
 FAILURE_THRESHOLD = 0.30  # Alert if more than 30% of streams fail (HLS-focused)
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
 
 # Note: MP4 streams are date-based and may 404 during off-hours
 # UTIC_API may show null during maintenance windows
@@ -60,17 +68,20 @@ def check_hls_stream(item):
     """Check if HLS stream is accessible"""
     url = item.get("url", "")
     name = item.get("name", "Unknown")
+    cctv_id = item.get("id", "Unknown")
+    
+    base_res = {"name": name, "id": cctv_id}
     
     try:
-        response = requests.head(url, timeout=TIMEOUT, allow_redirects=True)
+        response = requests.head(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True, verify=False)
         if response.status_code == 200:
-            return {"name": name, "status": "OK", "code": 200}
+            return {**base_res, "status": "OK", "code": 200}
         else:
-            return {"name": name, "status": "FAIL", "code": response.status_code}
+            return {**base_res, "status": "FAIL", "code": response.status_code}
     except requests.Timeout:
-        return {"name": name, "status": "TIMEOUT", "code": None}
+        return {**base_res, "status": "TIMEOUT", "code": None}
     except Exception as e:
-        return {"name": name, "status": "ERROR", "code": str(e)[:50]}
+        return {**base_res, "status": "ERROR", "code": str(e)[:50]}
 
 def check_mp4_stream(item):
     """Check if MP4 stream is accessible"""
@@ -80,6 +91,9 @@ def check_utic_api(item):
     """Check UTIC API endpoint"""
     url = item.get("url", "")
     name = item.get("name", "Unknown")
+    cctv_id = item.get("id", "Unknown")
+    
+    base_res = {"name": name, "id": cctv_id}
     
     try:
         # Extract cctvip from URL
@@ -91,24 +105,24 @@ def check_utic_api(item):
         if kind == "Z3" and cctvip:
             # Test the API endpoint
             api_url = f"https://www.utic.go.kr/map/getGyeonggiCctvUrlFromIts.do?cctvIp={cctvip}"
-            response = requests.get(api_url, timeout=TIMEOUT)
+            response = requests.get(api_url, headers=HEADERS, timeout=TIMEOUT, verify=False)
             
             if response.status_code == 200:
                 if response.text.strip() == "null":
-                    return {"name": name, "status": "NULL_RESPONSE", "code": 200}
+                    return {**base_res, "status": "NULL_RESPONSE", "code": 200}
                 else:
-                    return {"name": name, "status": "OK", "code": 200}
+                    return {**base_res, "status": "OK", "code": 200}
             else:
-                return {"name": name, "status": "FAIL", "code": response.status_code}
+                return {**base_res, "status": "FAIL", "code": response.status_code}
         else:
             # Just check if the page loads
-            response = requests.get(url, timeout=TIMEOUT)
-            return {"name": name, "status": "OK" if response.status_code == 200 else "FAIL", "code": response.status_code}
+            response = requests.get(url, headers=HEADERS, timeout=TIMEOUT, verify=False)
+            return {**base_res, "status": "OK" if response.status_code == 200 else "FAIL", "code": response.status_code}
             
     except requests.Timeout:
-        return {"name": name, "status": "TIMEOUT", "code": None}
+        return {**base_res, "status": "TIMEOUT", "code": None}
     except Exception as e:
-        return {"name": name, "status": "ERROR", "code": str(e)[:50]}
+        return {**base_res, "status": "ERROR", "code": str(e)[:50]}
 
 def run_health_check():
     """Run health check on sample of streams"""
@@ -209,10 +223,10 @@ def generate_report(results):
         report.append("-" * 40)
         report.append(f"Issues Detected ({len(results['issues'])}):")
         report.append("-" * 40)
-        for issue in results["issues"][:20]:  # Limit to first 20
+        for issue in results["issues"][:200]:  # Limit to first 200
             report.append(f"  [{issue['category']}] {issue['name']}: {issue['status']} ({issue['code']})")
-        if len(results["issues"]) > 20:
-            report.append(f"  ... and {len(results['issues']) - 20} more")
+        if len(results["issues"]) > 200:
+            report.append(f"  ... and {len(results['issues']) - 200} more")
     
     report.append("")
     report.append("=" * 60)
@@ -227,11 +241,43 @@ def main():
     
     print("\n" + report)
     
-    # Save report
-    report_file = f"health_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    with open(report_file, 'w', encoding='utf-8') as f:
-        f.write(report)
     print(f"\nReport saved to: {report_file}")
+    
+    # Save failed streams for auto-renewal
+    failed_json = "failed_streams.json"
+    failed_data = {
+        "timestamp": datetime.now().isoformat(),
+        "summary": results["summary"],
+        "failures": {}
+    }
+    
+    # Re-structure for renewal script (group by status/cause if possible, or just list)
+    # The renewal script expects a dict with keys like "http_404", "utic_null", etc.
+    # Our results["issues"] is a list. Let's group them.
+    for issue in results["issues"]:
+        # Map our status/code to categories
+        cat = "unknown"
+        if issue["status"] == "FAIL":
+            if issue["code"] == 404: cat = "http_404"
+            elif issue["code"] == None: cat = "timeout" # Timeout
+            else: cat = "http_other"
+        elif issue["status"] == "NULL_RESPONSE":
+            cat = "utic_null"
+        elif issue["status"] == "ERROR":
+             cat = "connection_error"
+             
+        if cat not in failed_data["failures"]:
+            failed_data["failures"][cat] = []
+        
+        # Add necessary fields for renewal
+        failed_data["failures"][cat].append({
+            "id": issue.get("id"),
+            "name": issue["name"],
+        })
+    
+    with open(failed_json, 'w', encoding='utf-8') as f:
+        json.dump(failed_data, f, ensure_ascii=False, indent=2)
+    print(f"Failed streams data saved to: {failed_json}")
     
     # Set output for GitHub Actions
     if os.environ.get("GITHUB_OUTPUT"):
