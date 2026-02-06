@@ -77,7 +77,13 @@ function setupEventListeners() {
     searchInput.addEventListener('focus', showSearchHistory);
     searchInput.addEventListener('input', debounce(handleSearchInput, 300));
     searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') handleSearchSubmit();
+        // Prevent double-submission during IME composition (CJK)
+        if (e.isComposing || e.keyCode === 229) return;
+
+        if (e.key === 'Enter') {
+            e.preventDefault(); // Prevent default form submission if any
+            handleSearchSubmit();
+        }
     });
 
     // Search Clear
