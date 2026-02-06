@@ -141,6 +141,17 @@ def process_item(cctv_id, existing_item=None):
         current_tags = details.get("tags") or []
         is_direct = "direct_source" in current_tags or (existing_item and "direct_source" in existing_item.get("tags", []))
         
+        # VIP PROTECTION: If name contains key regions, FORCE retain existing URL/TAGS if they seem special
+        # ideally we trust "direct_source", but let's double down for specific keywords users complain about
+        vip_keywords = ["파주", "남양주", "부산", "해운대", "진도", "구리", "왕숙천", "왕숙교"]
+        is_vip = existing_item and any(k in existing_item.get("name", "") for k in vip_keywords)
+        
+        if is_vip and is_direct:
+            print(f"  [LOCKED] VIP Region Stream (Protected): {cctv_name}")
+            return existing_item # Return exactly what we have, ZERO changes allowed.
+
+
+        
         final_url = url
         final_tags = existing_item.get("tags", []) if existing_item else []
         
