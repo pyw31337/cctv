@@ -1,22 +1,29 @@
 
 import json
 
-TARGETS = ["해운대바다", "기계공고 삼거리", "해운대구청", "암소갈비"]
+TARGET_KEYWORDS = ["동부산", "이케아", "롯데몰"]
 FILES = [
-    ("PRE", "cctv_data_pre_audit_v2.json"),
-    ("CUR", "cctv_data.json")
+    ("cctv_data.json", "Current DB"),
+    ("cctv_overrides.json", "Overrides")
 ]
 
-for label, fname in FILES:
-    print(f"Checking {label}: {fname}")
-    try:
-        with open(fname, "r") as f:
-            data = json.load(f)
-        for item in data:
-            for t in TARGETS:
-                if t in item["name"]:
-                    print(f"  FOUND: {item['name']} ({item['id']})")
-                    print(f"  URL: {item['url']}")
-        print("-" * 20)
-    except Exception as e:
-        print(f"  ERROR: {e}")
+def debug_busan():
+    for fname, label in FILES:
+        print(f"\n=== {label}: {fname} ===")
+        try:
+            with open(fname, "r") as f:
+                data = json.load(f)
+                
+            for item in data:
+                name = item.get("name", "")
+                if any(k in name for k in TARGET_KEYWORDS):
+                    print(f"\nID: {item.get('id')}")
+                    print(f"Name: {name}")
+                    print(f"URL: {item.get('url', 'MISSING')[:150]}...")
+                    print(f"Tags: {item.get('tags', [])}")
+                    print(f"Status: {item.get('status', 'N/A')}")
+        except Exception as e:
+            print(f"Error loading {fname}: {e}")
+
+if __name__ == "__main__":
+    debug_busan()

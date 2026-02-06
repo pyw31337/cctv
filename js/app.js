@@ -178,6 +178,9 @@ function updateSegmentIndicator() {
 
 // === Search ===
 function showSearchHistory() {
+    // Close weather popup when opening search
+    closeWeather();
+
     const resultsEl = $('#search-results');
     // Filter out undefined or invalid items
     const history = getSearchHistory().filter(item => item && item.name && item.name !== 'undefined');
