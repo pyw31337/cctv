@@ -241,6 +241,10 @@ def main():
     
     print("\n" + report)
     
+    report_file = f"health_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    with open(report_file, "w", encoding="utf-8") as f:
+        f.write(report)
+    
     print(f"\nReport saved to: {report_file}")
     
     # Save failed streams for auto-renewal

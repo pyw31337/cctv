@@ -21,7 +21,7 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 OUTPUT_FILE = "cctv_data.json"
-MAX_WORKERS = 50  # Increased concurrency for speed
+MAX_WORKERS = 20  # Balanced for stealth/speed
 STALE_DAYS = 7     # Refresh details if older than 7 days
 
 def load_local_data():
@@ -108,10 +108,14 @@ def check_url_status(url, session=None):
     except:
         return "error"
 
+WORKER_SLEEP_DELAY = 0.1
+
 def process_item(cctv_id, existing_item=None):
     """Worker function for threading"""
-    # Random sleep for politeness (Reduced for speed)
-    time.sleep(random.uniform(0.01, 0.1))
+    # Dynamic sleep based on target duration
+    # Add random jitter +/- 20%
+    jitter = random.uniform(0.8, 1.2)
+    time.sleep(WORKER_SLEEP_DELAY * jitter)
     
     with requests.Session() as session:
         details = fetch_cctv_details(cctv_id, session)
@@ -147,9 +151,10 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true", help="Force refresh all IDs ignoring stale days")
+    parser.add_argument("--duration", type=float, default=0.5, help="Target duration in hours (default: 0.5)")
     args = parser.parse_args()
     
-    print(f"Starting Optimized CCTV Sync at {datetime.now()} (Force: {args.force})...")
+    print(f"Starting Optimized CCTV Sync at {datetime.now()} (Force: {args.force}, Target: {args.duration}h)...")
     
     # 1. Load Local & Remote
     local_data = load_local_data()
@@ -208,6 +213,27 @@ def main():
         if cid not in stale_ids:
             final_results.append(local_data[cid])
             
+    # Calculate throttling
+    total_items = len(to_process)
+    if total_items > 0:
+        target_seconds = args.duration * 3600
+        # safety margin: 90% of target time to ensure completion
+        delay_per_item = (target_seconds * 0.9) / total_items
+        # workers impact: with N workers, effective delay is delay * N
+        worker_delay = delay_per_item * MAX_WORKERS
+        
+        # Clamp delay
+        worker_delay = max(0.1, worker_delay)
+        print(f"  Throttling: {total_items} items over {args.duration}h")
+        print(f"  -> {total_items / (args.duration * 3600):.2f} req/sec globally")
+        print(f"  -> {worker_delay:.2f}s sleep per worker (Workers: {MAX_WORKERS})")
+    else:
+        worker_delay = 0.1
+
+    # Update global variable for worker access (hacky but works for script)
+    global WORKER_SLEEP_DELAY
+    WORKER_SLEEP_DELAY = worker_delay
+
     # Process queue
     processed_count = 0
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:

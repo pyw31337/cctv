@@ -12,7 +12,7 @@ permissions:
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 240 # Allow up to 4 hours for stealth sync
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -28,7 +28,7 @@ jobs:
           pip install requests
 
       - name: Run optimized sync
-        run: python collect_cctv_data.py
+        run: python collect_cctv_data.py --force --duration 3.0
 
       - name: Check for changes
         id: check_changes
