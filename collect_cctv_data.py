@@ -137,13 +137,34 @@ def process_item(cctv_id, existing_item=None):
         # For Optimization, we'll mark as active if construction succeeded.
         status = "active" 
         
+        # Preserve "direct_source" if valid
+        current_tags = details.get("tags") or []
+        is_direct = "direct_source" in current_tags or (existing_item and "direct_source" in existing_item.get("tags", []))
+        
+        final_url = url
+        final_tags = existing_item.get("tags", []) if existing_item else []
+        
+        if is_direct and existing_item:
+            # Check if existing Direct URL is still valid (Simple HEAD)
+            direct_url = existing_item.get("url")
+            if direct_url != url:
+                try:
+                    # Quick check (timeout 2s)
+                    with requests.head(direct_url, timeout=2, verify=False) as r:
+                         if r.status_code == 200:
+                             final_url = direct_url
+                             if "direct_source" not in final_tags: final_tags.append("direct_source")
+                except:
+                     pass # If check fails, fall back to new UTIC URL
+
         return {
             "id": cctv_id,
             "name": details.get("CCTVNAME"),
             "lat": float(details.get("YCOORD") or 0),
             "lng": float(details.get("XCOORD") or 0),
-            "url": url,
+            "url": final_url,
             "status": status,
+            "tags": final_tags,
             "lastUpdated": datetime.now().isoformat()
         }
 
