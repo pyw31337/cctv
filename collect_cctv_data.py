@@ -143,7 +143,7 @@ def process_item(cctv_id, existing_item=None):
         
         # VIP PROTECTION: If name contains key regions, FORCE retain existing URL/TAGS if they seem special
         # ideally we trust "direct_source", but let's double down for specific keywords users complain about
-        vip_keywords = ["파주", "남양주", "부산", "해운대", "진도", "구리", "왕숙천", "왕숙교"]
+        vip_keywords = ["파주", "남양주", "부산", "해운대", "진도", "구리", "왕숙천", "왕숙교", "역곡", "부천"]
         is_vip = existing_item and any(k in existing_item.get("name", "") for k in vip_keywords)
         
         if is_vip and is_direct:
