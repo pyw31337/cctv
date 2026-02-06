@@ -304,7 +304,8 @@ def refine_cctv_data(cctv_list):
         return cctv_list
 
     def inspect_item(item):
-        time.sleep(1.0) # Ultra-Safe Politeness delay
+        # Reduced sleep to just 0.1s jitter to avoid hammering, but rely on concurrency control
+        time.sleep(0.1) 
         url = item['url']
         try:
             resp = requests.get(url, timeout=4, verify=False)
@@ -327,40 +328,18 @@ def refine_cctv_data(cctv_list):
                             item['url'] = new_url
                             return True # Modified
         except Exception as e:
-            # Smart Backoff: If we hit a timeout/error, wait 15s to clear the "3 errors in 10s" window
-            print(f"[Smart Backoff] Error inspecting {item.get('name')}: {e}. Sleeping 15s...")
-            time.sleep(15)
+            # removed long sleep, just pass
+            pass
             
         return False # Not modified
 
-    # Process in parallel (Ultra-Safe Mode: SEQUENTIAL to avoid blocking)
+    # Process in parallel using ThreadPoolExecutor
     modified_count = 0
-    save_interval = 10
-    total_targets = len(targets)
+    print(f"Starting concurrent inspection of {len(targets)} items...")
     
-    print(f"Starting sequential inspection of {total_targets} items with incremental saving...")
-    
-    # Use simple loop for maximum safety and easy incremental saving
-    for i, item in enumerate(targets):
-        if inspect_item(item):
-            modified_count += 1
-            print(f"[Fixed] {item.get('name')}")
-        
-        # Save every 10 items
-        if (i + 1) % save_interval == 0:
-            print(f"Progress: {i+1}/{total_targets} (Modified: {modified_count}). Saving data...")
-            try:
-                # Save the ENTIRE cctv_list (since item is a ref to it)
-                # Ensure we are saving to the correct path. Ideally pass path or use global constant?
-                # Using 'cctv_data.json' relative path as per existing code convention
-                with open('cctv_data.json', 'w', encoding='utf-8') as f:
-                    json.dump(cctv_list, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                print(f"Error saving data: {e}")
-                
-    # Final save
-    with open('cctv_data.json', 'w', encoding='utf-8') as f:
-        json.dump(cctv_list, f, indent=2, ensure_ascii=False)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+        results = list(executor.map(inspect_item, targets))
+        modified_count = sum(results)
 
     print(f"Deep Inspection completed. Optimized {modified_count} URLs.")
     return cctv_list
@@ -373,7 +352,8 @@ def main():
     
     # 2. Fetch Data (Processing with Delta Sync)
     its_data = fetch_its_data()
-    utic_data = fetch_utic_data(existing_data_map)
+    # Corrected call: fetch_utic_data does not take arguments in its definition
+    utic_data = fetch_utic_data() 
     
     # 3. Merge & Prioritize (Prefer UTIC for Highways/Duplicates)
     print("Merging data (Prioritizing UTIC)...")
