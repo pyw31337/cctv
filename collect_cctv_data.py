@@ -446,24 +446,9 @@ def main():
     skipped_gits = 0
     upgraded_gits = 0
     
-    # MANUAL OVERRIDES (Ensure direct HLS for critical locations)
-    # Mapping ID or Name to a specific high-quality URL
-    manual_overrides = {
-        "마석윗3": "https://211.57.45.101/media/L180009/chunklist.m3u8",
-        # Use specific IDs for 창현A앞4 to differentiate views
-        "L180195": "https://211.57.45.101/media/L180065/chunklist.m3u8",
-        "L180196": "https://211.57.45.101/media/L180007/chunklist.m3u8",
-    }
-
     for item in gits_data:
         # GITS streams are almost all 4:3 in Gyeonggi local servers
         item['aspectRatio'] = '4:3'
-        
-        # Apply manual URL override if quality from provider is suboptimal (burned bars)
-        name = item.get('name', '')
-        gid = item.get('id', '')
-        if name in manual_overrides:
-            item['url'] = manual_overrides[name]
         
         idx = find_duplicate_index(item, final_merged)
         if idx == -1:
@@ -483,12 +468,6 @@ def main():
             upgraded_gits += 1
                 
     print(f"Merged GITS: {added_its} added, {skipped_its} skipped, {upgraded_gits} upgraded.")
-
-    # Apply manual overrides to UTIC entries directly just in case logic missed them
-    for item in final_merged:
-        if item['id'] in manual_overrides:
-            item['url'] = manual_overrides[item['id']]
-            item['source'] = 'UTIC'
 
     # 4. Add TOPIS data (with upgrade logic)
     added_topis = 0
@@ -565,6 +544,32 @@ def main():
                 renamed_count += 1
     
     print(f"Renaming Pass: Applied suffixes to {renamed_count} cameras.")
+
+    # 7.6 FINAL AUTHORITY: Apply cctv_overrides.json
+    # This is the "Golden Record" safeguard to prevent regressions.
+    OVERRIDE_FILE = "cctv_overrides.json"
+    if os.path.exists(OVERRIDE_FILE):
+        print(f"Applying final authority from {OVERRIDE_FILE}...")
+        try:
+            with open(OVERRIDE_FILE, 'r', encoding='utf-8') as f:
+                overrides = json.load(f)
+            
+            # Map by ID for fast lookup
+            override_map = {item['id']: item for item in overrides}
+            
+            override_count = 0
+            for item in final_merged:
+                if item['id'] in override_map:
+                    ovr = override_map[item['id']]
+                    # Force fields from override file
+                    for key in ["url", "name", "aspectRatio", "status"]:
+                        if key in ovr:
+                            item[key] = ovr[key]
+                    override_count += 1
+            
+            print(f"Safeguard: Applied {override_count} golden overrides.")
+        except Exception as e:
+            print(f"Warning: Failed to apply golden overrides: {e}")
 
     # 8. Stats & Verification
     print(f"Total entries combined: {len(final_merged)}")
