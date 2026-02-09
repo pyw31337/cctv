@@ -127,8 +127,9 @@ def process_utic_item(item):
     # Filter out None values
     query_string = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
     
-    # BASE URL - Always UTIC JSP (contains fresh token from daily API fetch)
+    # BASE URL - default to UTIC JSP
     url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
+    cctvip = str(item.get("CCTVIP", ""))
 
     # Special handling for River Flood Control Offices
     cctv_id_str = item.get("CCTVID", "")
@@ -144,24 +145,19 @@ def process_utic_item(item):
     elif "E63" in cctv_id_str:
         url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
     
-    # Direct URL patterns - instantly constructible, no server request needed
-    direct_url = None
-    cctvip = str(item.get("CCTVIP", ""))
-    
+    # DIRECT HLS FOR KNOWN SERVERS - url 자체를 직통 HLS로 설정 (iframe 제거)
     # Pattern 1: Namyangju/Changhyeon Server (211.57.45.101)
     # IMPORTANT: Use ID_PARAM (item.ID), NOT CCTVID!
-    # UTIC has mismatched IDs: e.g., L180075(마석사거리) -> ID_PARAM: L180111
-    # The stream server uses ID_PARAM, not CCTVID
-    if cctvip == "211.57.45.101":
+    elif cctvip == "211.57.45.101":
         stream_id = item.get("ID")  # ID_PARAM field, not CCTVID
         if stream_id and stream_id.startswith("L"):
-            direct_url = f"https://211.57.45.101/media/{stream_id}/chunklist.m3u8"
+            url = f"https://211.57.45.101/media/{stream_id}/chunklist.m3u8"
     
-    # Pattern 2: Incheon/Gyeonggi Servers (verified working)
+    # Pattern 2: Incheon/Gyeonggi Servers
     elif cctvip in ["210.95.12.126", "211.114.87.164"]:
         stream_id = item.get("ID")
         if stream_id:
-            direct_url = f"http://{cctvip}/media/{stream_id}/chunklist.m3u8"
+            url = f"http://{cctvip}/media/{stream_id}/chunklist.m3u8"
     
     result = {
         "id": cctv_id,
@@ -172,10 +168,6 @@ def process_utic_item(item):
         "source": "UTIC",
         "status": "active"
     }
-    
-    # Add directUrl only if we have a known pattern
-    if direct_url:
-        result["directUrl"] = direct_url
     
     return result
 
