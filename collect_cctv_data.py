@@ -10,6 +10,8 @@ import sys
 # Import custom collectors
 from collectors.gits import GitsCollector
 from collectors.topis import TopisCollector
+from collectors.jeju import JejuCollector
+from collectors.gangwon import GangwonCollector
 
 # Configuration
 ITS_API_URL = "https://openapi.its.go.kr:9443/cctvInfo"
@@ -338,6 +340,14 @@ def main():
     print("Fetching TOPIS data...")
     topis_data = TopisCollector().fetch_data() 
     
+    # Jeju
+    print("Fetching Jeju data...")
+    jeju_data = JejuCollector().fetch_data()
+    
+    # Gangwon
+    print("Fetching Gangwon data...")
+    gangwon_data = GangwonCollector().fetch_data() 
+    
     # 3. Merge & Prioritize (Prefer UTIC for Highways/Duplicates)
     print("Merging data (Prioritizing UTIC)...")
     
@@ -442,7 +452,29 @@ def main():
             skipped_topis += 1
     print(f"Merged TOPIS: {added_topis} added, {skipped_topis} skipped.")
 
-    # 5. Stats & Verification
+    # 5. Add Jeju data
+    added_jeju = 0
+    skipped_jeju = 0
+    for item in jeju_data:
+        if not is_duplicate(item, final_merged):
+            final_merged.append(item)
+            added_jeju += 1
+        else:
+            skipped_jeju += 1
+    print(f"Merged Jeju: {added_jeju} added, {skipped_jeju} skipped.")
+
+    # 6. Add Gangwon data
+    added_gangwon = 0
+    skipped_gangwon = 0
+    for item in gangwon_data:
+        if not is_duplicate(item, final_merged):
+            final_merged.append(item)
+            added_gangwon += 1
+        else:
+            skipped_gangwon += 1
+    print(f"Merged Gangwon: {added_gangwon} added, {skipped_gangwon} skipped.")
+
+    # 7. Stats & Verification
     print(f"Total entries combined: {len(final_merged)}")
 
     # SAFETY GUARDRAIL
