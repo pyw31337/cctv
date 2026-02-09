@@ -414,8 +414,16 @@ def main():
     def find_duplicate_index(new_item, existing_items):
         try:
             nlat, nlng = float(new_item['lat']), float(new_item['lng'])
+            nid = new_item.get('id')
+            nsource = new_item.get('source')
+            
             # Fast filter first
             for i, ex in enumerate(existing_items):
+                # RULE: If it is the SAME SOURCE but DIFFERENT ID, it's a MULTI-VIEW CAMERA.
+                # Primarily applies to UTIC (e.g. L180195 vs L180196 sharing coordinates)
+                if nsource == ex.get('source') and nid != ex.get('id'):
+                    continue
+
                 elat, elng = float(ex['lat']), float(ex['lng'])
                 if abs(nlat - elat) > 0.002 or abs(nlng - elng) > 0.002: continue 
                 if get_dist(nlat, nlng, elat, elng) < 200: # 200m radius
@@ -439,9 +447,12 @@ def main():
     upgraded_gits = 0
     
     # MANUAL OVERRIDES (Ensure direct HLS for critical locations)
+    # Mapping ID or Name to a specific high-quality URL
     manual_overrides = {
         "마석윗3": "https://211.57.45.101/media/L180009/chunklist.m3u8",
-        # 창현A앞4 is usually handled by L180196 -> L180007
+        # Use specific IDs for 창현A앞4 to differentiate views
+        "L180195": "https://211.57.45.101/media/L180065/chunklist.m3u8",
+        "L180196": "https://211.57.45.101/media/L180007/chunklist.m3u8",
     }
 
     for item in gits_data:
@@ -449,9 +460,10 @@ def main():
         item['aspectRatio'] = '4:3'
         
         # Apply manual URL override if quality from provider is suboptimal (burned bars)
-        if item['name'] in manual_overrides:
-            item['url'] = manual_overrides[item['name']]
-            item['source'] = 'UTIC' # Restore source to UTIC as we are using direct server
+        name = item.get('name', '')
+        gid = item.get('id', '')
+        if name in manual_overrides:
+            item['url'] = manual_overrides[name]
         
         idx = find_duplicate_index(item, final_merged)
         if idx == -1:
@@ -471,6 +483,12 @@ def main():
             upgraded_gits += 1
                 
     print(f"Merged GITS: {added_its} added, {skipped_its} skipped, {upgraded_gits} upgraded.")
+
+    # Apply manual overrides to UTIC entries directly just in case logic missed them
+    for item in final_merged:
+        if item['id'] in manual_overrides:
+            item['url'] = manual_overrides[item['id']]
+            item['source'] = 'UTIC'
 
     # 4. Add TOPIS data (with upgrade logic)
     added_topis = 0
@@ -528,6 +546,25 @@ def main():
     
     print(f"Final Deduplication: {len(final_merged)} -> {len(unique_merged)}")
     final_merged = unique_merged
+
+    # 7.5 Rename duplicates pass (Unique suffixes for multi-view)
+    print("Renaming cameras with same name and location (multi-view)...")
+    name_loc_map = {}
+    for item in final_merged:
+        # Use name and coordinates to find multi-view sets
+        key = (item['name'], item['lat'], item['lng'])
+        if key not in name_loc_map:
+            name_loc_map[key] = []
+        name_loc_map[key].append(item)
+    
+    renamed_count = 0
+    for key, items in name_loc_map.items():
+        if len(items) > 1:
+            for i, item in enumerate(items, 1):
+                item['name'] = f"{item['name']} ({i})"
+                renamed_count += 1
+    
+    print(f"Renaming Pass: Applied suffixes to {renamed_count} cameras.")
 
     # 8. Stats & Verification
     print(f"Total entries combined: {len(final_merged)}")
