@@ -31,7 +31,7 @@ class GitsCollector:
             
             # Fetch stream URLs concurrently
             full_data = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 # Map cctv objects to futures
                 future_to_cctv = {executor.submit(self.fetch_stream_url, cctv): cctv for cctv in cctvs}
                 
