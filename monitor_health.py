@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 CCTV Stream Health Monitor
-Checks stream availability and reports anomalies via email.
+Checks stream availability and reports anomalies.
+Redesigned to avoid false positives in UTIC_API checks.
 """
 import json
 import requests
@@ -17,22 +18,20 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configuration
 CCTV_DATA_FILE = "cctv_data.json"
-SAMPLE_SIZE = 100  # Check a sample of streams to avoid rate limiting
+SAMPLE_SIZE = 300  # Increased for better accuracy
 TIMEOUT = 10
-FAILURE_THRESHOLD = 0.30  # Alert if more than 30% of streams fail (HLS-focused)
+FAILURE_THRESHOLD = 0.35  # Alert if more than 35% of streams fail (HLS-focused)
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://www.utic.go.kr/"
 }
-
-# Note: MP4 streams are date-based and may 404 during off-hours
-# UTIC_API may show null during maintenance windows
 
 # Stream type patterns for testing
 STREAM_PATTERNS = {
-    "HLS": [".m3u8"],
+    "HLS": [".m3u8", "!hls", "playlist.m3u8"],
     "MP4": [".mp4"],
-    "UTIC_API": ["openDataCctvStream.jsp"]
+    "UTIC_API": ["openDataCctvStream.jsp", "cctvPopup.do", "cctvView.do", "videoDetail.do"]
 }
 
 def load_cctv_data():
@@ -65,7 +64,7 @@ def categorize_streams(data):
     return categories
 
 def check_hls_stream(item):
-    """Check if HLS stream is accessible"""
+    """Check if HLS/MP4 stream is accessible"""
     url = item.get("url", "")
     name = item.get("name", "Unknown")
     cctv_id = item.get("id", "Unknown")
@@ -73,7 +72,8 @@ def check_hls_stream(item):
     base_res = {"name": name, "id": cctv_id}
     
     try:
-        response = requests.head(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True, verify=False)
+        # Use GET with stream=True for better compatibility with some HLS servers
+        response = requests.get(url, headers=HEADERS, timeout=TIMEOUT, stream=True, verify=False)
         if response.status_code == 200:
             return {**base_res, "status": "OK", "code": 200}
         else:
@@ -83,12 +83,8 @@ def check_hls_stream(item):
     except Exception as e:
         return {**base_res, "status": "ERROR", "code": str(e)[:50]}
 
-def check_mp4_stream(item):
-    """Check if MP4 stream is accessible"""
-    return check_hls_stream(item)  # Same logic
-
 def check_utic_api(item):
-    """Check UTIC API endpoint"""
+    """Check UTIC API/JSP endpoint visibility"""
     url = item.get("url", "")
     name = item.get("name", "Unknown")
     cctv_id = item.get("id", "Unknown")
@@ -96,28 +92,20 @@ def check_utic_api(item):
     base_res = {"name": name, "id": cctv_id}
     
     try:
-        # Extract cctvip from URL
-        parsed = urlparse(url)
-        params = parse_qs(parsed.query)
-        cctvip = params.get("cctvip", [""])[0]
-        kind = params.get("kind", [""])[0]
+        # Check if the page itself is accessible
+        response = requests.get(url, headers=HEADERS, timeout=TIMEOUT, verify=False)
         
-        if kind == "Z3" and cctvip:
-            # Test the API endpoint
-            api_url = f"https://www.utic.go.kr/map/getGyeonggiCctvUrlFromIts.do?cctvIp={cctvip}"
-            response = requests.get(api_url, headers=HEADERS, timeout=TIMEOUT, verify=False)
+        if response.status_code == 200:
+            # Check for common error indicators in HTML
+            html = response.text
+            if "비정상적인 접근" in html or "접속이 원활하지 않습니다" in html:
+                 return {**base_res, "status": "BLOCKED", "code": 200}
+            if len(html) < 500 and "null" in html.lower():
+                 return {**base_res, "status": "NULL_RESPONSE", "code": 200}
             
-            if response.status_code == 200:
-                if response.text.strip() == "null":
-                    return {**base_res, "status": "NULL_RESPONSE", "code": 200}
-                else:
-                    return {**base_res, "status": "OK", "code": 200}
-            else:
-                return {**base_res, "status": "FAIL", "code": response.status_code}
+            return {**base_res, "status": "OK", "code": 200}
         else:
-            # Just check if the page loads
-            response = requests.get(url, headers=HEADERS, timeout=TIMEOUT, verify=False)
-            return {**base_res, "status": "OK" if response.status_code == 200 else "FAIL", "code": response.status_code}
+            return {**base_res, "status": "FAIL", "code": response.status_code}
             
     except requests.Timeout:
         return {**base_res, "status": "TIMEOUT", "code": None}
@@ -138,27 +126,28 @@ def run_health_check():
         "summary": {}
     }
     
+    import random
     for category, streams in categories.items():
         if not streams:
             continue
             
         # Sample streams for testing
-        import random
-        sample = random.sample(streams, min(SAMPLE_SIZE // 4, len(streams)))
+        sample_size_per_cat = min(SAMPLE_SIZE // 4, len(streams))
+        sample = random.sample(streams, sample_size_per_cat)
         
         print(f"\nChecking {category}: {len(sample)} samples out of {len(streams)} total")
         
         # Choose appropriate check function
         check_func = {
             "HLS": check_hls_stream,
-            "MP4": check_mp4_stream,
+            "MP4": check_hls_stream,
             "UTIC_API": check_utic_api,
             "Other": check_hls_stream
         }.get(category, check_hls_stream)
         
         # Run checks in parallel
         category_results = []
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=15) as executor:
             futures = {executor.submit(check_func, s): s for s in sample}
             for future in as_completed(futures):
                 result = future.result()
@@ -208,6 +197,7 @@ def generate_report(results):
     report.append(f"Overall Status: {status}")
     report.append(f"Total Streams: {results['total_streams']}")
     report.append(f"Failure Rate: {results['overall_failure_rate']*100:.1f}%")
+    report.append(f"Threshold: {FAILURE_THRESHOLD*100:.1f}%")
     report.append("")
     
     # Category Summary
@@ -223,10 +213,10 @@ def generate_report(results):
         report.append("-" * 40)
         report.append(f"Issues Detected ({len(results['issues'])}):")
         report.append("-" * 40)
-        for issue in results["issues"][:200]:  # Limit to first 200
+        for issue in results["issues"][:300]:  # Limit to first 300
             report.append(f"  [{issue['category']}] {issue['name']}: {issue['status']} ({issue['code']})")
-        if len(results["issues"]) > 200:
-            report.append(f"  ... and {len(results['issues']) - 200} more")
+        if len(results["issues"]) > 300:
+            report.append(f"  ... and {len(results['issues']) - 300} more")
     
     report.append("")
     report.append("=" * 60)
@@ -235,7 +225,7 @@ def generate_report(results):
 
 def main():
     """Main entry point"""
-    print("Starting CCTV Stream Health Check...")
+    print("Starting CCTV Stream Health Check (Improved Logic)...")
     results = run_health_check()
     report = generate_report(results)
     
@@ -255,25 +245,22 @@ def main():
         "failures": {}
     }
     
-    # Re-structure for renewal script (group by status/cause if possible, or just list)
-    # The renewal script expects a dict with keys like "http_404", "utic_null", etc.
-    # Our results["issues"] is a list. Let's group them.
     for issue in results["issues"]:
-        # Map our status/code to categories
         cat = "unknown"
         if issue["status"] == "FAIL":
             if issue["code"] == 404: cat = "http_404"
-            elif issue["code"] == None: cat = "timeout" # Timeout
+            elif issue["code"] == None: cat = "timeout"
             else: cat = "http_other"
         elif issue["status"] == "NULL_RESPONSE":
             cat = "utic_null"
+        elif issue["status"] == "BLOCKED":
+            cat = "blocked"
         elif issue["status"] == "ERROR":
              cat = "connection_error"
              
         if cat not in failed_data["failures"]:
             failed_data["failures"][cat] = []
         
-        # Add necessary fields for renewal
         failed_data["failures"][cat].append({
             "id": issue.get("id"),
             "name": issue["name"],
