@@ -138,8 +138,8 @@ def process_utic_item(item):
     
     # [Optimization] Direct Pattern Construction (Instant, no server request)
     # 1. Changhyeon/Maseok Server (211.57.45.101) - Uses 'cctvid'
-    if 'cctvip=211.57.45.101' in url and cctvid:
-        url = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
+    if 'cctvip=211.57.45.101' in url and cctv_id:
+        url = f"https://211.57.45.101/media/{cctv_id}/chunklist.m3u8"
     
     # 2. Incheon/Gyeonggi Servers (210.95.12.126, 211.114.87.164) - Uses 'id' param, HTTP port 80
     elif ('cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url):
