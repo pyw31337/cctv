@@ -12,7 +12,7 @@ class TopisCollector:
     def __init__(self):
         # Default base URL, key will be inserted
         self.base_url = "http://openapi.seoul.go.kr:8088"
-        self.api_key = os.environ.get("TOPIS_API_KEY", "")
+        self.api_key = os.environ.get("TOPIS_API_KEY", "4f78524242707977373765496c4d45")
 
     def fetch_data(self):
         if not self.api_key:

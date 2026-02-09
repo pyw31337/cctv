@@ -408,21 +408,21 @@ def main():
     added_its = 0
     skipped_its = 0
     
-    # Helper for duplicate check
-    def is_duplicate(new_item, existing_items):
+    # Helper for duplicate check - returns the index of the duplicate if found, else -1
+    def find_duplicate_index(new_item, existing_items):
         try:
             nlat, nlng = float(new_item['lat']), float(new_item['lng'])
-            for ex in existing_items:
+            for i, ex in enumerate(existing_items):
                 elat, elng = float(ex['lat']), float(ex['lng'])
                 if abs(nlat - elat) > 0.01 or abs(nlng - elng) > 0.01: continue
                 if get_dist(nlat, nlng, elat, elng) < 200: # 200m radius
-                    return True
+                    return i
         except:
             pass
-        return False
+        return -1
 
     for item in its_data:
-        if not is_duplicate(item, final_merged):
+        if find_duplicate_index(item, final_merged) == -1:
             final_merged.append(item)
             added_its += 1
         else:
@@ -430,22 +430,45 @@ def main():
             
     print(f"Merged ITS: {added_its} added, {skipped_its} skipped.")
 
-    # 3. Add GITS data
+    # 3. Add GITS data (with upgrade logic)
     added_gits = 0
     skipped_gits = 0
+    upgraded_gits = 0
+    
     for item in gits_data:
-        if not is_duplicate(item, final_merged):
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
             final_merged.append(item)
             added_gits += 1
         else:
-            skipped_gits += 1
-    print(f"Merged GITS: {added_gits} added, {skipped_gits} skipped.")
+            # Check if we can upgrade the existing item
+            existing = final_merged[idx]
+            
+            # If existing is UTIC and uses a JSP/Popup URL, and GITS is a direct URL, upgrade it!
+            # GITS URL usually looks like https://gitsview.gg.go.kr/...
+            # UTIC URL usually looks like https://www.utic.go.kr/jsp/...
+            
+            if existing.get('source') == 'UTIC':
+                 # Upgrade if UTIC is generic JSP and GITS is likely direct
+                 # Or just TRUST GITS more for these matches as user requested
+                 existing['url'] = item['url']
+                 existing['source'] = 'GITS' # Update source to reflect where the stream comes from
+                 existing['id'] = item['id'] # Update ID to GITS ID for consistency? 
+                 # Maybe keep original ID but add gits_id? 
+                 # Let's fully replace with GITS item but keep maybe some metadata?
+                 # Actually, simplest is to just REPLACE the item with the GITS item.
+                 final_merged[idx] = item
+                 upgraded_gits += 1
+            else:
+                skipped_gits += 1
+                
+    print(f"Merged GITS: {added_gits} added, {skipped_gits} skipped, {upgraded_gits} upgraded (replaced UTIC).")
 
     # 4. Add TOPIS data
     added_topis = 0
     skipped_topis = 0
     for item in topis_data:
-        if not is_duplicate(item, final_merged):
+        if find_duplicate_index(item, final_merged) == -1:
             final_merged.append(item)
             added_topis += 1
         else:
@@ -456,7 +479,7 @@ def main():
     added_jeju = 0
     skipped_jeju = 0
     for item in jeju_data:
-        if not is_duplicate(item, final_merged):
+        if find_duplicate_index(item, final_merged) == -1:
             final_merged.append(item)
             added_jeju += 1
         else:
@@ -467,7 +490,7 @@ def main():
     added_gangwon = 0
     skipped_gangwon = 0
     for item in gangwon_data:
-        if not is_duplicate(item, final_merged):
+        if find_duplicate_index(item, final_merged) == -1:
             final_merged.append(item)
             added_gangwon += 1
         else:
