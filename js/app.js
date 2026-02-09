@@ -615,104 +615,39 @@ function togglePanelExpand(panel, btn) {
 function createVideoElement(cctv) {
     // NEW ARCHITECTURE: directUrl (직통 HLS) 우선, 없으면 url (기본 UTIC JSP)
     const url = cctv.directUrl || cctv.url;
-
-    // Always try to play the stream regardless of status
-    // (Removed static status/ssl blocking as per user request to allow recovery attempts)
+    const is43 = cctv.aspectRatio === '4:3';
 
     // Handle Daejeon dynamic MP4 URLs
     if (cctv.urlType === 'daejeon_mp4_dynamic') {
-        // Generate current date URL
         const now = new Date();
         const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
         const timeStr = now.toTimeString().slice(0, 5).replace(':', '') + '00';
-
-        // Replace date in URL pattern
         let dynamicUrl = url.replace(/\d{8}\.\d{6}\.000/, `${dateStr}.${timeStr}.000`);
 
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        if (is43) video.style.objectFit = 'cover'; // Cover handles 4:3 -> 16:9 well
         video.src = dynamicUrl;
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
         video.setAttribute('playsinline', '');
-
-        // Fallback on error
-        video.onerror = () => {
-            video.outerHTML = `
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#888;text-align:center;padding:1rem;">
-                    <p style="font-size:0.9rem;">대전 스트림 로딩 중...</p>
-                    <p style="font-size:0.75rem;opacity:0.7;">잠시 후 재시도해주세요</p>
-                </div>
-            `;
-        };
         return video;
     }
 
     const isHls = url.includes('.m3u8');
+    const isMp4 = url.includes('.mp4');
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
-    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev'); // Our RTSP/SSL Proxy
+    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev');
+    const isGits = url.includes('gitsview.gg.go.kr');
 
-    // UTIC Portal URLs - use iframe
-    if (isUtic) {
-        const iframe = document.createElement('iframe');
-        iframe.src = url;
-        iframe.className = 'utic-iframe';
-        iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
-        iframe.allow = 'autoplay; fullscreen';
-        iframe.scrolling = 'no';
-        iframe.setAttribute('allowfullscreen', '');
-        return iframe;
-    }
-
-    // HLS streams (.m3u8 or ktict or proxy) - use HLS.js
-    if ((isHls || isSecureStream || isProxy) && Hls.isSupported()) {
+    // GITS is unique: it redirects to MP4 or HLS. Native player follows 302/307 better.
+    // Also any direct MP4 should use native.
+    if (isGits || isMp4) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-        video.muted = true;
-        video.autoplay = true;
-        video.playsInline = true;
-        video.setAttribute('playsinline', '');
-        video.preload = 'metadata';
-
-        const hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: true,
-            capLevelToPlayerSize: true,
-            maxBufferLength: 5,
-            maxBufferSize: 3 * 1000 * 1000,
-            backBufferLength: 0,
-            startLevel: 0,
-            manifestLoadingTimeOut: 5000,
-        });
-        hls.loadSource(url);
-        hls.attachMedia(video);
-
-        hls.on(Hls.Events.ERROR, function (event, data) {
-            if (data.fatal) {
-                switch (data.type) {
-                    case Hls.ErrorTypes.NETWORK_ERROR:
-                        hls.startLoad();
-                        break;
-                    case Hls.ErrorTypes.MEDIA_ERROR:
-                        hls.recoverMediaError();
-                        break;
-                    default:
-                        hls.destroy();
-                        break;
-                }
-            }
-        });
-
-        video.hls = hls;
-        return video;
-    }
-
-    // Safari native HLS
-    if (isHls) {
-        const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        if (is43) video.dataset.aspectRatio = '4:3';
         video.src = url;
         video.muted = true;
         video.autoplay = true;
@@ -721,14 +656,51 @@ function createVideoElement(cctv) {
         return video;
     }
 
-    // Fallback: iframe for any other URL type
-    const iframe = document.createElement('iframe');
-    iframe.src = url;
-    iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
-    iframe.allow = 'autoplay; fullscreen';
-    iframe.scrolling = 'no';
-    iframe.setAttribute('allowfullscreen', '');
-    return iframe;
+    // UTIC Portal URLs (Fallback) - use iframe
+    if (isUtic) {
+        const iframe = document.createElement('iframe');
+        iframe.src = url;
+        iframe.className = 'utic-iframe';
+        iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
+        iframe.allow = 'autoplay; fullscreen';
+        iframe.scrolling = 'no';
+        iframe.setAttribute('allowfullscreen', '');
+        if (is43) iframe.dataset.aspectRatio = '4:3';
+        return iframe;
+    }
+
+    // HLS streams (ktict or proxy or .m3u8) - use HLS.js
+    if ((isHls || isSecureStream || isProxy) && Hls.isSupported()) {
+        const video = document.createElement('video');
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        if (is43) video.dataset.aspectRatio = '4:3';
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+
+        const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true,
+            capLevelToPlayerSize: true,
+            maxBufferLength: 5,
+            maxBufferSize: 3 * 1000 * 1000,
+        });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        video.hls = hls;
+        return video;
+    }
+
+    // Safari native HLS or other fallback
+    const video = document.createElement('video');
+    video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    if (is43) video.dataset.aspectRatio = '4:3';
+    video.src = url;
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    return video;
 }
 
 function cleanupVideo(container) {
@@ -1369,37 +1341,27 @@ function updateUticLayout() {
         const cw = container.clientWidth;
         const ch = container.clientHeight;
         const cRatio = cw / ch;
-        const vRatio = 16 / 9; // Assume standard 16:9 stream
+
+        // Dynamic Aspect Ratio: Use hint if present (e.g. 4:3 for Namyangju/GITS)
+        const is43 = iframe.dataset.aspectRatio === '4:3';
+        const vRatio = is43 ? (4 / 3) : (16 / 9);
 
         let scale = 1;
 
         if (cRatio < vRatio) {
-            // Container is Taller (Mobile Portrait): Scale to fill HEIGHT
-            // Original: W=100%, H=100% (of container).
-            // Inner Video Width = CW. Inner Video Height = CW / vRatio.
-            // We want Inner Video Height >= CH.
-            // Scale * (CW / vRatio) = CH  => Scale = (CH * vRatio) / CW.
+            // Container is Taller: Scale to fill HEIGHT
             scale = (ch * vRatio) / cw;
-
-            // Mobile Portrait often pushes top-aligned video up if scaling from center.
-            // Force origin to TOP to keep video visible.
             iframe.style.setProperty('--origin-y', '0%');
         } else {
-            // Container is Wider (PC Landscape): Scale to fill WIDTH
-            // Original: W=100%, H=100% (of container).
-            // Inner Video Height = CH. Inner Video Width = CH * vRatio.
-            // We want Inner Video Width >= CW.
-            // Scale * (CH * vRatio) = CW => Scale = CW / (CH * vRatio).
+            // Container is Wider: Scale to fill WIDTH
             scale = cw / (ch * vRatio);
-
-            // PC Landscape: Center origin is usually fine, or maintain previous center logic
             iframe.style.setProperty('--origin-y', '50%');
         }
 
-        // Apply a minimum scale of 1.0 and maybe a slight bonus for safety
+        // Apply a minimum scale of 1.0 and a tiny safety margin
         scale = Math.max(scale, 1.001);
 
-        console.log(`[Layout] Container: ${cw}x${ch} (R:${cRatio.toFixed(2)}), Video R:${vRatio}, Scale: ${scale.toFixed(3)}`);
+        console.log(`[Layout] ${is43 ? '4:3' : '16:9'} | Container: ${cw}x${ch} (R:${cRatio.toFixed(2)}), Scale: ${scale.toFixed(3)}`);
 
         // Apply to CSS variable
         iframe.style.setProperty('--scale', scale.toFixed(3));

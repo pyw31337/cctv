@@ -397,12 +397,14 @@ def main():
     # === END NEW ===
 
     # 1. Add ALL UTIC data
-    final_merged.extend(utic_data)
-    print(f"Added {len(utic_data)} UTIC entries (Primary).")
+    for item in utic_data:
+        # Add aspect ratio hint for Namyangju/GITS-proxy compatible streams
+        url = item.get('url', '')
+        if '211.57.45.101' in url or 'L180' in url:
+            item['aspectRatio'] = '4:3'
+        final_merged.append(item)
     
-    # 2. Add ITS data if not duplicate
-    added_its = 0
-    skipped_its = 0
+    print(f"Added {len(utic_data)} UTIC entries (Primary).")
     
     # 2. Add ITS data if not duplicate
     added_its = 0
@@ -412,9 +414,10 @@ def main():
     def find_duplicate_index(new_item, existing_items):
         try:
             nlat, nlng = float(new_item['lat']), float(new_item['lng'])
+            # Fast filter first
             for i, ex in enumerate(existing_items):
                 elat, elng = float(ex['lat']), float(ex['lng'])
-                if abs(nlat - elat) > 0.01 or abs(nlng - elng) > 0.01: continue
+                if abs(nlat - elat) > 0.002 or abs(nlng - elng) > 0.002: continue 
                 if get_dist(nlat, nlng, elat, elng) < 200: # 200m radius
                     return i
         except:
@@ -435,34 +438,39 @@ def main():
     skipped_gits = 0
     upgraded_gits = 0
     
+    # MANUAL OVERRIDES (Ensure direct HLS for critical locations)
+    manual_overrides = {
+        "마석윗3": "https://211.57.45.101/media/L180009/chunklist.m3u8",
+        # 창현A앞4 is usually handled by L180196 -> L180007
+    }
+
     for item in gits_data:
+        # GITS streams are almost all 4:3 in Gyeonggi local servers
+        item['aspectRatio'] = '4:3'
+        
+        # Apply manual URL override if quality from provider is suboptimal (burned bars)
+        if item['name'] in manual_overrides:
+            item['url'] = manual_overrides[item['name']]
+            item['source'] = 'UTIC' # Restore source to UTIC as we are using direct server
+        
         idx = find_duplicate_index(item, final_merged)
         if idx == -1:
             final_merged.append(item)
             added_gits += 1
         else:
-            # Check if we can upgrade the existing item
+            # Check if we should upgrade the existing item
             existing = final_merged[idx]
             
-            # If existing is UTIC and uses a JSP/Popup URL, and GITS is a direct URL, upgrade it!
-            # GITS URL usually looks like https://gitsview.gg.go.kr/...
-            # UTIC URL usually looks like https://www.utic.go.kr/jsp/...
-            
-            if existing.get('source') == 'UTIC':
-                 # Upgrade if UTIC is generic JSP and GITS is likely direct
-                 # Or just TRUST GITS more for these matches as user requested
-                 existing['url'] = item['url']
-                 existing['source'] = 'GITS' # Update source to reflect where the stream comes from
-                 existing['id'] = item['id'] # Update ID to GITS ID for consistency? 
-                 # Maybe keep original ID but add gits_id? 
-                 # Let's fully replace with GITS item but keep maybe some metadata?
-                 # Actually, simplest is to just REPLACE the item with the GITS item.
-                 final_merged[idx] = item
-                 upgraded_gits += 1
-            else:
-                skipped_gits += 1
+            # CRITICAL: Do NOT replace if existing is already a direct Namyangju stream 
+            # (GITS redirects have burned bars, direct HLS doesn't)
+            if '211.57.45.101' in existing.get('url', ''):
+                continue
+
+            # Upgrade! GITS is better than JSP wrappers or generic ITS links
+            final_merged[idx] = item
+            upgraded_gits += 1
                 
-    print(f"Merged GITS: {added_gits} added, {skipped_gits} skipped, {upgraded_gits} upgraded (replaced UTIC).")
+    print(f"Merged GITS: {added_its} added, {skipped_its} skipped, {upgraded_gits} upgraded.")
 
     # 4. Add TOPIS data (with upgrade logic)
     added_topis = 0
@@ -506,7 +514,22 @@ def main():
             skipped_gangwon += 1
     print(f"Merged Gangwon: {added_gangwon} added, {skipped_gangwon} skipped.")
 
-    # 7. Stats & Verification
+    # 7. Final Global Deduplication Pass (Cleanup)
+    print("Running final global deduplication pass...")
+    unique_merged = []
+    
+    # Sort to prioritize sources: GITS > TOPIS > UTIC > ITS
+    priority = {'GITS': 0, 'TOPIS': 1, 'UTIC': 2, 'NTIC': 3}
+    final_merged.sort(key=lambda x: priority.get(x.get('source'), 99))
+    
+    for item in final_merged:
+        if find_duplicate_index(item, unique_merged) == -1:
+            unique_merged.append(item)
+    
+    print(f"Final Deduplication: {len(final_merged)} -> {len(unique_merged)}")
+    final_merged = unique_merged
+
+    # 8. Stats & Verification
     print(f"Total entries combined: {len(final_merged)}")
 
     # SAFETY GUARDRAIL
