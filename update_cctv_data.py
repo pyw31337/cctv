@@ -148,12 +148,11 @@ def process_utic_item(item):
     direct_url = None
     cctvip = str(item.get("CCTVIP", ""))
     
-    # Pattern 1: Changhyeon/Maseok Server (211.57.45.101)
-    if cctvip == "211.57.45.101":
-        direct_url = f"https://211.57.45.101/media/{cctv_id}/chunklist.m3u8"
+    # NOTE: 211.57.45.101 패턴 제거됨 - UTIC이 다른 서버(211.236.72.94 등)로 리다이렉트하므로
+    # 직통 패턴 사용 시 잘못된 스트림이 제공됨 (마석사거리→샛터삼거리 등)
     
-    # Pattern 2: Incheon/Gyeonggi Servers
-    elif cctvip in ["210.95.12.126", "211.114.87.164"]:
+    # Pattern: Incheon/Gyeonggi Servers (verified working)
+    if cctvip in ["210.95.12.126", "211.114.87.164"]:
         stream_id = item.get("ID")
         if stream_id:
             direct_url = f"http://{cctvip}/media/{stream_id}/chunklist.m3u8"
