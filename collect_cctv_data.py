@@ -464,16 +464,25 @@ def main():
                 
     print(f"Merged GITS: {added_gits} added, {skipped_gits} skipped, {upgraded_gits} upgraded (replaced UTIC).")
 
-    # 4. Add TOPIS data
+    # 4. Add TOPIS data (with upgrade logic)
     added_topis = 0
     skipped_topis = 0
+    upgraded_topis = 0
     for item in topis_data:
-        if find_duplicate_index(item, final_merged) == -1:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
             final_merged.append(item)
             added_topis += 1
         else:
-            skipped_topis += 1
-    print(f"Merged TOPIS: {added_topis} added, {skipped_topis} skipped.")
+            # Upgrade if existing is UTIC or NTIC (likely a wrapper or lower quality)
+            # and TOPIS is direct HLS
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_topis += 1
+            else:
+                skipped_topis += 1
+    print(f"Merged TOPIS: {added_topis} added, {skipped_topis} skipped, {upgraded_topis} upgraded (replaced UTIC/NTIC).")
 
     # 5. Add Jeju data
     added_jeju = 0
