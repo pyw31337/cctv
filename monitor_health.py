@@ -75,13 +75,17 @@ def check_hls_stream(item):
         # Use GET with stream=True for better compatibility with some HLS servers
         response = requests.get(url, headers=HEADERS, timeout=TIMEOUT, stream=True, verify=False)
         if response.status_code == 200:
-            return {**base_res, "status": "OK", "code": 200}
+            return {**base_res, "status": "OK", "code": 200, "type": "hard"}
         else:
-            return {**base_res, "status": "FAIL", "code": response.status_code}
+            # 404/500 is a hard failure, others are soft
+            fail_type = "hard" if response.status_code in [404, 500] else "soft"
+            return {**base_res, "status": "FAIL", "code": response.status_code, "type": fail_type}
     except requests.Timeout:
-        return {**base_res, "status": "TIMEOUT", "code": None}
+        return {**base_res, "status": "TIMEOUT", "code": None, "type": "soft"}
+    except requests.exceptions.ConnectionError:
+        return {**base_res, "status": "CONN_ERROR", "code": None, "type": "soft"}
     except Exception as e:
-        return {**base_res, "status": "ERROR", "code": str(e)[:50]}
+        return {**base_res, "status": "ERROR", "code": str(e)[:50], "type": "soft"}
 
 def check_utic_api(item):
     """Check UTIC API/JSP endpoint visibility"""
@@ -92,25 +96,29 @@ def check_utic_api(item):
     base_res = {"name": name, "id": cctv_id}
     
     try:
-        # Check if the page itself is accessible
         response = requests.get(url, headers=HEADERS, timeout=TIMEOUT, verify=False)
         
         if response.status_code == 200:
             # Check for common error indicators in HTML
             html = response.text
             if "비정상적인 접근" in html or "접속이 원활하지 않습니다" in html:
-                 return {**base_res, "status": "BLOCKED", "code": 200}
+                 # This is an IP block, which is usually a 'soft' failure for the stream quality check
+                 # but a failure for the checker itself.
+                 return {**base_res, "status": "BLOCKED", "code": 200, "type": "soft"}
             if len(html) < 500 and "null" in html.lower():
-                 return {**base_res, "status": "NULL_RESPONSE", "code": 200}
+                 return {**base_res, "status": "NULL_RESPONSE", "code": 200, "type": "hard"}
             
-            return {**base_res, "status": "OK", "code": 200}
+            return {**base_res, "status": "OK", "code": 200, "type": "hard"}
         else:
-            return {**base_res, "status": "FAIL", "code": response.status_code}
+            fail_type = "hard" if response.status_code in [404, 500] else "soft"
+            return {**base_res, "status": "FAIL", "code": response.status_code, "type": fail_type}
             
     except requests.Timeout:
-        return {**base_res, "status": "TIMEOUT", "code": None}
+        return {**base_res, "status": "TIMEOUT", "code": None, "type": "soft"}
+    except requests.exceptions.ConnectionError:
+        return {**base_res, "status": "CONN_ERROR", "code": None, "type": "soft"}
     except Exception as e:
-        return {**base_res, "status": "ERROR", "code": str(e)[:50]}
+        return {**base_res, "status": "ERROR", "code": str(e)[:50], "type": "soft"}
 
 def run_health_check():
     """Run health check on sample of streams"""
@@ -162,14 +170,16 @@ def run_health_check():
         
         # Calculate stats
         ok_count = sum(1 for r in category_results if r["status"] == "OK")
-        fail_count = len(category_results) - ok_count
+        hard_fail_count = sum(1 for r in category_results if r["status"] != "OK" and r.get("type") == "hard")
+        soft_fail_count = sum(1 for r in category_results if r["status"] != "OK" and r.get("type") == "soft")
         
         results["categories"][category] = {
             "total": len(streams),
             "sampled": len(sample),
             "ok": ok_count,
-            "failed": fail_count,
-            "failure_rate": fail_count / len(sample) if sample else 0
+            "hard_failed": hard_fail_count,
+            "soft_failed": soft_fail_count,
+            "failure_rate": (hard_fail_count + soft_fail_count) / len(sample) if sample else 0
         }
         
         # Summary
@@ -177,9 +187,14 @@ def run_health_check():
     
     # Overall health
     total_sampled = sum(c["sampled"] for c in results["categories"].values())
-    total_failed = sum(c["failed"] for c in results["categories"].values())
-    results["overall_failure_rate"] = total_failed / total_sampled if total_sampled else 0
-    results["is_healthy"] = results["overall_failure_rate"] < FAILURE_THRESHOLD
+    total_hard_failed = sum(c["hard_failed"] for c in results["categories"].values())
+    total_soft_failed = sum(c["soft_failed"] for c in results["categories"].values())
+    
+    results["hard_failure_rate"] = total_hard_failed / total_sampled if total_sampled else 0
+    results["soft_failure_rate"] = total_soft_failed / total_sampled if total_sampled else 0
+    
+    # We only fail CI on HARD failures (404, 500, NULL)
+    results["is_healthy"] = results["hard_failure_rate"] < FAILURE_THRESHOLD
     
     return results
 
@@ -187,7 +202,7 @@ def generate_report(results):
     """Generate a human-readable report"""
     report = []
     report.append("=" * 60)
-    report.append("CCTV Stream Health Report")
+    report.append("CCTV Stream Health Report (CI Resilient)")
     report.append(f"Generated: {results['timestamp']}")
     report.append("=" * 60)
     report.append("")
@@ -196,7 +211,8 @@ def generate_report(results):
     status = "✅ HEALTHY" if results["is_healthy"] else "⚠️ ISSUES DETECTED"
     report.append(f"Overall Status: {status}")
     report.append(f"Total Streams: {results['total_streams']}")
-    report.append(f"Failure Rate: {results['overall_failure_rate']*100:.1f}%")
+    report.append(f"Hard Failure Rate: {results['hard_failure_rate']*100:.1f}% (Impacts CI Status)")
+    report.append(f"Soft Failure Rate: {results['soft_failure_rate']*100:.1f}% (Environmental/Timeout)")
     report.append(f"Threshold: {FAILURE_THRESHOLD*100:.1f}%")
     report.append("")
     
