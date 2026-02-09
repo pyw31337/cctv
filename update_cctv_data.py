@@ -148,9 +148,10 @@ def process_utic_item(item):
     # DIRECT HLS FOR KNOWN SERVERS - url 자체를 직통 HLS로 설정 (iframe 제거)
     # Pattern 1: Namyangju/Changhyeon Server (211.57.45.101)
     # IMPORTANT: Use ID_PARAM (item.ID), NOT CCTVID!
+    # Supports: L-prefixed IDs (L180111) and _video2 IDs (3024_video2)
     elif cctvip == "211.57.45.101":
         stream_id = item.get("ID")  # ID_PARAM field, not CCTVID
-        if stream_id and stream_id.startswith("L"):
+        if stream_id and (stream_id.startswith("L") or "_video" in stream_id):
             url = f"https://211.57.45.101/media/{stream_id}/chunklist.m3u8"
     
     # Pattern 2: Incheon/Gyeonggi Servers
