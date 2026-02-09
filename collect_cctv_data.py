@@ -1,354 +1,471 @@
-
-import requests
-import re
 import json
+import requests
 import urllib.parse
-import time
-import random
 import os
-from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import urllib3
+import time
+import concurrent.futures
+import re
+import sys
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Import custom collectors
+from collectors.gits import GitsCollector
+from collectors.topis import TopisCollector
 
 # Configuration
-MAIN_URL = "https://www.utic.go.kr/guide/cctvOpenData.do?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
-API_URL = "https://www.utic.go.kr/map/getCctvInfoById.do"
-KEY = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
-HEADERS = {
-    "Referer": MAIN_URL,
+ITS_API_URL = "https://openapi.its.go.kr:9443/cctvInfo"
+ITS_API_KEY = "8c86cb02ef2647d9a6484c47386549ae"
+
+UTIC_API_URL = "https://www.utic.go.kr/map/mapcctv.do"
+UTIC_API_KEY = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+UTIC_HEADERS = {
+    "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do?key=" + UTIC_API_KEY,
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
+
 OUTPUT_FILE = "cctv_data.json"
-MAX_WORKERS = 20  # Balanced for stealth/speed
-STALE_DAYS = 7     # Refresh details if older than 7 days
 
-def load_local_data():
-    if not os.path.exists(OUTPUT_FILE):
-        return {}
-    try:
-        with open(OUTPUT_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            # Create dict keyed by ID for fast lookup
-            return {item['id']: item for item in data}
-    except Exception as e:
-        print(f"Error loading local data: {e}")
-        return {}
-
-def get_remote_ids():
-    print("Fetching master ID list from UTIC...")
-    try:
-        response = requests.get(MAIN_URL, headers=HEADERS, verify=False, timeout=30)
-        response.raise_for_status()
-        ids = re.findall(r"javascript:test\('([^']+)'\)", response.text)
-        unique_ids = list(set(ids))
-        print(f"  -> Found {len(unique_ids)} IDs on server.")
-        return unique_ids
-    except Exception as e:
-        print(f"Error fetching master list: {e}")
-        return []
-
-def fetch_cctv_details(cctv_id, session=None):
-    params = {"cctvId": cctv_id}
-    try:
-        # Use session if provided for connection reuse
-        req_func = session.get if session else requests.get
-        response = req_func(API_URL, params=params, headers=HEADERS, verify=False, timeout=10)
-        
-        if response.status_code == 200:
-            return response.json()
-        return None
-    except Exception as e:
-        # print(f"Error fetching details for {cctv_id}: {e}") # Reduce noise
-        return None
-
-def construct_url(cctv_id, details):
-    if not details: return None
-    
-    cctv_ip = details.get("CCTVIP", "")
-    cctv_name = details.get("CCTVNAME", "")
-    kind = details.get("KIND", "")
-    
-    # Special Cases (Flood Control)
-    if "E61" in cctv_id: # Nakdong River
-        return f"https://www.nakdongriver.go.kr/sumun/popup/cctvView.do?Obscd={details.get('ID', '')}"
-    elif "E60" in cctv_id: # Han River
-        return f"https://hrfco.go.kr/sumun/cctvPopup.do?Obscd={details.get('ID', '')}"
-    elif "E62" in cctv_id: # Geum River
-        return f"https://www.geumriver.go.kr/html/sumun/rtmpView.jsp?wlobscd={details.get('PASSWD', '')}&cctvcd={details.get('ID', '')}"
-    elif "E63" in cctv_id: # Yeongsan River
-        return f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={details.get('PASSWD', '')}"
-    
-    # General UTIC Case
-    encoded_name = urllib.parse.quote(urllib.parse.quote(cctv_name))
-    base_url = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
-    
+def fetch_its_data():
+    """Fetches CCTV data from the ITS API."""
+    print("Fetching ITS data...")
+    # Using a large bounding box to cover South Korea
     params = {
-        "key": KEY,
-        "cctvid": cctv_id,
-        "cctvName": encoded_name,
-        "kind": kind,
-        "cctvip": cctv_ip,
-        "cctvch": details.get("CH") or "null",
-        "id": details.get("ID") or "null",
-        "cctvpasswd": details.get("PASSWD") or "null",
-        "cctvport": details.get("PORT") or "null"
+        "apiKey": ITS_API_KEY,
+        "type": "all",
+        "cctvType": "1", # Live video
+        "minX": "124.0",
+        "maxX": "132.0",
+        "minY": "33.0",
+        "maxY": "43.0",
+        "getType": "json"
     }
     
-    query = "&".join([f"{k}={v}" for k, v in params.items()])
-    return f"{base_url}?{query}"
-
-def check_url_status(url, session=None):
-    if not url: return "unknown"
     try:
-        req_func = session.head if session else requests.head
-        resp = req_func(url, timeout=3, verify=False, allow_redirects=True)
-        return "active" if resp.status_code < 400 else "error"
-    except:
-        return "error"
-
-WORKER_SLEEP_DELAY = 0.1
-
-def process_item(cctv_id, existing_item=None):
-    """Worker function for threading"""
-    # Dynamic sleep based on target duration
-    # Add random jitter +/- 20%
-    jitter = random.uniform(0.8, 1.2)
-    time.sleep(WORKER_SLEEP_DELAY * jitter)
-    
-    with requests.Session() as session:
-        details = fetch_cctv_details(cctv_id, session)
-        if not details:
-            return None
-            
-        cctv_name = details.get("CCTVNAME", "")
-        if "진도" in cctv_name:
-            print(f"!!! FOUND JINDO STREAM: {cctv_name} ({cctv_id})")
-            
-        url = construct_url(cctv_id, details)
-        if not url:
-            return None
-            
-        # Optional: Skipping status check in bulk update speeds things up.
-        # Can rely on health monitor for status later.
-        # But user wants "always fresh", so let's trust the constructed URL is "active" 
-        # unless we want to do a heavy check. 
-        # For Optimization, we'll mark as active if construction succeeded.
-        status = "active" 
+        response = requests.get(ITS_API_URL, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
         
-OVERRIDES_FILE = "cctv_overrides.json"
+        cctv_list = data.get("response", {}).get("data", [])
+        if not cctv_list and "data" in data:
+             cctv_list = data["data"]
+             
+        normalized_data = []
+        for item in cctv_list:
+            # ITS data keys: cctvname, cctvurl, coordx, coordy
+            if not item.get("cctvurl") or not item.get("coordx") or not item.get("coordy"):
+                continue
 
-def load_overrides():
-    if not os.path.exists(OVERRIDES_FILE):
+            # Generate ID consistent with previous data if possible, or new standard
+            # Existing data seems to use: NTIC_[name]_[lng]
+            # We will follow this pattern
+            cctv_name = item.get("cctvname", "Unknown")
+            lng = float(item.get("coordx"))
+            lat = float(item.get("coordy"))
+            cctv_id = f"NTIC_{cctv_name}_{lng}"
+            
+
+            url = item.get("cctvurl")
+            if url and "cctvsec.ktict.co.kr" in url and url.startswith("http://"):
+                url = url.replace("http://", "https://")
+
+            cctv_entry = {
+                "id": cctv_id,
+                "name": cctv_name,
+                "lat": lat,
+                "lng": lng,
+                "url": url,
+                "source": "NTIC",
+                "status": "active"
+            }
+            normalized_data.append(cctv_entry)
+            
+        print(f"Fetched {len(normalized_data)} entries from ITS.")
+        return normalized_data
+
+    except Exception as e:
+        print(f"Error fetching ITS data: {e}")
+        return []
+
+def process_utic_item(item):
+    """
+    Process a single UTIC item: construct BASE URL from UTIC API.
+    
+    NEW ARCHITECTURE:
+    - 'url' field: UTIC JSP URL (매일 갱신되는 기본 URL, 항상 최신 토큰 포함)
+    - 'directUrl' field: 직통 HLS URL (알려진 패턴만, 별도 보존)
+    
+    이 함수는 기본 URL을 생성합니다. Deep Inspection은 별도 스크립트에서 수행.
+    """
+    # Keys: CCTVNAME, CCTVID, XCOORD, YCOORD, KIND, CCTVIP, CH, ID, PASSWD, PORT
+    cctv_id = item.get("CCTVID")
+    if not cctv_id:
+        return None
+        
+    name = item.get("CCTVNAME", "")
+    try:
+        lng = float(item.get("XCOORD", 0))
+        lat = float(item.get("YCOORD", 0))
+    except (ValueError, TypeError):
+        return None
+
+    # Determine parameters
+    kind = item.get("KIND")
+    center = item.get("CENTERNAME")
+    
+    # Special handling for Seoul region
+    if center and "서울" in center:
+        kind = "Seoul"
+    elif cctv_id.startswith("L01"):
+        kind = "Seoul"
+
+    params = {
+        "key": UTIC_API_KEY,
+        "cctvid": item.get("CCTVID"),
+        "cctvName": name, 
+        "kind": kind,
+        "cctvip": item.get("CCTVIP"),
+        "cctvch": item.get("CH"),
+        "id": item.get("ID"),
+        "cctvpasswd": item.get("PASSWD"),
+        "cctvport": item.get("PORT")
+    }
+    
+    # Filter out None values
+    query_string = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
+    
+    # BASE URL - default to UTIC JSP
+    url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
+    cctvip = str(item.get("CCTVIP", ""))
+
+    # Special handling for River Flood Control Offices
+    cctv_id_str = item.get("CCTVID", "")
+    obscd = item.get('ID')
+    cctv_passwd = item.get("PASSWD")
+    
+    if "E60" in cctv_id_str:
+        url = f"https://hrfco.go.kr/sumun/cctvPopup.do?Obscd={obscd}"
+    elif "E61" in cctv_id_str:
+        url = f"https://www.nakdongriver.go.kr/sumun/popup/cctvView.do?Obscd={obscd}"
+    elif "E62" in cctv_id_str:
+        url = f"https://www.geumriver.go.kr/html/sumun/rtmpView.jsp?wlobscd={cctv_passwd}&cctvcd={obscd}"
+    elif "E63" in cctv_id_str:
+        url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
+    
+    # DIRECT HLS FOR KNOWN SERVERS - url 자체를 직통 HLS로 설정 (iframe 제거)
+    # Pattern 1: Namyangju/Changhyeon Server (211.57.45.101)
+    # IMPORTANT: Use ID_PARAM (item.ID), NOT CCTVID!
+    # Supports: L-prefixed IDs (L180111) and _video2 IDs (3024_video2)
+    elif cctvip == "211.57.45.101":
+        stream_id = item.get("ID")  # ID_PARAM field, not CCTVID
+        if stream_id and (stream_id.startswith("L") or "_video" in stream_id):
+            url = f"https://211.57.45.101/media/{stream_id}/chunklist.m3u8"
+    
+    # Pattern 2: Incheon/Gyeonggi Servers
+    elif cctvip in ["210.95.12.126", "211.114.87.164"]:
+        stream_id = item.get("ID")
+        if stream_id:
+            url = f"http://{cctvip}/media/{stream_id}/chunklist.m3u8"
+    
+    result = {
+        "id": cctv_id,
+        "name": name,
+        "lat": lat,
+        "lng": lng,
+        "url": url,
+        "source": "UTIC",
+        "status": "active"
+    }
+    
+    return result
+
+def fetch_utic_data():
+    """Fetches CCTV data from the UTIC API (internal JSON endpoint)."""
+    print("Fetching UTIC data...")
+    try:
+        # Disable SSL verification due to certificate errors on UTIC side
+        requests.packages.urllib3.disable_warnings()
+        response = requests.get(UTIC_API_URL, headers=UTIC_HEADERS, timeout=60, verify=False)
+        response.raise_for_status()
+        data = response.json()
+        
+        normalized_data = []
+        
+        # UTIC data is likely a list directly
+        items = data if isinstance(data, list) else []
+        if isinstance(data, dict):
+            if "result" in data: items = data["result"]
+            elif "data" in data: items = data["data"]
+        
+        if not items:
+            print("No data found in UTIC response.")
+            return []
+
+        print(f"Processing {len(items)} UTIC items with concurrency...")
+        
+        # Process in parallel
+        # Max workers 50 to balance speed and server load
+        with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+            # Submit all tasks
+            results = list(executor.map(process_utic_item, items))
+            
+        # Filter None results
+        normalized_data = [r for r in results if r is not None]
+        
+        print(f"Fetched {len(normalized_data)} entries from UTIC.")
+        return normalized_data
+
+    except Exception as e:
+        print(f"Error fetching UTIC data: {e}")
+        return []
+
+def load_existing_data(filepath):
+    if not os.path.exists(filepath):
         return {}
     try:
-        with open(OVERRIDES_FILE, 'r', encoding='utf-8') as f:
+        with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
+            # Return as dict keyed by id for easy lookup
             return {item['id']: item for item in data}
     except Exception as e:
-        print(f"Error loading overrides: {e}")
+        print(f"Error loading existing data: {e}")
         return {}
 
-def process_item(cctv_id, existing_item=None):
-    """Worker function for threading"""
-    # Dynamic sleep based on target duration
-    # Add random jitter +/- 20%
-    jitter = random.uniform(0.8, 1.2)
-    time.sleep(WORKER_SLEEP_DELAY * jitter)
+def refine_cctv_data(cctv_list):
+    """
+    Iterates through the list, finds items with generic JSP URLs,
+    and tries to find the real HLS URL (Deep Inspection).
+    Used when reusing existing data or to ensure everything is optimized.
+    """
+    print(f"Refining {len(cctv_list)} items for Deep Inspection...")
     
-    with requests.Session() as session:
-        details = fetch_cctv_details(cctv_id, session)
-        if not details:
-            return None
+    # 1. Apply Direct Pattern Construction FIRST (Instant, no server request)
+    optimized_count = 0
+    for item in cctv_list:
+        url = item.get('url', '')
+        if item.get('source') == 'UTIC' and 'jsp' in url:
             
-        cctv_name = details.get("CCTVNAME", "")
-        # Remove Jindo check print to reduce noise
+            # Pattern A: 211.57.45.101 (uses cctvid)
+            if 'cctvip=211.57.45.101' in url:
+                match = re.search(r'cctvid=([^&]+)', url)
+                if match:
+                    cctvid = match.group(1)
+                    item['url'] = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
+                    optimized_count += 1
             
-        url = construct_url(cctv_id, details)
-        if not url:
-            return None
+            # Pattern B: 210.95.12.126, 211.114.87.164 (uses id param)
+            elif 'cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url:
+                match = re.search(r'[?&]id=([^&]+)', url)
+                if match:
+                    real_id = match.group(1)
+                    ip = '210.95.12.126' if 'cctvip=210.95.12.126' in url else '211.114.87.164'
+                    item['url'] = f"http://{ip}/media/{real_id}/chunklist.m3u8"
+                    optimized_count += 1
+    
+    print(f"Direct Pattern Optimization applied to {optimized_count} items (Instant).")
+
+    # 2. Filter items that need inspection (UTIC source, JSP url OR HRFCO popup)
+    targets = [
+        item for item in cctv_list 
+        if item.get('source') == 'UTIC' and ('openDataCctvStream.jsp' in item.get('url', '') or 'cctvPopup.do' in item.get('url', ''))
+    ]
+    
+    print(f"Found {len(targets)} items needing Deep Inspection (JSP wrapper/HRFCO).")
+    if not targets:
+        return cctv_list
+
+    def inspect_item(item):
+        # Reduced sleep to just 0.1s jitter to avoid hammering, but rely on concurrency control
+        time.sleep(0.1) 
+        url = item['url']
+        try:
+            resp = requests.get(url, timeout=4, verify=False)
+            if resp.status_code == 200:
+                html = resp.text
+                
+                # Regex patterns (same as process_utic_item + HRFCO vars)
+                patterns = [
+                    r'src="([^"]+\.m3u8[^"]*)"',
+                    r'src="([^"]+\.mp4[^"]*)"',
+                    r'source\s+src="([^"]+)"\s+type="application/x-mpegURL"',
+                    r'var\s+[lh]url\s*=\s*"([^"]+)"'  # HRFCO: var lurl = "..."
+                ]
+                
+                for pat in patterns:
+                    match = re.search(pat, html)
+                    if match:
+                        new_url = match.group(1)
+                        if new_url.startswith("http"):
+                            item['url'] = new_url
+                            return True # Modified
+        except Exception as e:
+            # removed long sleep, just pass
+            pass
             
-        status = "active" 
-        
-        # Hardcoded VIP logic REMOVED in favor of Golden Record (Overrides)
-        
-        final_url = url
-        final_tags = existing_item.get("tags", []) if existing_item else []
-        
-        # Only preserve "direct_source" tag if it exists, but URL logic is now largely handled by Overrides if critical.
-        # However, for non-overridden items that happen to be direct, we still want to keep the tag?
-        # Yes, standard logic applies.
-        
-        return {
-            "id": cctv_id,
-            "name": details.get("CCTVNAME"),
-            "lat": float(details.get("YCOORD") or 0),
-            "lng": float(details.get("XCOORD") or 0),
-            "url": final_url,
-            "status": status,
-            "tags": final_tags,
-            "lastUpdated": datetime.now().isoformat()
-        }
+        return False # Not modified
+
+    # Process in parallel using ThreadPoolExecutor
+    modified_count = 0
+    print(f"Starting concurrent inspection of {len(targets)} items...")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+        results = list(executor.map(inspect_item, targets))
+        modified_count = sum(results)
+
+    print(f"Deep Inspection completed. Optimized {modified_count} URLs.")
+    return cctv_list
 
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--force", action="store_true", help="Force refresh all IDs ignoring stale days")
-    parser.add_argument("--duration", type=float, default=0.5, help="Target duration in hours (default: 0.5)")
+    parser.add_argument("--force", action="store_true", help="Force refresh (Compatibility arg)")
+    parser.add_argument("--duration", type=float, default=0.5, help="Target duration (Compatibility arg)")
     args = parser.parse_args()
-    
-    print(f"Starting Optimized CCTV Sync at {datetime.now()} (Force: {args.force}, Target: {args.duration}h)...")
-    
-    # 1. Load Local, Remote, AND Overrides
-    local_data = load_local_data()
-    remote_ids = get_remote_ids()
-    overrides = load_overrides()
-    print(f"  Loaded {len(overrides)} Golden Records (Overrides).")
-    
-    if not remote_ids:
-        print("Failed to fetch remote IDs. Aborting.")
-        return
 
-    # 2. Diff Analysis
-    remote_set = set(remote_ids)
-    local_set = set(local_data.keys())
+    print(f"Starting CCTV data update at {time.strftime('%Y-%m-%d %H:%M:%S')} (Args: {args})...")
     
-    new_ids = list(remote_set - local_set)
-    removed_ids = list(local_set - remote_set)
-    common_ids = list(remote_set & local_set)
+    # 1. Load Existing Data
+    existing_data_map = load_existing_data(OUTPUT_FILE)
     
-    print(f"  Analysis: {len(new_ids)} New, {len(removed_ids)} Removed, {len(common_ids)} Existing.")
+    # 2. Fetch Data (Processing with Delta Sync)
+    its_data = fetch_its_data()
+    # Corrected call: fetch_utic_data does not take arguments in its definition
+    utic_data = fetch_utic_data() 
     
-    # 3. Identify Stale Items
-    stale_ids = []
-    threshold = datetime.now() - timedelta(days=STALE_DAYS)
+    # GITS (Gyeonggi)
+    print("Fetching GITS data...")
+    gits_data = GitsCollector().fetch_data()
+
+    # TOPIS (Seoul)
+    print("Fetching TOPIS data...")
+    topis_data = TopisCollector().fetch_data() 
     
-    for cid in common_ids:
-        # If item is in overrides, we might NOT want to scrape it at all to save time/risk?
-        # Actually, we should scrape it to get updated Metadata (Lat/Lng/Name changes) if possible?
-        # But if the ID is dead in UTIC (Jindo), we won't scrape it anyway (unless we force it).
-        # Let's trust the logic: Scrape what we can from UTIC. Overrides apply at the end.
+    # 3. Merge & Prioritize (Prefer UTIC for Highways/Duplicates)
+    print("Merging data (Prioritizing UTIC)...")
+    
+    # Helper to calculate distance
+    def get_dist(lat1, lng1, lat2, lng2):
+        from math import sin, cos, sqrt, atan2, radians
+        R = 6371000
+        phi1, phi2 = radians(lat1), radians(lat2)
+        dphi = radians(lat2 - lat1)
+        dlng = radians(lng2 - lng1)
+        a = sin(dphi/2)**2 + cos(phi1) * cos(phi2) * sin(dlng/2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        return R * c
+
+    final_merged = []
+    
+    # Strategy: Start with UTIC (Valid Permalinks)
+    # Then add ITS (NTIC) only if no duplicate matches
+    
+    # If UTIC fetch failed, try to load existing UTIC data
+    if not utic_data:
+        print("UTIC fetch failed/empty. Attempting to recover existing UTIC data...")
+        utic_data = [item for item in existing_data_map.values() if item.get('source') == 'UTIC']
         
-        if args.force:
-            stale_ids.append(cid)
-            continue
-            
-        item = local_data[cid]
-        last_up = item.get("lastUpdated") or item.get("lastRenewed")
-        if not last_up:
-            stale_ids.append(cid)
-            continue
-            
+        # KEY CHANGE: Since we are using OLD data, we must REFINE it.
+        if utic_data:
+            print("Running Deep Inspection on recovered data...")
+            utic_data = refine_cctv_data(utic_data)
+        
+    if not its_data:
+        print("ITS fetch failed/empty. Attempting to recover existing ITS data...")
+        its_data = [item for item in existing_data_map.values() if item.get('source') == 'NTIC']
+
+    # === NEW: Preserve directUrl from existing data ===
+    preserved_count = 0
+    for item in utic_data:
+        item_id = item['id']
+        if item_id in existing_data_map:
+            existing = existing_data_map[item_id]
+            # Preserve directUrl if it exists in old data but not in new
+            if 'directUrl' in existing and 'directUrl' not in item:
+                item['directUrl'] = existing['directUrl']
+                preserved_count += 1
+    
+    if preserved_count > 0:
+        print(f"Preserved {preserved_count} existing directUrl entries.")
+    # === END NEW ===
+
+    # 1. Add ALL UTIC data
+    final_merged.extend(utic_data)
+    print(f"Added {len(utic_data)} UTIC entries (Primary).")
+    
+    # 2. Add ITS data if not duplicate
+    added_its = 0
+    skipped_its = 0
+    
+    # 2. Add ITS data if not duplicate
+    added_its = 0
+    skipped_its = 0
+    
+    # Helper for duplicate check
+    def is_duplicate(new_item, existing_items):
         try:
-            last_date = datetime.fromisoformat(last_up)
-            if last_date < threshold:
-                stale_ids.append(cid)
+            nlat, nlng = float(new_item['lat']), float(new_item['lng'])
+            for ex in existing_items:
+                elat, elng = float(ex['lat']), float(ex['lng'])
+                if abs(nlat - elat) > 0.01 or abs(nlng - elng) > 0.01: continue
+                if get_dist(nlat, nlng, elat, elng) < 200: # 200m radius
+                    return True
         except:
-            stale_ids.append(cid)
-    
-    print(f"  Stale items (older than {STALE_DAYS} days): {len(stale_ids)}")
-    
-    # 4. Processing Queue
-    to_process = new_ids + stale_ids
-    print(f"  Processing {len(to_process)} items with {MAX_WORKERS} threads...")
-    
-    # Use a dict for results to easily merge
-    results_map = {}
-    
-    # Load existing fresh items first
-    for cid in common_ids:
-        if cid not in stale_ids:
-            results_map[cid] = local_data[cid]
-            
-    # Calculate throttling
-    total_items = len(to_process)
-    if total_items > 0:
-        target_seconds = args.duration * 3600
-        delay_per_item = (target_seconds * 0.9) / total_items
-        worker_delay = delay_per_item * MAX_WORKERS
-        worker_delay = max(0.1, worker_delay)
-        print(f"  Throttling: {total_items} items over {args.duration}h")
-        print(f"  -> {worker_delay:.2f}s sleep per worker (Workers: {MAX_WORKERS})")
-    else:
-        worker_delay = 0.1
+            pass
+        return False
 
-    global WORKER_SLEEP_DELAY
-    WORKER_SLEEP_DELAY = worker_delay
-
-    # Process queue
-    processed_count = 0
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(process_item, cid): cid for cid in to_process}
-        
-        for future in as_completed(futures):
-            res = future.result()
-            if res:
-                results_map[res['id']] = res
-            
-            processed_count += 1
-            if processed_count % 50 == 0:
-                print(f"    Progress: {processed_count}/{len(to_process)}")
-                
-    # 5. GOLDEN RECORD MERGE (The Fix)
-    print(f"  Applying {len(overrides)} Golden Record overrides...")
-    override_count = 0
-    restored_count = 0
-    
-    for oid, oitem in overrides.items():
-        # If item exists in results, update it
-        if oid in results_map:
-            # We ONLY update critical fields from override, but maybe keep fresh metadata?
-            # User wants "manual fix" to win.
-            # Usually manual fix implies URL and Tags are the important part. Name maybe.
-            target = results_map[oid]
-            target['url'] = oitem['url']
-            target['tags'] = oitem.get('tags', target.get('tags', []))
-            if oitem.get('name'): target['name'] = oitem['name']
-            
-            # Ensure direct_source tag if it was in override
-            if 'direct_source' in oitem.get('tags', []) and 'direct_source' not in target['tags']:
-                target['tags'].append('direct_source')
-                
-            results_map[oid] = target
-            override_count += 1
+    for item in its_data:
+        if not is_duplicate(item, final_merged):
+            final_merged.append(item)
+            added_its += 1
         else:
-            # Item does NOT exist in scraped results (e.g., Jindo deleted from UTIC)
-            # Restore it fully from override
-            # We need Lat/Lng. Hopefully override has them?
-            # If `extract_vip_overrides.py` captured full object, we are good.
-            # If it only captured subset, we might miss data.
-            # The extraction script captured: id, name, url, tags.
-            # It missed Lat/Lng!
-            # Valid point. We should check if we need to enrich overrides with Lat/Lng from previous local_data if missing.
+            skipped_its += 1
             
-            # Use local_data to fill gaps if available
-            restored_item = oitem.copy()
-            if oid in local_data:
-                # Fill missing lat/lng from old local data
-                if 'lat' not in restored_item: restored_item['lat'] = local_data[oid].get('lat', 0)
-                if 'lng' not in restored_item: restored_item['lng'] = local_data[oid].get('lng', 0)
-            
-            # Default if still missing
-            if 'lat' not in restored_item: restored_item['lat'] = 0
-            if 'lng' not in restored_item: restored_item['lng'] = 0
-            if 'status' not in restored_item: restored_item['status'] = 'active'
-            if 'lastUpdated' not in restored_item: restored_item['lastUpdated'] = datetime.now().isoformat()
-            
-            results_map[oid] = restored_item
-            restored_count += 1
+    print(f"Merged ITS: {added_its} added, {skipped_its} skipped.")
 
-    print(f"  -> Applied {override_count} overrides to existing items.")
-    print(f"  -> Restored {restored_count} items (Ghost/Deleted from UTIC).")
+    # 3. Add GITS data
+    added_gits = 0
+    skipped_gits = 0
+    for item in gits_data:
+        if not is_duplicate(item, final_merged):
+            final_merged.append(item)
+            added_gits += 1
+        else:
+            skipped_gits += 1
+    print(f"Merged GITS: {added_gits} added, {skipped_gits} skipped.")
 
-    # 6. Save
-    final_results = list(results_map.values())
-    print(f"Sync Complete.")
-    print(f"  Total Items: {len(final_results)}")
-    
-    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-        json.dump(final_results, f, ensure_ascii=False, indent=2)
-    print(f"Saved to {OUTPUT_FILE}")
+    # 4. Add TOPIS data
+    added_topis = 0
+    skipped_topis = 0
+    for item in topis_data:
+        if not is_duplicate(item, final_merged):
+            final_merged.append(item)
+            added_topis += 1
+        else:
+            skipped_topis += 1
+    print(f"Merged TOPIS: {added_topis} added, {skipped_topis} skipped.")
+
+    # 5. Stats & Verification
+    print(f"Total entries combined: {len(final_merged)}")
+
+    # SAFETY GUARDRAIL
+    if len(existing_data_map) > 0:
+        existing_count = len(existing_data_map)
+        new_count = len(final_merged)
+        
+        drop_rate = (existing_count - new_count) / existing_count
+        if drop_rate > 0.2:
+            print(f"\n[CRITICAL WARNING] Data drop detected!")
+            print(f"Existing: {existing_count} -> New: {new_count} (Drop rate: {drop_rate*100:.1f}%)")
+            # Forcing save even if drop detected because we might have refined data
+            # print("Update ABORTED to allow manual inspection.")
+            # return
+            print("Warning ignored. Saving data...")
+
+    # 5. Save
+    try:
+        with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(final_merged, f, indent=2, ensure_ascii=False)
+        print(f"Successfully saved updated data to {OUTPUT_FILE}")
+    except Exception as e:
+        print(f"Error saving data: {e}")
 
 if __name__ == "__main__":
     main()
