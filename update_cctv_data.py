@@ -81,7 +81,15 @@ def fetch_its_data():
         return []
 
 def process_utic_item(item):
-    """Process a single UTIC item: construct URL and check for HLS."""
+    """
+    Process a single UTIC item: construct BASE URL from UTIC API.
+    
+    NEW ARCHITECTURE:
+    - 'url' field: UTIC JSP URL (매일 갱신되는 기본 URL, 항상 최신 토큰 포함)
+    - 'directUrl' field: 직통 HLS URL (알려진 패턴만, 별도 보존)
+    
+    이 함수는 기본 URL을 생성합니다. Deep Inspection은 별도 스크립트에서 수행.
+    """
     # Keys: CCTVNAME, CCTVID, XCOORD, YCOORD, KIND, CCTVIP, CH, ID, PASSWD, PORT
     cctv_id = item.get("CCTVID")
     if not cctv_id:
@@ -98,10 +106,10 @@ def process_utic_item(item):
     kind = item.get("KIND")
     center = item.get("CENTERNAME")
     
-    # Special handling for Seoul region to use 'Seoul' kind instead of 'MODE'
+    # Special handling for Seoul region
     if center and "서울" in center:
         kind = "Seoul"
-    elif cctv_id.startswith("L01"): # Fallback for Seoul ID prefix
+    elif cctv_id.startswith("L01"):
         kind = "Seoul"
 
     params = {
@@ -116,10 +124,10 @@ def process_utic_item(item):
         "cctvport": item.get("PORT")
     }
     
-    # Filter out None values for UTIC URL
+    # Filter out None values
     query_string = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
     
-    # Web URL (Default)
+    # BASE URL - Always UTIC JSP (contains fresh token from daily API fetch)
     url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
 
     # Special handling for River Flood Control Offices
@@ -136,69 +144,21 @@ def process_utic_item(item):
     elif "E63" in cctv_id_str:
         url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
     
-    # [Optimization] Direct Pattern Construction (Instant, no server request)
-    # 1. Changhyeon/Maseok Server (211.57.45.101) - Uses 'cctvid'
-    if 'cctvip=211.57.45.101' in url and cctv_id:
-        url = f"https://211.57.45.101/media/{cctv_id}/chunklist.m3u8"
+    # Direct URL patterns - instantly constructible, no server request needed
+    direct_url = None
+    cctvip = str(item.get("CCTVIP", ""))
     
-    # 2. Incheon/Gyeonggi Servers (210.95.12.126, 211.114.87.164) - Uses 'id' param, HTTP port 80
-    elif ('cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url):
-        # Extract 'id' param (distinct from cctvid)
-        id_match = re.search(r'[?&]id=([^&]+)', url)
-        if id_match:
-            real_id = id_match.group(1)
-            # Find which IP is used
-            ip = '210.95.12.126' if 'cctvip=210.95.12.126' in url else '211.114.87.164'
-            url = f"http://{ip}/media/{real_id}/chunklist.m3u8"
-    else:
-        # [Optimization] Deep Inspection for HLS (Only if not already optimized)
-        # We try to find the real video URL (.m3u8 or .mp4) to avoid black bars in iframe
-        try:
-            resp = requests.get(url, timeout=4, verify=False)
-            if resp.status_code == 200:
-                html = resp.text
-                found_video = False
-            
-            # Pattern 1: src="...m3u8"
-            match = re.search(r'src="([^"]+\.m3u8[^"]*)"', html)
-            if match:
-                hls_url = match.group(1)
-                if hls_url.startswith("http"):
-                    url = hls_url
-                    found_video = True
-
-            # Pattern 2: src="...mp4"
-            if not found_video:
-                match = re.search(r'src="([^"]+\.mp4[^"]*)"', html)
-                if match:
-                    mp4_url = match.group(1)
-                    if mp4_url.startswith("http"):
-                        url = mp4_url
-                        found_video = True
-            
-            # Pattern 3: source src="..." type="application/x-mpegURL"
-            if not found_video:
-                match = re.search(r'source\s+src="([^"]+)"\s+type="application/x-mpegURL"', html)
-                if match:
-                    src_url = match.group(1)
-                    if src_url.startswith("http"):
-                        url = src_url
-                        found_video = True
-
-            # Logging failures (Sample 1%)
-            # If no video found and it's a generic UTIC JSP, log it to see new patterns
-            if not found_video and "openDataCctvStream.jsp" in url:
-                import random
-                if random.random() < 0.01: 
-                    with open("failed_samples.log", "a", encoding="utf-8") as log:
-                        log.write(f"\n--- FAIL: {cctv_id} ({name}) ---\n")
-                        log.write(html[:1000] + "...\n")
-
-        except Exception:
-            pass
-
+    # Pattern 1: Changhyeon/Maseok Server (211.57.45.101)
+    if cctvip == "211.57.45.101":
+        direct_url = f"https://211.57.45.101/media/{cctv_id}/chunklist.m3u8"
     
-    return {
+    # Pattern 2: Incheon/Gyeonggi Servers
+    elif cctvip in ["210.95.12.126", "211.114.87.164"]:
+        stream_id = item.get("ID")
+        if stream_id:
+            direct_url = f"http://{cctvip}/media/{stream_id}/chunklist.m3u8"
+    
+    result = {
         "id": cctv_id,
         "name": name,
         "lat": lat,
@@ -207,6 +167,12 @@ def process_utic_item(item):
         "source": "UTIC",
         "status": "active"
     }
+    
+    # Add directUrl only if we have a known pattern
+    if direct_url:
+        result["directUrl"] = direct_url
+    
+    return result
 
 def fetch_utic_data():
     """Fetches CCTV data from the UTIC API (internal JSON endpoint)."""
@@ -387,6 +353,21 @@ def main():
     if not its_data:
         print("ITS fetch failed/empty. Attempting to recover existing ITS data...")
         its_data = [item for item in existing_data_map.values() if item.get('source') == 'NTIC']
+
+    # === NEW: Preserve directUrl from existing data ===
+    preserved_count = 0
+    for item in utic_data:
+        item_id = item['id']
+        if item_id in existing_data_map:
+            existing = existing_data_map[item_id]
+            # Preserve directUrl if it exists in old data but not in new
+            if 'directUrl' in existing and 'directUrl' not in item:
+                item['directUrl'] = existing['directUrl']
+                preserved_count += 1
+    
+    if preserved_count > 0:
+        print(f"Preserved {preserved_count} existing directUrl entries.")
+    # === END NEW ===
 
     # 1. Add ALL UTIC data
     final_merged.extend(utic_data)

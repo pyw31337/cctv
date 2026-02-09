@@ -613,7 +613,8 @@ function togglePanelExpand(panel, btn) {
 }
 
 function createVideoElement(cctv) {
-    const url = cctv.url;
+    // NEW ARCHITECTURE: directUrl (직통 HLS) 우선, 없으면 url (기본 UTIC JSP)
+    const url = cctv.directUrl || cctv.url;
 
     // Always try to play the stream regardless of status
     // (Removed static status/ssl blocking as per user request to allow recovery attempts)
