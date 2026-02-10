@@ -12,6 +12,13 @@ from collectors.gits import GitsCollector
 from collectors.topis import TopisCollector
 from collectors.jeju import JejuCollector
 from collectors.gangwon import GangwonCollector
+from collectors.busan import BusanCollector
+from collectors.incheon import IncheonCollector
+from collectors.daejeon import DaejeonCollector
+from collectors.gwangju import GwangjuCollector
+from collectors.ulsan import UlsanCollector
+from collectors.daegu import DaeguCollector
+from collectors.sejong import SejongCollector
 
 # Configuration
 ITS_API_URL = "https://openapi.its.go.kr:9443/cctvInfo"
@@ -347,6 +354,22 @@ def main():
     # Gangwon
     print("Fetching Gangwon data...")
     gangwon_data = GangwonCollector().fetch_data() 
+
+    # Busan
+    print("Fetching Busan data...")
+    busan_data = BusanCollector().fetch_data()
+
+    # Incheon
+    print("Fetching Incheon data...")
+    incheon_data = IncheonCollector().fetch_data()
+
+    # Daejeon
+    print("Fetching Daejeon data...")
+    daejeon_data = DaejeonCollector().fetch_data()
+    gwangju_data = GwangjuCollector().fetch_data()
+    ulsan_data = UlsanCollector().fetch_data()
+    daegu_data = DaeguCollector().fetch_data()
+    sejong_data = SejongCollector().fetch_data()
     
     # 3. Merge & Prioritize (Prefer UTIC for Highways/Duplicates)
     print("Merging data (Prioritizing UTIC)...")
@@ -492,31 +515,185 @@ def main():
     # 5. Add Jeju data
     added_jeju = 0
     skipped_jeju = 0
+    upgraded_jeju = 0
     for item in jeju_data:
-        if find_duplicate_index(item, final_merged) == -1:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
             final_merged.append(item)
             added_jeju += 1
         else:
-            skipped_jeju += 1
-    print(f"Merged Jeju: {added_jeju} added, {skipped_jeju} skipped.")
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_jeju += 1
+            else:
+                skipped_jeju += 1
+    print(f"Merged Jeju: {added_jeju} added, {skipped_jeju} skipped, {upgraded_jeju} upgraded.")
 
     # 6. Add Gangwon data
     added_gangwon = 0
     skipped_gangwon = 0
+    upgraded_gangwon = 0
     for item in gangwon_data:
-        if find_duplicate_index(item, final_merged) == -1:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
             final_merged.append(item)
             added_gangwon += 1
         else:
-            skipped_gangwon += 1
-    print(f"Merged Gangwon: {added_gangwon} added, {skipped_gangwon} skipped.")
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_gangwon += 1
+            else:
+                skipped_gangwon += 1
+    print(f"Merged Gangwon: {added_gangwon} added, {skipped_gangwon} skipped, {upgraded_gangwon} upgraded.")
+
+    # 6.1 Add Busan data
+    added_busan = 0
+    skipped_busan = 0
+    upgraded_busan = 0
+    for item in busan_data:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
+            final_merged.append(item)
+            added_busan += 1
+        else:
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_busan += 1
+            else:
+                skipped_busan += 1
+    print(f"Merged Busan: {added_busan} added, {skipped_busan} skipped, {upgraded_busan} upgraded.")
+
+    # 6.2 Add Incheon data
+    added_incheon = 0
+    skipped_incheon = 0
+    upgraded_incheon = 0
+    for item in incheon_data:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
+            final_merged.append(item)
+            added_incheon += 1
+        else:
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_incheon += 1
+            else:
+                skipped_incheon += 1
+    print(f"Merged Incheon: {added_incheon} added, {skipped_incheon} skipped, {upgraded_incheon} upgraded.")
+
+    # 6.3 Add Daejeon data
+    added_daejeon = 0
+    skipped_daejeon = 0
+    upgraded_daejeon = 0
+    for item in daejeon_data:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
+            final_merged.append(item)
+            added_daejeon += 1
+        else:
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_daejeon += 1
+            else:
+                skipped_daejeon += 1
+    print(f"Merged Daejeon: {added_daejeon} added, {skipped_daejeon} skipped, {upgraded_daejeon} upgraded.")
+
+    # 6.4 Add Gwangju data
+    added_gwangju = 0
+    skipped_gwangju = 0
+    upgraded_gwangju = 0
+    for item in gwangju_data:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
+            final_merged.append(item)
+            added_gwangju += 1
+        else:
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_gwangju += 1
+            else:
+                skipped_gwangju += 1
+    print(f"Merged Gwangju: {added_gwangju} added, {skipped_gwangju} skipped, {upgraded_gwangju} upgraded.")
+
+    # 6.5 Add Ulsan data
+    added_ulsan = 0
+    skipped_ulsan = 0
+    upgraded_ulsan = 0
+    for item in ulsan_data:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
+            final_merged.append(item)
+            added_ulsan += 1
+        else:
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_ulsan += 1
+            else:
+                skipped_ulsan += 1
+    print(f"Merged Ulsan: {added_ulsan} added, {skipped_ulsan} skipped, {upgraded_ulsan} upgraded.")
+
+    # 6.6 Add Daegu data
+    added_daegu = 0
+    skipped_daegu = 0
+    upgraded_daegu = 0
+    for item in daegu_data:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
+            final_merged.append(item)
+            added_daegu += 1
+        else:
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_daegu += 1
+            else:
+                skipped_daegu += 1
+    print(f"Merged Daegu: {added_daegu} added, {skipped_daegu} skipped, {upgraded_daegu} upgraded.")
+
+    # 6.7 Add Sejong data
+    added_sejong = 0
+    skipped_sejong = 0
+    upgraded_sejong = 0
+    for item in sejong_data:
+        idx = find_duplicate_index(item, final_merged)
+        if idx == -1:
+            final_merged.append(item)
+            added_sejong += 1
+        else:
+            existing = final_merged[idx]
+            if existing.get('source') in ['UTIC', 'NTIC']:
+                final_merged[idx] = item
+                upgraded_sejong += 1
+            else:
+                skipped_sejong += 1
+    print(f"Merged Sejong: {added_sejong} added, {skipped_sejong} skipped, {upgraded_sejong} upgraded.")
 
     # 7. Final Global Deduplication Pass (Cleanup)
     print("Running final global deduplication pass...")
     unique_merged = []
     
-    # Sort to prioritize sources: GITS > TOPIS > UTIC > ITS
-    priority = {'GITS': 0, 'TOPIS': 1, 'UTIC': 2, 'NTIC': 3}
+    # Sort to prioritize sources: GITS > TOPIS > Busan/Incheon/Daejeon > UTIC > ITS
+    priority = {
+        'GITS': 0, 
+        'TOPIS': 1, 
+        'BUSAN_ITS': 2, 
+        'INCHEON_ITS': 2, 
+        'DAEJEON_ITS': 2,
+        'GWANGJU': 2,
+        'ULSAN': 2,
+        'DAEGU': 2,
+        'SEJONG': 2,
+        'JEJU': 3,
+        'GANGWON': 3,
+        'UTIC': 4, 
+        'NTIC': 5
+    }
     final_merged.sort(key=lambda x: priority.get(x.get('source'), 99))
     
     for item in final_merged:
