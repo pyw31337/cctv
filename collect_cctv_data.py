@@ -275,7 +275,7 @@ def refine_cctv_data(cctv_list):
             """
             
             # Pattern B: 210.95.12.126, 211.114.87.164 (uses id param)
-            elif 'cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url:
+            if 'cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url:
                 match = re.search(r'[?&]id=([^&]+)', url)
                 if match:
                     real_id = match.group(1)
