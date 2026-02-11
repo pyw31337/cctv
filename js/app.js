@@ -624,7 +624,7 @@ function createVideoElement(cctv) {
         if (is43) video.style.objectFit = 'cover';
 
         // Use the backend proxy on Oracle (via tunnel)
-        video.src = `https://calibration-lying-asp-expires.trycloudflare.com/daejeon?id=${cctv.original_id || cctv.id.replace('DAEJEON_', '')}`;
+        video.src = `https://calibration-lying-asp-expires.trycloudflare.com/daejeon?id=${cctv.original_id || cctv.id.replace('DAEJEON_', '')}&_t=${Date.now()}`;
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
