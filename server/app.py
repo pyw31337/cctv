@@ -146,17 +146,50 @@ def proxy_stream():
         return "Missing URL", 400
         
     try:
-        resp = requests.get(target_url, stream=True, timeout=10, verify=False)
+        # Some servers (UTIC) need Headers
+        headers = {}
+        if 'utic.go.kr' in target_url:
+             headers["Referer"] = "https://www.utic.go.kr/guide/cctvOpenData.do?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+             headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        resp = requests.get(target_url, stream=True, timeout=10, verify=False, headers=headers)
         excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
-        headers = [(name, value) for (name, value) in resp.raw.headers.items()
+        resp_headers = [(name, value) for (name, value) in resp.raw.headers.items()
                    if name.lower() not in excluded_headers]
         
         # Add CORS
-        headers.append(('Access-Control-Allow-Origin', '*'))
+        resp_headers.append(('Access-Control-Allow-Origin', '*'))
         
-        return Response(resp.content, resp.status_code, headers)
+        return Response(resp.content, resp.status_code, resp_headers)
     except Exception as e:
         return f"Proxy error: {str(e)}", 502
+
+# === Daejeon Proxy Logic ===
+@app.route('/daejeon')
+def proxy_daejeon():
+    cctv_id = request.args.get('id')
+    if not cctv_id:
+        return "Missing ID", 400
+
+    # Clean ID: DAEJEON_CCTV08 -> CTV0008
+    clean_id = cctv_id.replace("DAEJEON_", "")
+    stream_id = clean_id
+    if clean_id.startswith("CCTV"):
+        num = clean_id[4:] # "08"
+        stream_id = f"CTV{num.zfill(4)}"
+
+    # Generate Timestamp (current - 2 mins to be safe)
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    target_time = now - timedelta(minutes=2)
+    timestamp = target_time.strftime("%Y%m%d.%H%M00")
+
+    # Construct URL
+    # https://tportal.daejeon.go.kr:37084/01/media/CTV0008/CTV0008_20260211.140500.000.mp4
+    real_url = f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
+    
+    logger.info(f"Proxying Daejeon {cctv_id} -> {real_url}")
+    return flask.redirect(real_url)
 
 # === Jeju Proxy Logic ===
 @app.route('/jeju')

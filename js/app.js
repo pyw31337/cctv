@@ -617,17 +617,15 @@ function createVideoElement(cctv) {
     const url = cctv.directUrl || cctv.url;
     const is43 = cctv.aspectRatio === '4:3';
 
-    // Handle Daejeon dynamic MP4 URLs
+    // Handle Daejeon dynamic MP4 URLs (now via backend proxy)
     if (cctv.urlType === 'daejeon_mp4_dynamic') {
-        const now = new Date();
-        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const timeStr = now.toTimeString().slice(0, 5).replace(':', '') + '00';
-        let dynamicUrl = url.replace(/\d{8}\.\d{6}\.000/, `${dateStr}.${timeStr}.000`);
-
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-        if (is43) video.style.objectFit = 'cover'; // Cover handles 4:3 -> 16:9 well
-        video.src = dynamicUrl;
+        if (is43) video.style.objectFit = 'cover';
+
+        // Use the backend proxy on Oracle (via tunnel)
+        // For now, assume the proxy is accessible at /daejeon?id=...
+        video.src = `https://calibration-lying-asp-expires.trycloudflare.com/daejeon?id=${cctv.original_id || cctv.id.replace('DAEJEON_', '')}`;
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
