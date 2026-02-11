@@ -617,18 +617,58 @@ function createVideoElement(cctv) {
     const url = cctv.directUrl || cctv.url;
     const is43 = cctv.aspectRatio === '4:3';
 
-    // Handle Daejeon dynamic MP4 URLs (now via backend proxy)
+    // Handle Daejeon dynamic MP4 URLs (client-side generation to bypass oracle block)
     if (cctv.urlType === 'daejeon_mp4_dynamic') {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-        if (is43) video.style.objectFit = 'cover';
+        if (is43) video.dataset.aspectRatio = '4:3';
 
-        // Use the backend proxy on Oracle (via tunnel)
-        video.src = `https://calibration-lying-asp-expires.trycloudflare.com/daejeon?id=${cctv.original_id || cctv.id.replace('DAEJEON_', '')}&_t=${Date.now()}`;
+        const getDaejeonUrl = (offsetMins) => {
+            const now = new Date();
+            // Get UTC time milliseconds
+            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+            // Add 9 hours for KST
+            const kst = new Date(utc + (9 * 60 * 60 * 1000));
+            // Apply offset
+            kst.setMinutes(kst.getMinutes() - offsetMins);
+
+            const yyyy = kst.getFullYear();
+            const mm = String(kst.getMonth() + 1).padStart(2, '0');
+            const dd = String(kst.getDate()).padStart(2, '0');
+            const hh = String(kst.getHours()).padStart(2, '0');
+            const min = String(kst.getMinutes()).padStart(2, '0');
+            const sec = '00';
+
+            const timestamp = `${yyyy}${mm}${dd}.${hh}${min}${sec}`;
+
+            let streamId = cctv.original_id || cctv.id.replace('DAEJEON_', '');
+            if (streamId.startsWith('CCTV')) {
+                const num = streamId.substring(4);
+                streamId = `CTV${num.padStart(4, '0')}`;
+            }
+
+            return `https://tportal.daejeon.go.kr:37084/01/media/${streamId}/${streamId}_${timestamp}.000.mp4`;
+        };
+
+        // Try 2 minutes ago first (safer buffer)
+        const url2min = getDaejeonUrl(2);
+        video.src = url2min;
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
         video.setAttribute('playsinline', '');
+
+        // Fallback: If 2 min ago fails, try 3 min ago
+        video.onerror = () => {
+            // Check current src to determine next step
+            if (video.src === url2min) {
+                console.log(`Daejeon ${cctv.name}: -2m failed, trying -3m`);
+                video.src = getDaejeonUrl(3);
+            } else {
+                console.error(`Daejeon ${cctv.name}: Stream unavailable`);
+            }
+        };
+
         return video;
     }
 
