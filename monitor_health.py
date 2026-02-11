@@ -53,6 +53,10 @@ def categorize_streams(data):
     }
     
     for item in data:
+        # Skip inactive streams
+        if item.get("status") in ["inactive", "broken"]:
+            continue
+            
         url = item.get("url", "")
         categorized = False
         
