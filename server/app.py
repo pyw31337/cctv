@@ -16,7 +16,7 @@ HLS_DIR = os.environ.get('HLS_DIR', '/tmp/hls')
 IDLE_TIMEOUT = 30  # Seconds to keep stream alive without viewers
 MAX_STREAMS = 2    # Hard limit on concurrent FFmpeg processes (CPU safety)
 
-app = Flask(__name__)
+# App initialized below with static folder config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -61,9 +61,15 @@ def cleanup_loop():
 # Start background cleanup
 threading.Thread(target=cleanup_loop, daemon=True).start()
 
+app = Flask(__name__, static_folder='../', static_url_path='')
+
 @app.route('/')
-def index():
-    return "CCTV Proxy Server Running. Use /stream?url=... or /proxy?url=..."
+def serve_index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    return send_from_directory(app.static_folder, path)
 
 @app.route('/stream')
 def stream_video():
@@ -159,7 +165,42 @@ def proxy_jeju():
     if not cctv_id:
         return "Missing ID", 400
 
-    # 1. Fetch fresh Auth Key
+    # Clean ID
+    short_id = cctv_id.replace("JEJU_", "")
+    
+    # 0. Check if we need to resolve Short ID -> UUID
+    target_id = short_id
+    if len(short_id) < 20: # Likely a short ID like 'C62'
+        try:
+            info_url = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://www.jejuits.go.kr/jido/mainView.do",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "X-Requested-With": "XMLHttpRequest"
+            }
+            # Need maplevel param or it might fail? Script used "maplevel": "14"
+            payload = {
+                "DEVICE_KIND": "CCTV",
+                "DEVICE_ID": short_id,
+                "maplevel": "14"
+            }
+            
+            logger.info(f"Resolving UUID for {short_id}...")
+            resp = requests.post(info_url, data=payload, headers=headers, timeout=5, verify=False)
+            if resp.status_code == 200:
+                data = resp.json()
+                if 'stremid' in data:
+                    target_id = data['stremid']
+                    logger.info(f"Resolved {short_id} -> {target_id}")
+                else:
+                    logger.warning(f"No stremid in info for {short_id}: {data}")
+        except Exception as e:
+            logger.error(f"Failed to resolve UUID: {e}")
+            # Continue with short_id just in case, or fail?
+            # likely fail, but let's try.
+
+    # 1. Fetch fresh Auth Key using UUID (target_id)
     try:
         target_api = "https://www.jejuits.go.kr/jido/streamUrl.do"
         headers = {
@@ -168,7 +209,7 @@ def proxy_jeju():
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest"
         }
-        payload = {"DEVICE_ID": cctv_id.replace("JEJU_", "")} # Strip prefix if present
+        payload = {"DEVICE_ID": target_id}
         
         resp = requests.post(target_api, data=payload, headers=headers, timeout=5, verify=False)
         if resp.status_code != 200:
@@ -177,7 +218,7 @@ def proxy_jeju():
         real_url = resp.text.strip().strip('"')
         
         if not real_url.startswith("http"):
-             return f"Invalid URL from Jeju API: {real_url}", 502
+             return f"Invalid URL from Jeju API for {target_id}: {real_url}", 502
 
         # 2. Redirect to the fresh URL
         return flask.redirect(real_url)
