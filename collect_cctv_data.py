@@ -262,13 +262,17 @@ def refine_cctv_data(cctv_list):
         url = item.get('url', '')
         if item.get('source') == 'UTIC' and 'jsp' in url:
             
-            # Pattern A: 211.57.45.101 (uses cctvid)
+            # CRITICAL: DO NOT auto-match URL to CCTVID for Namyangju (211.57.45.101)
+            # This causes scrambles where one camera's ID is another's Stream ID.
+            # Let the original URL from UTIC or overrides stand.
+            """
             if 'cctvip=211.57.45.101' in url:
                 match = re.search(r'cctvid=([^&]+)', url)
                 if match:
                     cctvid = match.group(1)
                     item['url'] = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
                     optimized_count += 1
+            """
             
             # Pattern B: 210.95.12.126, 211.114.87.164 (uses id param)
             elif 'cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url:
