@@ -76,6 +76,7 @@ class DaejeonCollector:
                     "lat": float(lat),
                     "lng": float(lng),
                     "url": url,
+                    "urlType": "daejeon_mp4_dynamic",
                     "source": "DAEJEON_ITS",
                     "status": "active"
                 })

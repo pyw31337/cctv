@@ -49,7 +49,7 @@ def fetch_its_data():
     }
     
     try:
-        response = requests.get(ITS_API_URL, params=params, timeout=30)
+        response = requests.get(ITS_API_URL, params=params, timeout=45)
         response.raise_for_status()
         data = response.json()
         
@@ -150,14 +150,24 @@ def process_utic_item(item):
     obscd = item.get('ID')
     cctv_passwd = item.get("PASSWD")
     
+    PROXY_SSLIP = "https://158.179.194.163.sslip.io/proxy?url="
+    
     if "E60" in cctv_id_str:
-        url = f"https://hrfco.go.kr/sumun/cctvPopup.do?Obscd={obscd}"
+        # Han River
+        hls_url = f"https://cctvlo.hrfco.go.kr/live/cctv{obscd}/hls.m3u8"
+        url = f"{PROXY_SSLIP}{hls_url}"
     elif "E61" in cctv_id_str:
-        url = f"https://www.nakdongriver.go.kr/sumun/popup/cctvView.do?Obscd={obscd}"
+        # Nakdong River
+        hls_url = f"https://cctvlo.nakdongriver.go.kr/live/cctv{obscd}/hls.m3u8"
+        url = f"{PROXY_SSLIP}{hls_url}"
     elif "E62" in cctv_id_str:
-        url = f"https://www.geumriver.go.kr/html/sumun/rtmpView.jsp?wlobscd={cctv_passwd}&cctvcd={obscd}"
+        # Geum River
+        hls_url = f"https://cctvlo.geumriver.go.kr/live/cctv{obscd}/hls.m3u8"
+        url = f"{PROXY_SSLIP}{hls_url}"
     elif "E63" in cctv_id_str:
-        url = f"https://www.yeongsanriver.go.kr/sumun/videoDetail.do?wlobscd={cctv_passwd}"
+        # Yeongsan River
+        hls_url = f"https://cctvlo.yeongsanriver.go.kr/live/cctv{obscd}/hls.m3u8"
+        url = f"{PROXY_SSLIP}{hls_url}"
     
     # DIRECT HLS FOR KNOWN SERVERS - url 자체를 직통 HLS로 설정 (iframe 제거)
     # Pattern 1: Namyangju/Changhyeon Server (211.57.45.101)
