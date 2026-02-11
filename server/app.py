@@ -189,12 +189,13 @@ def proxy_stream():
                 else:
                     new_lines.append(line)
             
-            rewritten_content = "\n".join(new_lines)
+            rewritten_content = "\n".join(new_lines).encode('utf-8')
             
-            excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'access-control-allow-origin']
+            excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'access-control-allow-origin', 'content-type']
             resp_headers = [(name, value) for (name, value) in resp.raw.headers.items()
                        if name.lower() not in excluded_headers]
             resp_headers.append(('Access-Control-Allow-Origin', '*'))
+            resp_headers.append(('Content-Type', 'application/vnd.apple.mpegurl'))
             
             return Response(rewritten_content, resp.status_code, resp_headers)
         
