@@ -152,6 +152,40 @@ def proxy_stream():
     except Exception as e:
         return f"Proxy error: {str(e)}", 502
 
+# === Jeju Proxy Logic ===
+@app.route('/jeju')
+def proxy_jeju():
+    cctv_id = request.args.get('id')
+    if not cctv_id:
+        return "Missing ID", 400
+
+    # 1. Fetch fresh Auth Key
+    try:
+        target_api = "https://www.jejuits.go.kr/jido/streamUrl.do"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.jejuits.go.kr/jido/mainView.do?DEVICE_KIND=CCTV",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest"
+        }
+        payload = {"DEVICE_ID": cctv_id.replace("JEJU_", "")} # Strip prefix if present
+        
+        resp = requests.post(target_api, data=payload, headers=headers, timeout=5, verify=False)
+        if resp.status_code != 200:
+            return f"Jeju API Error: {resp.status_code}", 502
+            
+        real_url = resp.text.strip().strip('"')
+        
+        if not real_url.startswith("http"):
+             return f"Invalid URL from Jeju API: {real_url}", 502
+
+        # 2. Redirect to the fresh URL
+        return flask.redirect(real_url)
+
+    except Exception as e:
+        logger.error(f"Jeju Proxy Failed: {e}")
+        return f"Server Error: {str(e)}", 500
+
 if __name__ == '__main__':
     # Ensure HLS dir exists
     shutil.rmtree(HLS_DIR, ignore_errors=True)
