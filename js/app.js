@@ -624,12 +624,40 @@ function createVideoElement(cctv) {
         if (is43) video.style.objectFit = 'cover';
 
         // Use the backend proxy on Oracle (via tunnel)
-        // For now, assume the proxy is accessible at /daejeon?id=...
         video.src = `https://calibration-lying-asp-expires.trycloudflare.com/daejeon?id=${cctv.original_id || cctv.id.replace('DAEJEON_', '')}`;
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
         video.setAttribute('playsinline', '');
+        return video;
+    }
+
+    // Handle Jeju streams explicitly
+    if (cctv.source === 'JEJU') {
+        const video = document.createElement('video');
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        if (is43) video.dataset.aspectRatio = '4:3';
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+
+        // Ensure we use the latest tunnel for Jeju
+        const jejuUrl = url.replace(/https:\/\/[^\/]+\/jeju/, 'https://calibration-lying-asp-expires.trycloudflare.com/jeju');
+
+        if (Hls.isSupported()) {
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                capLevelToPlayerSize: true,
+                maxBufferLength: 5,
+            });
+            hls.loadSource(jejuUrl);
+            hls.attachMedia(video);
+            video.hls = hls;
+        } else {
+            video.src = jejuUrl;
+        }
         return video;
     }
 

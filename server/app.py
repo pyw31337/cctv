@@ -151,17 +151,31 @@ def proxy_stream():
         if 'utic.go.kr' in target_url:
              headers["Referer"] = "https://www.utic.go.kr/guide/cctvOpenData.do?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
              headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        elif 'jejuits.go.kr' in target_url:
+             headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+             headers["Referer"] = "https://www.jejuits.go.kr/jido/mainView.do"
 
-        resp = requests.get(target_url, stream=True, timeout=10, verify=False, headers=headers)
+        # Use stream=True for video data
+        resp = requests.get(target_url, stream=True, timeout=15, verify=False, headers=headers, allow_redirects=True)
+        
+        # If the response is a redirect (though allow_redirects=True usually follows it), 
+        # some servers send weird things. Let's just stream.
+        
+        def generate():
+            for chunk in resp.iter_content(chunk_size=8192):
+                yield chunk
+
         excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
         resp_headers = [(name, value) for (name, value) in resp.raw.headers.items()
                    if name.lower() not in excluded_headers]
         
         # Add CORS
         resp_headers.append(('Access-Control-Allow-Origin', '*'))
+        resp_headers.append(('Content-Type', resp.headers.get('Content-Type', 'video/mp2t')))
         
-        return Response(resp.content, resp.status_code, resp_headers)
+        return Response(generate(), resp.status_code, resp_headers)
     except Exception as e:
+        logger.error(f"Proxy error for {target_url}: {e}")
         return f"Proxy error: {str(e)}", 502
 
 # === Daejeon Proxy Logic ===
@@ -253,8 +267,9 @@ def proxy_jeju():
         if not real_url.startswith("http"):
              return f"Invalid URL from Jeju API for {target_id}: {real_url}", 502
 
-        # 2. Redirect to the fresh URL
-        return flask.redirect(real_url)
+        # 2. Redirect to the local CORS-safe proxy instead of raw URL
+        logger.info(f"Jeju {cctv_id} -> Redirecting to CORS proxy for {real_url}")
+        return flask.redirect(f"/proxy?url={quote(real_url)}")
 
     except Exception as e:
         logger.error(f"Jeju Proxy Failed: {e}")
