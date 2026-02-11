@@ -56,12 +56,9 @@ def collect_jeju_cctv():
                 continue
 
             # Construct our data format
-            # We use the Oracle Proxy URL format
-            # If we utilize UUID directly, we might save a lookup, 
-            # but let's stick to short ID for consistency unless server requires UUID.
-            # Actually, server/app.py now handles Short ID -> UUID lookup.
-            # So passing Short ID is fine.
-            proxy_url = f"{PROXY_BASE}?id={short_id}"
+            # Use the Oracle HTTPS Proxy with the UUID directly
+            # UUID is the actual 'stremid' needed by streamUrl.do
+            proxy_url = f"https://158.179.194.163.sslip.io/jeju?id={uuid}"
 
             cctv_entry = {
                 "id": f"JEJU_{short_id}",
