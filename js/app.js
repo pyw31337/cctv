@@ -642,8 +642,8 @@ function createVideoElement(cctv) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
-        // Ensure we use the latest tunnel for Jeju
-        const jejuUrl = url.replace(/https:\/\/[^\/]+\/jeju/, 'https://calibration-lying-asp-expires.trycloudflare.com/jeju');
+        // Ensure we use the latest tunnel for Jeju and bypass Cloudflare cache with /jeju2
+        const jejuUrl = url.replace(/https:\/\/[^\/]+\/jeju/, 'https://calibration-lying-asp-expires.trycloudflare.com/jeju2') + `&_t=${Date.now()}`;
 
         if (Hls.isSupported()) {
             const hls = new Hls({
