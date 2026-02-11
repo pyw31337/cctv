@@ -8,7 +8,11 @@ import json
 import requests
 import os
 import sys
-from datetime import datetime
+import json
+import requests
+import os
+import sys
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib3
@@ -63,29 +67,79 @@ def categorize_streams(data):
     
     return categories
 
+def generate_daejeon_url(item):
+    """Regenerate Daejeon URL with current timestamp"""
+    cctv_id = item.get("original_id")
+    if not cctv_id: return item.get("url")
+    
+    # Logic from collectors/daejeon.py
+    # Try to find a valid URL by checking recent timestamps
+    stream_id = cctv_id
+    if cctv_id.startswith("CCTV"):
+        num = cctv_id[4:] 
+        stream_id = f"CTV{num.zfill(4)}"
+        
+    base_url = f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id}/{stream_id}_"
+    
+    # Try offsets: 1, 2, 3, 4 minutes ago
+    # Daejeon updates every 2 minutes.
+    now = datetime.now()
+    
+    # We will try a few likely timestamps.
+    # If we are in health check mode, we can try HEAD requests to find the valid one.
+    # But to follow `check_hls_stream` pattern, we might want to return a list or just one likely.
+    # Let's try to match the odd/even minute pattern if possible.
+    # Actually, simplest is to try -2 min and -3 min. One should work.
+    
+    candidates = []
+    for m in range(1, 5):
+        t = now - timedelta(minutes=m)
+        ts = t.strftime("%Y%m%d.%H%M00")
+        candidates.append(f"{base_url}{ts}.000.mp4")
+        
+    return candidates # Return list of candidates
+
 def check_hls_stream(item):
     """Check if HLS/MP4 stream is accessible"""
     url = item.get("url", "")
     name = item.get("name", "Unknown")
     cctv_id = item.get("id", "Unknown")
+    url_type = item.get("urlType", "")
     
     base_res = {"name": name, "id": cctv_id}
     
-    try:
-        # Use GET with stream=True for better compatibility with some HLS servers
-        response = requests.get(url, headers=HEADERS, timeout=TIMEOUT, stream=True, verify=False)
-        if response.status_code == 200:
-            return {**base_res, "status": "OK", "code": 200, "type": "hard"}
-        else:
-            # 404/500 is a hard failure, others are soft
-            fail_type = "hard" if response.status_code in [404, 500] else "soft"
-            return {**base_res, "status": "FAIL", "code": response.status_code, "type": fail_type}
-    except requests.Timeout:
-        return {**base_res, "status": "TIMEOUT", "code": None, "type": "soft"}
-    except requests.exceptions.ConnectionError:
-        return {**base_res, "status": "CONN_ERROR", "code": None, "type": "soft"}
-    except Exception as e:
-        return {**base_res, "status": "ERROR", "code": str(e)[:50], "type": "soft"}
+    urls_to_try = [url]
+    if url_type == "daejeon_mp4_dynamic":
+        candidates = generate_daejeon_url(item)
+        if candidates:
+            urls_to_try = candidates # Override with fresh candidates
+            
+    last_status = None
+    last_code = None
+    
+    for try_url in urls_to_try:
+        try:
+            # Use GET with stream=True for better compatibility with some HLS servers
+            response = requests.get(try_url, headers=HEADERS, timeout=TIMEOUT, stream=True, verify=False)
+            if response.status_code == 200:
+                return {**base_res, "status": "OK", "code": 200, "type": "hard"}
+            else:
+                last_status = response.status_code
+        except requests.Timeout:
+            last_code = "TIMEOUT"
+        except requests.exceptions.ConnectionError:
+            last_code = "CONN_ERROR"
+        except Exception as e:
+            last_code = str(e)[:50]
+            
+    # If we get here, all attempts failed. Return the result of the last attempt (or generic fail)
+    if last_status:
+        fail_type = "hard" if last_status in [404, 500] else "soft"
+        return {**base_res, "status": "FAIL", "code": last_status, "type": fail_type}
+    elif last_code:
+         return {**base_res, "status": last_code, "code": None, "type": "soft"}
+    else:
+         return {**base_res, "status": "FAIL", "code": 404, "type": "hard"}
 
 def check_utic_api(item):
     """Check UTIC API/JSP endpoint visibility"""

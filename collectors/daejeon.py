@@ -67,6 +67,10 @@ class DaejeonCollector:
                     stream_id = f"CTV{num.zfill(4)}"
 
                 # Construct stream URL
+                # Daejeon video files are generated every 2 minutes (e.g., 09:01:00, 09:03:00).
+                # We can't predict exactly which one is valid without checking, 
+                # but for static data, we'll generate a "seed" URL.
+                # The frontend or health checker should regenerate this based on current time.
                 url = f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
 
                 normalized_data.append({
