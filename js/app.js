@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // === Data Loading ===
 async function loadCctvData() {
     try {
-        const response = await fetch('cctv_data.json');
+        const response = await fetch('cctv_data.json?t=' + Date.now());
         state.cctvData = await response.json();
         console.log(`Loaded ${state.cctvData.length} CCTV entries.`);
     } catch (error) {
