@@ -621,6 +621,11 @@ function createVideoElement(cctv, sourceIndex = 0) {
     if (sourceIndex === 0) {
         url = cctv.directUrl || cctv.url;
         type = 'main';
+
+        // TrendWorld (Jeju) is HTTP-only, so we must proxy it to avoid Mixed Content
+        if (cctv.source === 'TRENDWORLD') {
+            url = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(url)}`;
+        }
     } else {
         const backup = cctv.backup_urls && cctv.backup_urls[sourceIndex - 1];
         if (backup) {

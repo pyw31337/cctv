@@ -24,6 +24,8 @@ from collectors.nowjeju import NowJejuCollector
 from collectors.gigaeyes import GigaEyesCollector
 from collectors.youtube_custom import YoutubeCustomCollector
 from collectors.spatic import SpaticCollector
+from collectors.trendworld import TrendWorldCollector
+
 
 
 # Configuration
@@ -695,6 +697,21 @@ def main():
         
     except Exception as e:
         print(f"Error fetching CCTV World data: {e}")
+
+    # ---------------------------------------------------------
+    # 6.9.5 TrendWorld (Jeju) Integration
+    # ---------------------------------------------------------
+    try:
+        trend_collector = TrendWorldCollector()
+        trend_data = trend_collector.collect_data()
+        print(f"Collected {len(trend_data)} TrendWorld CCTV items.")
+        
+        # Merge TrendWorld data
+        for item in trend_data:
+            merge_cctv_item(final_merged, item)
+            
+    except Exception as e:
+        print(f"Error collecting TrendWorld data: {e}")
 
     # 6.10 Add Ulleungdo (Official)
     print("Fetching Ulleungdo data...")

@@ -530,14 +530,14 @@ class SpaticCollector:
             hls_url = self.get_hls_url(item["rtsp"])
             if hls_url:
                 results.append({
-                    "id": f"SPATIC_{item["id"]}",
-                    "name": f"[SPATIC] {item["name"]}",
+                    "id": f"SPATIC_{item['id']}",
+                    "name": f"[SPATIC] {item['name']}",
                     "lat": item["lat"],
                     "lng": item["lon"],
                     "url": hls_url,
                     "source": "SPATIC",
                     "status": "active",
-                    "address": f"서울특별시 {item["name"]}",
+                    "address": f"서울특별시 {item['name']}",
                     "backup_urls": []
                 })
         print(f"Successfully normalized {len(results)} SPATIC streams.")

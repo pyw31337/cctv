@@ -54,7 +54,7 @@ class CCTVWorldCollector:
             
             # 3. Scrape Detail Pages
             cctv_data = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_url = {executor.submit(self.scrape_page, url): url for url in urls}
                 
                 completed = 0
