@@ -61,8 +61,9 @@ def check_daejeon_stream(cctv):
         try:
             # We use verify=False because of internal server cert issues sometimes, or to be safe
             # But tportal usually requires valid certs. Let's try with verify=False for robustness checking if server is UP.
-            # Timeout 5 seconds
-            resp = requests.head(url, timeout=5, verify=False)
+            # Timeout increased to 15s and added User-Agent to mimic browser
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            resp = requests.head(url, timeout=15, verify=False, headers=headers)
             if resp.status_code == 200:
                 log(f"[OK] Daejeon {stream_id} is UP (Offset {offset}m)")
                 return True
