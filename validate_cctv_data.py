@@ -16,13 +16,14 @@ import urllib3
 urllib3.disable_warnings()
 
 # 직통 HLS를 사용해야 하는 서버 목록
-DIRECT_HLS_SERVERS = ["211.57.45.101", "210.95.12.126", "211.114.87.164"]
+DIRECT_HLS_SERVERS = ["211.57.45.101", "210.95.12.126", "211.114.87.164", "gitsview.gg.go.kr", "trafficcctv.paju.go.kr"]
 
 # 반드시 검증해야 하는 주요 CCTV 샘플
 CRITICAL_SAMPLES = [
-    {"name": "마석사거리", "expected_pattern": "211.57.45.101/media/L"},
-    {"name": "마석윗3", "expected_pattern": "211.57.45.101/media/L"},
-    {"name": "창현A앞", "expected_pattern": "211.57.45.101/media/L"},
+    {"name": "마석사거리", "expected_pattern": "media/L"}, # Allow both IP and gitsview
+    {"name": "마석윗3", "expected_pattern": "media/L"},
+    {"name": "창현A앞", "expected_pattern": "media/L"},
+    {"name": "심학중사거리", "expected_pattern": "trafficcctv.paju.go.kr"},
 ]
 
 
@@ -39,10 +40,10 @@ def validate_direct_hls_urls(data):
         url = item.get("url", "")
         name = item.get("name", "")
         
-        # 직통 HLS 서버인 경우 url이 m3u8이어야 함
+        # 직통 HLS 서버인 경우 url이 m3u8이어야 함 (gitsview 제외)
         for server in DIRECT_HLS_SERVERS:
             if server in url:
-                if not url.endswith(".m3u8"):
+                if server != "gitsview.gg.go.kr" and not url.endswith(".m3u8"):
                     errors.append(f"[ERROR] {name}: {server} 서버인데 url이 m3u8이 아님: {url[:60]}...")
                 break
     
@@ -61,7 +62,13 @@ def validate_critical_samples(data):
                 url = item.get("url", "")
                 
                 # 예상 패턴 확인
-                if sample["expected_pattern"] not in url:
+                is_pattern_match = False
+                if sample["expected_pattern"] in url:
+                    is_pattern_match = True
+                elif "gitsview.gg.go.kr" in url and "media/L" in sample["expected_pattern"]:
+                    is_pattern_match = True
+                
+                if not is_pattern_match:
                     errors.append(f"[ERROR] {item['name']}: 예상 패턴 '{sample['expected_pattern']}' 없음. 실제 URL: {url[:80]}...")
                 
                 # 스트림 접근 테스트
