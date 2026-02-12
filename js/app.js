@@ -17,6 +17,7 @@ const state = {
 
 let map = null;
 const SEARCH_MARKER_SRC = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png';
+const YOUTUBE_MARKER_SRC = 'https://img.icons8.com/color/48/youtube-play.png';
 
 
 // === DOM References (Cached) ===
@@ -904,13 +905,42 @@ function renderMapMarkers() {
     state.markers.forEach(marker => marker.setMap(null));
     state.markers = [];
 
-    // Render new markers (max 50 to prevent clutter)
+    const placedPositions = []; // To track overlaps: {lat, lng, count}
+
+    // Render new markers (max 50)
     state.nearestCctvs.slice(0, 50).forEach(cctv => {
-        const marker = new kakao.maps.Marker({
-            position: new kakao.maps.LatLng(cctv.lat, cctv.lng),
+        let lat = cctv.lat;
+        let lng = cctv.lng;
+
+        // Check for overlap and apply offset
+        // User Request: "마커 위치도 ... 살짝 옆으로 비껴서 넣어주고"
+        let overlap = placedPositions.find(p =>
+            Math.abs(p.lat - lat) < 0.00005 && Math.abs(p.lng - lng) < 0.00005
+        );
+
+        if (overlap) {
+            overlap.count++;
+            // Shift East slightly based on count
+            // 0.00015 deg is roughly 10-15 meters
+            lng += (0.00015 * overlap.count);
+        } else {
+            placedPositions.push({ lat, lng, count: 0 });
+        }
+
+        const markerOptions = {
+            position: new kakao.maps.LatLng(lat, lng),
             map: map,
-            title: cctv.name // Add hover title
-        });
+            title: cctv.name
+        };
+
+        // Custom Icon for YouTube
+        if (cctv.source === 'YOUTUBE') {
+            const imageSize = new kakao.maps.Size(32, 32);
+            const imageOption = { offset: new kakao.maps.Point(16, 16) }; // Center
+            markerOptions.image = new kakao.maps.MarkerImage(YOUTUBE_MARKER_SRC, imageSize, imageOption);
+        }
+
+        const marker = new kakao.maps.Marker(markerOptions);
 
         kakao.maps.event.addListener(marker, 'click', () => {
             openVideoLayer(cctv);
@@ -1024,9 +1054,49 @@ function openVideoLayer(cctv) {
     // Cleanup previous video
     cleanupVideo(frame);
 
-    $('#video-layer-title').textContent = cctv.name;
-    const video = createVideoElement(cctv);
+    // Update Title & Controls
+    const titleEl = $('#video-layer-title');
 
+    // Find index for Navigation
+    const currentIndex = state.nearestCctvs.findIndex(item => item.id === cctv.id);
+
+    // Navigation Buttons HTML
+    let navHtml = '';
+    if (currentIndex !== -1) {
+        navHtml = `
+            <span style="display:inline-flex; align-items:center; margin-left:10px; gap:5px;">
+                <button class="nav-btn prev" ${currentIndex === 0 ? 'disabled' : ''} title="이전 CCTV">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <button class="nav-btn next" ${currentIndex === state.nearestCctvs.length - 1 ? 'disabled' : ''} title="다음 CCTV">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
+            </span>
+        `;
+    }
+
+    titleEl.innerHTML = `${cctv.name} ${navHtml}`;
+
+    // Attach Nav Listeners
+    if (currentIndex !== -1) {
+        const prevBtn = titleEl.querySelector('.nav-btn.prev');
+        const nextBtn = titleEl.querySelector('.nav-btn.next');
+
+        if (prevBtn && !prevBtn.disabled) {
+            prevBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openVideoLayer(state.nearestCctvs[currentIndex - 1]);
+            });
+        }
+        if (nextBtn && !nextBtn.disabled) {
+            nextBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openVideoLayer(state.nearestCctvs[currentIndex + 1]);
+            });
+        }
+    }
+
+    const video = createVideoElement(cctv);
     if (video.tagName === 'VIDEO') video.controls = true;
 
     frame.appendChild(video);

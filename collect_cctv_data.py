@@ -6,6 +6,7 @@ import time
 import concurrent.futures
 import re
 import sys
+import gc
 
 # Import custom collectors
 from collectors.gits import GitsCollector
@@ -227,7 +228,7 @@ def fetch_utic_data():
         
         # Process in parallel
         # Max workers 50 to balance speed and server load
-        with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             # Submit all tasks
             results = list(executor.map(process_utic_item, items))
             
@@ -334,7 +335,7 @@ def refine_cctv_data(cctv_list):
     modified_count = 0
     print(f"Starting concurrent inspection of {len(targets)} items...")
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         results = list(executor.map(inspect_item, targets))
         modified_count = sum(results)
 
@@ -355,8 +356,10 @@ def main():
     
     # 2. Fetch Data (Processing with Delta Sync)
     its_data = fetch_its_data()
+    gc.collect()
     # Corrected call: fetch_utic_data does not take arguments in its definition
     utic_data = fetch_utic_data() 
+    gc.collect()
     
     # GITS (Gyeonggi)
     print("Fetching GITS data...")
@@ -372,7 +375,8 @@ def main():
     
     # Gangwon
     print("Fetching Gangwon data...")
-    gangwon_data = GangwonCollector().fetch_data() 
+    gangwon_data = GangwonCollector().fetch_data()
+    gc.collect()
 
     # Busan
     print("Fetching Busan data...")
@@ -389,6 +393,7 @@ def main():
     ulsan_data = UlsanCollector().fetch_data()
     daegu_data = DaeguCollector().fetch_data()
     sejong_data = SejongCollector().fetch_data()
+    gc.collect()
 
     # KBS (New Safety Collector)
     print("Fetching KBS data...")
@@ -646,18 +651,18 @@ def main():
         #   - Let's keep it as is for now: relies on ID mismatch or Coord mismatch to add new.
         
         for item in cctv_world_data:
-            if item['source'] == 'KBS':
-                # Re-implement key logic: if it's KBS, try to resolve safely
-                # But wait, if it's a backup, we might want to resolve it too?
-                # Actually, duplicate check logic in merge_cctv_item might fail for (0,0).
-                # New plan: Just run merge_cctv_item.
-                # BUT we need to resolve URL if it's KBS.
+            # Force separate - DO NOT MERGE
+            # User request: "기존 영상들과 merge 하지 말고, 개별적 독립적으로 운영해줘"
+            
+            # Check if likely YouTube
+            if item.get('source') in ['YOUTUBE', 'KBS', 'CCTV_WORLD']:
+                item['source'] = 'YOUTUBE' # Force source for Frontend handling
                 
-                # Check if we already have this ID in our list (by ID string)
+                # Check if we already have this ID in our list (by ID string) from previous steps?
                 # merge_cctv_item uses coords.
-                # Let's pre-filter or pre-resolve.
+                # Here we just APPEND. We rely on the map renderer to offset them.
                 
-                # Try to resolve URL if missing
+                # Try to resolve URL if missing (for KBS items via World)
                 if not item.get('url'):
                     try:
                         from collectors.kbs import KBSCollector
@@ -669,13 +674,24 @@ def main():
                     except:
                         continue
 
-            res = merge_cctv_item(final_merged, item)
-            if res.startswith("skipped"): stats["skipped"] += 1
-            elif res == "upgraded": stats["upgraded"] += 1
-            elif res == "added_backup": stats["added_backup"] += 1
-            else: stats["added"] += 1
+                # Ensure ID is unique if colliding with existing?
+                # cctv_data.json is a list. ID collision only matters if consumer ensures uniqueness.
+                # app.js uses ID for keys? No, mostly index.
+                # But let's verify if 'id' is used in finding dicts.
                 
-        print(f"Merged CCTV World: {stats}")
+                final_merged.append(item)
+                stats["added"] += 1
+            else:
+                 # Non-YouTube items from World? (Rare)
+                 # Merge them normally or skip? 
+                 # Let's merge just in case.
+                 res = merge_cctv_item(final_merged, item)
+                 if res.startswith("skipped"): stats["skipped"] += 1
+                 elif res == "upgraded": stats["upgraded"] += 1
+                 elif res == "added_backup": stats["added_backup"] += 1
+                 else: stats["added"] += 1
+                
+        print(f"Merged CCTV World (YouTube Separate): {stats}")
         
     except Exception as e:
         print(f"Error fetching CCTV World data: {e}")
