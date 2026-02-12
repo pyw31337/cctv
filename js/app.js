@@ -612,45 +612,59 @@ function togglePanelExpand(panel, btn) {
     setTimeout(updateUticLayout, 350); // Small delay for transition
 }
 
-function createVideoElement(cctv) {
-    // NEW ARCHITECTURE: directUrl (직통 HLS) 우선, 없으면 url (기본 UTIC JSP)
-    const url = cctv.directUrl || cctv.url;
+function createVideoElement(cctv, sourceIndex = 0) {
+    // Determine URL based on sourceIndex
+    // Index 0 = Main URL, Index 1+ = Backup URLs
+    let url, type;
+
+    if (sourceIndex === 0) {
+        url = cctv.directUrl || cctv.url;
+        type = 'main';
+    } else {
+        const backup = cctv.backup_urls && cctv.backup_urls[sourceIndex - 1];
+        if (backup) {
+            url = backup.url;
+            type = `backup-${sourceIndex}`;
+        } else {
+            console.warn(`No backup source found at index ${sourceIndex}`);
+            return createErrorPlaceholder('All Sources Failed');
+        }
+    }
+
     const is43 = cctv.aspectRatio === '4:3';
 
+    // Helper to trigger failover
+    const triggerFailover = (wrapper) => {
+        console.log(`[Failover] Stream failed for ${cctv.name} (Index ${sourceIndex}). Trying next...`);
+        handleStreamFailover(wrapper, cctv, sourceIndex + 1);
+    };
+
     // Handle Daejeon dynamic MP4 URLs (client-side generation to bypass oracle block)
-    if (cctv.urlType === 'daejeon_mp4_dynamic') {
+    if (cctv.urlType === 'daejeon_mp4_dynamic' && sourceIndex === 0) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
         if (is43) video.dataset.aspectRatio = '4:3';
 
         const getDaejeonUrl = (offsetMins) => {
             const now = new Date();
-            // Get UTC time milliseconds
             const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-            // Add 9 hours for KST
             const kst = new Date(utc + (9 * 60 * 60 * 1000));
-            // Apply offset
             kst.setMinutes(kst.getMinutes() - offsetMins);
-
             const yyyy = kst.getFullYear();
             const mm = String(kst.getMonth() + 1).padStart(2, '0');
             const dd = String(kst.getDate()).padStart(2, '0');
             const hh = String(kst.getHours()).padStart(2, '0');
             const min = String(kst.getMinutes()).padStart(2, '0');
             const sec = '00';
-
             const timestamp = `${yyyy}${mm}${dd}.${hh}${min}${sec}`;
-
             let streamId = cctv.original_id || cctv.id.replace('DAEJEON_', '');
             if (streamId.startsWith('CCTV')) {
                 const num = streamId.substring(4);
                 streamId = `CTV${num.padStart(4, '0')}`;
             }
-
             return `https://tportal.daejeon.go.kr:37084/01/media/${streamId}/${streamId}_${timestamp}.000.mp4`;
         };
 
-        // Try 2 minutes ago first (safer buffer)
         const url2min = getDaejeonUrl(2);
         video.src = url2min;
         video.muted = true;
@@ -658,22 +672,20 @@ function createVideoElement(cctv) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
-        // Fallback: If 2 min ago fails, try 3 min ago
         video.onerror = () => {
-            // Check current src to determine next step
             if (video.src === url2min) {
                 console.log(`Daejeon ${cctv.name}: -2m failed, trying -3m`);
                 video.src = getDaejeonUrl(3);
             } else {
-                console.error(`Daejeon ${cctv.name}: Stream unavailable`);
+                // If -3m also fails, try Failover
+                triggerFailover(video.parentElement);
             }
         };
-
         return video;
     }
 
     // Handle Jeju streams explicitly
-    if (cctv.source === 'JEJU') {
+    if (cctv.source === 'JEJU' && sourceIndex === 0) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
         if (is43) video.dataset.aspectRatio = '4:3';
@@ -682,7 +694,6 @@ function createVideoElement(cctv) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
-        // Ensure we use the latest tunnel for Jeju and bypass Cloudflare cache with /jeju2
         const jejuUrl = url.replace(/https:\/\/[^\/]+\/jeju/, 'https://calibration-lying-asp-expires.trycloudflare.com/jeju2') + `&_t=${Date.now()}`;
 
         if (Hls.isSupported()) {
@@ -694,9 +705,17 @@ function createVideoElement(cctv) {
             });
             hls.loadSource(jejuUrl);
             hls.attachMedia(video);
+
+            hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                    triggerFailover(video.parentElement);
+                }
+            });
+
             video.hls = hls;
         } else {
             video.src = jejuUrl;
+            video.onerror = () => triggerFailover(video.parentElement);
         }
         return video;
     }
@@ -708,8 +727,7 @@ function createVideoElement(cctv) {
     const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev');
     const isGits = url.includes('gitsview.gg.go.kr');
 
-    // GITS is unique: it redirects to MP4 or HLS. Native player follows 302/307 better.
-    // Also any direct MP4 should use native.
+    // GITS / MP4 / Native
     if (isGits || isMp4) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
@@ -719,10 +737,16 @@ function createVideoElement(cctv) {
         video.autoplay = true;
         video.playsInline = true;
         video.setAttribute('playsinline', '');
+
+        video.onerror = () => triggerFailover(video.parentElement);
         return video;
     }
 
-    // UTIC Portal URLs (Fallback) - use iframe
+    // UTIC Portal URLs (Fallback) - iframe
+    // iframe error handling is limited (cannot detect 404 inside iframe easily).
+    // We assume if it's UTIC JSP it "works" or shows an error image.
+    // But if we have backups, we might want to skip UTIC? 
+    // For now, keep as is.
     if (isUtic) {
         const iframe = document.createElement('iframe');
         iframe.src = url;
@@ -735,7 +759,7 @@ function createVideoElement(cctv) {
         return iframe;
     }
 
-    // HLS streams (ktict or proxy or .m3u8) - use HLS.js
+    // HLS streams (Hls.js)
     if ((isHls || isSecureStream || isProxy) && Hls.isSupported()) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
@@ -752,13 +776,24 @@ function createVideoElement(cctv) {
             maxBufferLength: 5,
             maxBufferSize: 3 * 1000 * 1000,
         });
+
         hls.loadSource(url);
         hls.attachMedia(video);
+
+        hls.on(Hls.Events.ERROR, function (event, data) {
+            if (data.fatal) {
+                // If fatal error, try failover
+                // Need to ensure we don't loop infinitely if all fail
+                hls.destroy();
+                triggerFailover(video.parentElement);
+            }
+        });
+
         video.hls = hls;
         return video;
     }
 
-    // Safari native HLS or other fallback
+    // Native HLS (Safari)
     const video = document.createElement('video');
     video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
     if (is43) video.dataset.aspectRatio = '4:3';
@@ -766,7 +801,44 @@ function createVideoElement(cctv) {
     video.muted = true;
     video.autoplay = true;
     video.playsInline = true;
+
+    video.onerror = () => triggerFailover(video.parentElement);
+
     return video;
+}
+
+function handleStreamFailover(wrapper, cctv, nextIndex) {
+    if (!wrapper) return;
+
+    // Cleanup existing content
+    cleanupVideo(wrapper);
+
+    // Check if we have backups
+    if (cctv.backup_urls && nextIndex <= cctv.backup_urls.length) {
+        // Show lightweight loading/switching indicator
+        const indicator = document.createElement('div');
+        indicator.className = 'video-loading-indicator';
+        indicator.textContent = `Switching to backup source (${nextIndex}/${cctv.backup_urls.length})...`;
+        indicator.style.cssText = 'position:absolute;top:0;left:0;width:100%;background:rgba(0,0,0,0.5);color:white;font-size:12px;padding:5px;z-index:10;';
+        wrapper.appendChild(indicator);
+
+        setTimeout(() => {
+            if (wrapper.contains(indicator)) wrapper.removeChild(indicator);
+            const newVideo = createVideoElement(cctv, nextIndex);
+            wrapper.appendChild(newVideo);
+        }, 500); // Small delay to visualize switch
+    } else {
+        // No more backups
+        wrapper.appendChild(createErrorPlaceholder('Unavailable'));
+    }
+}
+
+function createErrorPlaceholder(msg) {
+    const ph = document.createElement('div');
+    ph.className = 'video-placeholder error';
+    ph.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;background:#222;color:#888;font-size:12px;';
+    ph.innerHTML = `<span>⚠️ ${msg}</span>`;
+    return ph;
 }
 
 function cleanupVideo(container) {

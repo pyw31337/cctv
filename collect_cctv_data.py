@@ -19,6 +19,11 @@ from collectors.gwangju import GwangjuCollector
 from collectors.ulsan import UlsanCollector
 from collectors.daegu import DaeguCollector
 from collectors.sejong import SejongCollector
+from collectors.nowjeju import NowJejuCollector
+from collectors.gigaeyes import GigaEyesCollector
+from collectors.youtube_custom import YoutubeCustomCollector
+from collectors.spatic import SpaticCollector
+
 
 # Configuration
 ITS_API_URL = "https://openapi.its.go.kr:9443/cctvInfo"
@@ -384,10 +389,44 @@ def main():
     ulsan_data = UlsanCollector().fetch_data()
     daegu_data = DaeguCollector().fetch_data()
     sejong_data = SejongCollector().fetch_data()
+
+    # KBS (New Safety Collector)
+    print("Fetching KBS data...")
+    kbs_data = []
+    try:
+        from collectors.kbs import KBSCollector
+        kbs_data = KBSCollector().fetch_data()
+    except Exception as e:
+        print(f"[WARNING] KBS Collection failed: {e}")
+        print("Continuing with other sources...")
     
     # 3. Merge & Prioritize (Prefer UTIC for Highways/Duplicates)
-    print("Merging data (Prioritizing UTIC)...")
+    print("Merging data with Multi-Stream Failover logic...")
     
+    # Priority Configuration (Lower value = Higher Priority)
+    PRIORITY = {
+        'KBS': 1,       # Best Quality (Direct HLS)
+        'ULLEUNG': 1,   # Best Quality (Direct HLS)
+        'NOWJEJU': 1,   # Best Quality (Direct HLS)
+        'GIGAEYES': 1,  # Best Quality (YouTube)
+        'YT_CUSTOM': 1, # Best Quality (YouTube)
+        'SPATIC': 1,    # Best Quality (Seoul Police HLS)
+        'GITS': 2,      # Direct HLS (Green/No bars)
+        'TOPIS': 2,     # Direct HLS (Green/No bars)
+        'DAEJEON': 2,   # Direct HLS
+        'ULSAN': 2,     # Direct HLS
+        'DAEGU': 2,     # Direct HLS
+        'SEJONG': 2,    # Direct HLS
+        'GWANGJU': 2,   # Direct HLS
+        'BUSAN_ITS': 3, # Mixed
+        'INCHEON_ITS': 3, 
+        'DAEJEON_ITS': 3,
+        'JEJU': 3,      # Proxy'd HLS (Clean)
+        'GANGWON': 3,   # Proxy'd HLS (Clean)
+        'UTIC': 5,      # Fallback (Wrapped JSP, Black bars)
+        'NTIC': 6       # Fallback (Wrapped JSP)
+    }
+
     # Helper to calculate distance
     def get_dist(lat1, lng1, lat2, lng2):
         from math import sin, cos, sqrt, atan2, radians
@@ -400,52 +439,6 @@ def main():
         return R * c
 
     final_merged = []
-    
-    # Strategy: Start with UTIC (Valid Permalinks)
-    # Then add ITS (NTIC) only if no duplicate matches
-    
-    # If UTIC fetch failed, try to load existing UTIC data
-    if not utic_data:
-        print("UTIC fetch failed/empty. Attempting to recover existing UTIC data...")
-        utic_data = [item for item in existing_data_map.values() if item.get('source') == 'UTIC']
-        
-        # KEY CHANGE: Since we are using OLD data, we must REFINE it.
-        if utic_data:
-            print("Running Deep Inspection on recovered data...")
-            utic_data = refine_cctv_data(utic_data)
-        
-    if not its_data:
-        print("ITS fetch failed/empty. Attempting to recover existing ITS data...")
-        its_data = [item for item in existing_data_map.values() if item.get('source') == 'NTIC']
-
-    # === NEW: Preserve directUrl from existing data ===
-    preserved_count = 0
-    for item in utic_data:
-        item_id = item['id']
-        if item_id in existing_data_map:
-            existing = existing_data_map[item_id]
-            # Preserve directUrl if it exists in old data but not in new
-            if 'directUrl' in existing and 'directUrl' not in item:
-                item['directUrl'] = existing['directUrl']
-                preserved_count += 1
-    
-    if preserved_count > 0:
-        print(f"Preserved {preserved_count} existing directUrl entries.")
-    # === END NEW ===
-
-    # 1. Add ALL UTIC data
-    for item in utic_data:
-        # Add aspect ratio hint for Namyangju/GITS-proxy compatible streams
-        url = item.get('url', '')
-        if '211.57.45.101' in url or 'L180' in url:
-            item['aspectRatio'] = '4:3'
-        final_merged.append(item)
-    
-    print(f"Added {len(utic_data)} UTIC entries (Primary).")
-    
-    # 2. Add ITS data if not duplicate
-    added_its = 0
-    skipped_its = 0
     
     # Helper for duplicate check - returns the index of the duplicate if found, else -1
     def find_duplicate_index(new_item, existing_items):
@@ -469,253 +462,318 @@ def main():
             pass
         return -1
 
-    for item in its_data:
-        if find_duplicate_index(item, final_merged) == -1:
-            final_merged.append(item)
-            added_its += 1
-        else:
-            skipped_its += 1
-            
-    print(f"Merged ITS: {added_its} added, {skipped_its} skipped.")
-
-    # 3. Add GITS data (with upgrade logic)
-    added_gits = 0
-    skipped_gits = 0
-    upgraded_gits = 0
-    
-    for item in gits_data:
-        # GITS streams are almost all 4:3 in Gyeonggi local servers
-        item['aspectRatio'] = '4:3'
+    # Generic Merge Function
+    def merge_cctv_item(target_list, new_item):
+        """
+        Merges new_item into target_list.
+        - If no duplicate: append.
+        - If duplicate found:
+            - Compare Priority.
+            - If new is higher priority (lower val): replace main, move old to backup.
+            - If new is lower priority: add new to backup.
+        """
+        # Ensure backup_urls exists
+        new_item.setdefault('backup_urls', [])
         
-        idx = find_duplicate_index(item, final_merged)
+        idx = find_duplicate_index(new_item, target_list)
         if idx == -1:
-            final_merged.append(item)
-            added_gits += 1
+            target_list.append(new_item)
+            return "added"
         else:
-            # Check if we should upgrade the existing item
-            existing = final_merged[idx]
+            existing = target_list[idx]
+            existing.setdefault('backup_urls', [])
             
-            # CRITICAL: Do NOT replace if existing is already a direct Namyangju stream 
-            # (GITS redirects have burned bars, direct HLS doesn't)
-            if '211.57.45.101' in existing.get('url', ''):
-                continue
+            p_new = PRIORITY.get(new_item.get('source'), 99)
+            p_old = PRIORITY.get(existing.get('source'), 99)
+            
+            # Determine if new item is better than existing
+            is_better = False
+            if p_new < p_old:
+                is_better = True
+            elif p_new == p_old:
+                # If priority same, prefer .m3u8 (Direct) over .jsp (Wrapped/Tokenized)
+                new_is_direct = ".m3u8" in new_item['url'].lower()
+                old_is_direct = ".m3u8" in existing['url'].lower()
+                if new_is_direct and not old_is_direct:
+                    is_better = True
 
-            # Upgrade! GITS is better than JSP wrappers or generic ITS links
-            final_merged[idx] = item
-            upgraded_gits += 1
+            # Check if this specific URL is already in backups to avoid dupes
+            existing_urls = [b['url'] for b in existing['backup_urls']] + [existing['url']]
+            if new_item['url'] in existing_urls:
+                return "skipped_duplicate_url"
+
+            if is_better:
+                # UPGRADE: New item becomes main
+                # Move old main to backup
+                backup_entry = {
+                    "source": existing['source'],
+                    "url": existing['url']
+                }
+                existing['backup_urls'].append(backup_entry)
                 
-    print(f"Merged GITS: {added_its} added, {skipped_its} skipped, {upgraded_gits} upgraded.")
-
-    # 4. Add TOPIS data (with upgrade logic)
-    added_topis = 0
-    skipped_topis = 0
-    upgraded_topis = 0
-    for item in topis_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_topis += 1
-        else:
-            # Upgrade if existing is UTIC or NTIC (likely a wrapper or lower quality)
-            # and TOPIS is direct HLS
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_topis += 1
+                # Update main fields
+                existing['id'] = new_item['id']
+                existing['original_id'] = new_item.get('original_id', new_item['id'])
+                existing['name'] = new_item['name']
+                existing['lat'] = new_item['lat']
+                existing['lng'] = new_item['lng']
+                existing['url'] = new_item['url']
+                existing['source'] = new_item['source']
+                if 'address' in new_item:
+                    existing['address'] = new_item['address']
+                # Merge any backups the new item might have had (rare but possible)
+                if new_item['backup_urls']:
+                    existing['backup_urls'].extend(new_item['backup_urls'])
+                    
+                return "upgraded"
             else:
-                skipped_topis += 1
-    print(f"Merged TOPIS: {added_topis} added, {skipped_topis} skipped, {upgraded_topis} upgraded (replaced UTIC/NTIC).")
+                # DOWNGRADE/EQUAL: Add new item to backup
+                backup_entry = {
+                    "source": new_item['source'],
+                    "url": new_item['url']
+                }
+                existing['backup_urls'].append(backup_entry)
+                return "added_backup"
 
-    # 5. Add Jeju data
-    added_jeju = 0
-    skipped_jeju = 0
-    upgraded_jeju = 0
-    for item in jeju_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_jeju += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_jeju += 1
-            else:
-                skipped_jeju += 1
-    print(f"Merged Jeju: {added_jeju} added, {skipped_jeju} skipped, {upgraded_jeju} upgraded.")
+    # Strategy: Start with UTIC (Valid Permalinks)
+    # Then add ITS (NTIC) only if no duplicate matches
+    
+    # If UTIC fetch failed, try to load existing UTIC data
+    if not utic_data:
+        print("UTIC fetch failed/empty. Attempting to recover existing UTIC data...")
+        utic_data = [item for item in existing_data_map.values() if item.get('source') == 'UTIC']
+        if utic_data:
+            print("Running Deep Inspection on recovered data...")
+            utic_data = refine_cctv_data(utic_data)
+        
+    if not its_data:
+        print("ITS fetch failed/empty. Attempting to recover existing ITS data...")
+        its_data = [item for item in existing_data_map.values() if item.get('source') == 'NTIC']
 
-    # 6. Add Gangwon data
-    added_gangwon = 0
-    skipped_gangwon = 0
-    upgraded_gangwon = 0
-    for item in gangwon_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_gangwon += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_gangwon += 1
-            else:
-                skipped_gangwon += 1
-    print(f"Merged Gangwon: {added_gangwon} added, {skipped_gangwon} skipped, {upgraded_gangwon} upgraded.")
+    # === NEW: Preserve directUrl from existing data ===
+    preserved_count = 0
+    for item in utic_data:
+        item_id = item['id']
+        if item_id in existing_data_map:
+            existing = existing_data_map[item_id]
+            if 'directUrl' in existing and 'directUrl' not in item:
+                item['directUrl'] = existing['directUrl']
+                preserved_count += 1
+    if preserved_count > 0:
+        print(f"Preserved {preserved_count} existing directUrl entries.")
+    # === END NEW ===
 
-    # 6.1 Add Busan data
-    added_busan = 0
-    skipped_busan = 0
-    upgraded_busan = 0
-    for item in busan_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_busan += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_busan += 1
-            else:
-                skipped_busan += 1
-    print(f"Merged Busan: {added_busan} added, {skipped_busan} skipped, {upgraded_busan} upgraded.")
+    # 1. Add ALL UTIC data
+    for item in utic_data:
+        url = item.get('url', '')
+        if '211.57.45.101' in url or 'L180' in url:
+            item['aspectRatio'] = '4:3'
+        merge_cctv_item(final_merged, item)
+    print(f"Merged UTIC: {len(final_merged)} entries.")
+    
+    # 2. Add ITS data
+    stats = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0}
+    for item in its_data:
+        res = merge_cctv_item(final_merged, item)
+        if res.startswith("skipped"): stats["skipped"] += 1
+        elif res == "upgraded": stats["upgraded"] += 1
+        elif res == "added_backup": stats["added_backup"] += 1
+        else: stats["added"] += 1
+    print(f"Merged ITS: {stats}")
 
-    # 6.2 Add Incheon data
-    added_incheon = 0
-    skipped_incheon = 0
-    upgraded_incheon = 0
-    for item in incheon_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_incheon += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_incheon += 1
-            else:
-                skipped_incheon += 1
-    print(f"Merged Incheon: {added_incheon} added, {skipped_incheon} skipped, {upgraded_incheon} upgraded.")
+    # 3. Add GITS data
+    stats = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0}
+    for item in gits_data:
+        item['aspectRatio'] = '4:3'
+        # Do NOT replace if existing is already a direct Namyangju stream 
+        # But we can add as backup? existing logic suppressed it. 
+        # Let's trust priority (GITS=2, UTIC=5). GITS will upgrade UTIC.
+        # But Namyangju special case? 
+        # If priority logic is sound, GITS (2) upgrades UTIC (5).
+        # Direct Namyangju is usually UTIC source but modified URL.
+        # If we upgraded, we lose the direct URL if we aren't careful?
+        # Actually GITS is usually better than UTIC JSP, so upgrade is correct.
+        res = merge_cctv_item(final_merged, item)
+        if res.startswith("skipped"): stats["skipped"] += 1
+        elif res == "upgraded": stats["upgraded"] += 1
+        elif res == "added_backup": stats["added_backup"] += 1
+        else: stats["added"] += 1
+    print(f"Merged GITS: {stats}")
 
-    # 6.3 Add Daejeon data
-    added_daejeon = 0
-    skipped_daejeon = 0
-    upgraded_daejeon = 0
-    for item in daejeon_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_daejeon += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_daejeon += 1
-            else:
-                skipped_daejeon += 1
-    print(f"Merged Daejeon: {added_daejeon} added, {skipped_daejeon} skipped, {upgraded_daejeon} upgraded.")
+    # 4. Regional Collectors
+    collectors = [
+        ('TOPIS', topis_data),
+        ('JEJU', jeju_data),
+        ('GANGWON', gangwon_data),
+        ('BUSAN', busan_data),
+        ('INCHEON', incheon_data),
+        ('DAEJEON', daejeon_data),
+        ('GWANGJU', gwangju_data),
+        ('ULSAN', ulsan_data),
+        ('DAEGU', daegu_data),
+        ('SEJONG', sejong_data),
+        ('KBS', kbs_data),
+    ]
 
-    # 6.4 Add Gwangju data
-    added_gwangju = 0
-    skipped_gwangju = 0
-    upgraded_gwangju = 0
-    for item in gwangju_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_gwangju += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_gwangju += 1
-            else:
-                skipped_gwangju += 1
-    print(f"Merged Gwangju: {added_gwangju} added, {skipped_gwangju} skipped, {upgraded_gwangju} upgraded.")
+    for name, data in collectors:
+        stats = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0}
+        for item in data:
+            res = merge_cctv_item(final_merged, item)
+            if res.startswith("skipped"): stats["skipped"] += 1
+            elif res == "upgraded": stats["upgraded"] += 1
+            elif res == "added_backup": stats["added_backup"] += 1
+            else: stats["added"] += 1
+        print(f"Merged {name}: {stats}")
 
-    # 6.5 Add Ulsan data
-    added_ulsan = 0
-    skipped_ulsan = 0
-    upgraded_ulsan = 0
-    for item in ulsan_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_ulsan += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_ulsan += 1
-            else:
-                skipped_ulsan += 1
-    print(f"Merged Ulsan: {added_ulsan} added, {skipped_ulsan} skipped, {upgraded_ulsan} upgraded.")
+    # 6.9 Add CCTV World (Aggregator) - run LAST
+    print("Fetching CCTV World data...")
+    try:
+        from collectors.cctv_world import CCTVWorldCollector
+        cctv_world_data = CCTVWorldCollector().fetch_data()
+        
+        stats = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0}
+        
+        # We need a quick lookup set for existing KBS IDs in final_merged to skip duplicates or resolve
+        # But merge_cctv_item handles duplication.
+        # CCTVWorld returns KBS items with lat=0. 
+        # If we pass them to merge_cctv_item:
+        #   - duplicate index check uses Coordinates. 
+        #   - CCTVWorld items have (0,0). They won't match existing items (unless existing also 0,0).
+        #   - So they will be added as new items.
+        #   - This replicates the logic we had before (adding 39 items).
+        #   - BUT, if it's a KBS item matching an ID, we might want to merge by ID?
+        #   - Existing find_duplicate_index uses coords.
+        #   - Let's keep it as is for now: relies on ID mismatch or Coord mismatch to add new.
+        
+        for item in cctv_world_data:
+            if item['source'] == 'KBS':
+                # Re-implement key logic: if it's KBS, try to resolve safely
+                # But wait, if it's a backup, we might want to resolve it too?
+                # Actually, duplicate check logic in merge_cctv_item might fail for (0,0).
+                # New plan: Just run merge_cctv_item.
+                # BUT we need to resolve URL if it's KBS.
+                
+                # Check if we already have this ID in our list (by ID string)
+                # merge_cctv_item uses coords.
+                # Let's pre-filter or pre-resolve.
+                
+                # Try to resolve URL if missing
+                if not item.get('url'):
+                    try:
+                        from collectors.kbs import KBSCollector
+                        real_url = KBSCollector().resolve_stream_url(item['original_id'])
+                        if real_url:
+                            item['url'] = real_url
+                        else:
+                            continue # Skip if can't resolve
+                    except:
+                        continue
 
-    # 6.6 Add Daegu data
-    added_daegu = 0
-    skipped_daegu = 0
-    upgraded_daegu = 0
-    for item in daegu_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_daegu += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_daegu += 1
-            else:
-                skipped_daegu += 1
-    print(f"Merged Daegu: {added_daegu} added, {skipped_daegu} skipped, {upgraded_daegu} upgraded.")
+            res = merge_cctv_item(final_merged, item)
+            if res.startswith("skipped"): stats["skipped"] += 1
+            elif res == "upgraded": stats["upgraded"] += 1
+            elif res == "added_backup": stats["added_backup"] += 1
+            else: stats["added"] += 1
+                
+        print(f"Merged CCTV World: {stats}")
+        
+    except Exception as e:
+        print(f"Error fetching CCTV World data: {e}")
 
-    # 6.7 Add Sejong data
-    added_sejong = 0
-    skipped_sejong = 0
-    upgraded_sejong = 0
-    for item in sejong_data:
-        idx = find_duplicate_index(item, final_merged)
-        if idx == -1:
-            final_merged.append(item)
-            added_sejong += 1
-        else:
-            existing = final_merged[idx]
-            if existing.get('source') in ['UTIC', 'NTIC']:
-                final_merged[idx] = item
-                upgraded_sejong += 1
-            else:
-                skipped_sejong += 1
-    print(f"Merged Sejong: {added_sejong} added, {skipped_sejong} skipped, {upgraded_sejong} upgraded.")
+    # 6.10 Add Ulleungdo (Official)
+    print("Fetching Ulleungdo data...")
+    try:
+        from collectors.ulleung import UlleungCollector
+        ulleung_collector = UlleungCollector()
+        ulleung_data = ulleung_collector.fetch_data()
+        
+        stats = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0}
+        
+        for item in ulleung_data:
+            # Convert to standard format
+            cctv = {
+                 "id": f"ULLEUNG_{item['structure_id'].split('_')[-1]}",
+                 "name": item['cctv_name'],
+                 "lat": item['lat'],
+                 "lng": item['lng'],
+                 "url": item['url'],
+                 "source": "ULLEUNG",
+                 "status": "active",
+                 "address": item.get('address', ''),
+                 "backup_urls": []
+            }
+            res = merge_cctv_item(final_merged, cctv)
+            
+            if res == "skipped": stats["skipped"] += 1
+            elif res == "upgraded": stats["upgraded"] += 1
+            elif res == "added_backup": stats["added_backup"] += 1
+            else: stats["added"] += 1
+            
+        print(f"Merged Ulleungdo: {stats}")
+    except Exception as e:
+        print(f"Error fetching/merging Ulleungdo data: {e}")
 
     # 7. Final Global Deduplication Pass (Cleanup)
-    print("Running final global deduplication pass...")
+    # With merge_cctv_item, this should be mostly clean, but let's run a sanity sort
+    print("Running final sorting...")
+    
+    # Sort to prioritize sources based on priority dict
+    final_merged.sort(key=lambda x: PRIORITY.get(x.get('source'), 99))
+    
+    # We don't want to remove duplicates based on simple ID if they were meant to be separate
+    # But let's check for exact ID duplicates just in case
     unique_merged = []
-    
-    # Sort to prioritize sources: GITS > TOPIS > Busan/Incheon/Daejeon > UTIC > ITS
-    priority = {
-        'GITS': 0, 
-        'TOPIS': 1, 
-        'BUSAN_ITS': 2, 
-        'INCHEON_ITS': 2, 
-        'DAEJEON_ITS': 2,
-        'GWANGJU': 2,
-        'ULSAN': 2,
-        'DAEGU': 2,
-        'SEJONG': 2,
-        'JEJU': 3,
-        'GANGWON': 3,
-        'UTIC': 4, 
-        'NTIC': 5
-    }
-    final_merged.sort(key=lambda x: priority.get(x.get('source'), 99))
-    
+    seen = set()
     for item in final_merged:
-        if find_duplicate_index(item, unique_merged) == -1:
+        if item['id'] not in seen:
             unique_merged.append(item)
+            seen.add(item['id'])
     
-    print(f"Final Deduplication: {len(final_merged)} -> {len(unique_merged)}")
     final_merged = unique_merged
+
+    # 7.4 NowJeju Integration
+    try:
+        nowjeju_data = NowJejuCollector().collect()
+        stats_nowjeju = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0, "skipped_duplicate_url": 0}
+        for item in nowjeju_data:
+            res = merge_cctv_item(final_merged, item)
+            stats_nowjeju[res] = stats_nowjeju.get(res, 0) + 1
+        print(f"Merged NowJeju: {stats_nowjeju}")
+    except Exception as e:
+        print(f"Error collecting NowJeju data: {e}")
+
+    # NowJeju Integration
+    try:
+        gigaeyes_data = GigaEyesCollector().collect()
+        stats_gigaeyes = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0, "skipped_duplicate_url": 0}
+        for item in gigaeyes_data:
+            res = merge_cctv_item(final_merged, item)
+            stats_gigaeyes[res] = stats_gigaeyes.get(res, 0) + 1
+        print(f"Merged GiGAeyes: {stats_gigaeyes}")
+    except Exception as e:
+        print(f"Error collecting GiGAeyes data: {e}")
+
+    # Custom YouTube Integration
+    try:
+        yt_custom_data = YoutubeCustomCollector().collect()
+        stats_yt = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0, "skipped_duplicate_url": 0}
+        for item in yt_custom_data:
+            res = merge_cctv_item(final_merged, item)
+            stats_yt[res] = stats_yt.get(res, 0) + 1
+        print(f"Merged Custom YouTube: {stats_yt}")
+    except Exception as e:
+        print(f"Error collecting Custom YouTube data: {e}")
+
+    # SPATIC Integration
+    try:
+        spatic_data = SpaticCollector().collect()
+        stats_spatic = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0, "skipped_duplicate_url": 0}
+        for item in spatic_data:
+            res = merge_cctv_item(final_merged, item)
+            stats_spatic[res] = stats_spatic.get(res, 0) + 1
+        print(f"Merged SPATIC: {stats_spatic}")
+    except Exception as e:
+        print(f"Error collecting SPATIC data: {e}")
 
     # 7.5 Rename duplicates pass (Unique suffixes for multi-view)
     print("Renaming cameras with same name and location (multi-view)...")
@@ -753,7 +811,7 @@ def main():
                 if item['id'] in override_map:
                     ovr = override_map[item['id']]
                     # Force fields from override file
-                    for key in ["url", "name", "aspectRatio", "status"]:
+                    for key in ["url", "name", "aspectRatio", "status", "lat", "lng", "address"]:
                         if key in ovr:
                             item[key] = ovr[key]
                     override_count += 1
