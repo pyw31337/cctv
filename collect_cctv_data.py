@@ -186,6 +186,12 @@ def process_utic_item(item):
         if stream_id and (stream_id.startswith("L") or "_video" in stream_id):
             url = f"https://211.57.45.101/media/{stream_id}/chunklist.m3u8"
     
+    # Pattern 1.5: Paju ITS Server (L12 prefix)
+    elif cctv_id_str.startswith("L12"):
+        stream_id = item.get("ID")
+        if stream_id and stream_id.startswith("cctv_"):
+            url = f"https://trafficcctv.paju.go.kr/live/{stream_id}.stream/playlist.m3u8"
+    
     # Pattern 2: Incheon/Gyeonggi Servers
     elif cctvip in ["210.95.12.126", "211.114.87.164"]:
         stream_id = item.get("ID")

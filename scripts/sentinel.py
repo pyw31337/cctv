@@ -75,22 +75,46 @@ def check_daejeon_stream(cctv):
     return False
 
 def check_jeju_stream(cctv):
-    # Jeju verification is trickier without full handshake emulation (UUID resolution etc).
-    # However, we can check if the Jeju ITS main site is responding, or check a known static point.
-    # For now, let's assume if we can reach the main ITS site, it's "OK" enough for a sentinel check
-    # OR we can try to resolve the ID using the same logic as app.py if we port it here.
-    # Capturing the real full logic here might be overkill for V1.
-    # Let's check the generic Jeju ITS endpoint connectivity.
-    
-    # Better: Check our own proxy? No, Sentinel runs on server.
-    # Check Jeju ITS API endpoint.
     try:
         url = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
         resp = requests.head(url, timeout=10, verify=False)
-        if resp.status_code < 500: # 200 or 405 (Method Not Allowed) usually means server is up
+        if resp.status_code < 500:
             return True
     except:
         pass
+    return False
+
+def check_paju_stream(cctv):
+    # Check both directUrl and url
+    url = cctv.get('directUrl') or cctv.get('url')
+    if not url: return False
+    
+    try:
+        resp = requests.head(url, timeout=10, verify=False)
+        # 200 OK or 302 Redirect is good for Paju
+        if resp.status_code in [200, 302]:
+            log(f"[OK] Paju {cctv.get('id')} is UP")
+            return True
+        else:
+            log(f"[FAIL] Paju {cctv.get('id')} returned {resp.status_code}")
+    except Exception as e:
+        log(f"[ERR] Paju {cctv.get('id')} check failed: {e}")
+    return False
+
+def check_generic_stream(cctv):
+    url = cctv.get('directUrl') or cctv.get('url')
+    if not url: return False
+    
+    try:
+        # Standard HEAD check for any other region
+        resp = requests.head(url, timeout=10, verify=False)
+        if resp.status_code < 400: # Any success or redirect
+            log(f"[OK] {cctv.get('id')} is UP")
+            return True
+        else:
+            log(f"[FAIL] {cctv.get('id')} returned {resp.status_code}")
+    except Exception as e:
+        log(f"[ERR] {cctv.get('id')} check failed: {e}")
     return False
 
 def test_region(region_name, cameras):
@@ -106,8 +130,10 @@ def test_region(region_name, cameras):
         success = check_daejeon_stream(sample)
     elif region_name == "JEJU":
         success = check_jeju_stream(sample)
+    elif region_name == "PAJU":
+        success = check_paju_stream(sample)
     else:
-        success = True # Unknown region, skip
+        success = check_generic_stream(sample)
         
     if success:
         return True
@@ -122,8 +148,10 @@ def test_region(region_name, cameras):
             res = check_daejeon_stream(cam)
         elif region_name == "JEJU":
             res = check_jeju_stream(cam)
+        elif region_name == "PAJU":
+            res = check_paju_stream(cam)
         else:
-            res = True
+            res = check_generic_stream(cam)
         monitor_results.append(res)
         
     if any(monitor_results):
@@ -134,29 +162,54 @@ def test_region(region_name, cameras):
         return False
 
 def run_sentinel():
-    log("--- Sentinel Started ---")
-    
-    cctv_data = load_json(DATA_FILE)
-    config = load_json(CONFIG_FILE)
-    current_status = load_json(STATUS_FILE)
-    
-    if "regions" not in current_status:
-        current_status["regions"] = {}
+    try:
+        log("--- Sentinel Started ---")
+        
+        cctv_data = load_json(DATA_FILE)
+        if not cctv_data:
+            log("No CCTV data loaded. Exiting.")
+            return
 
-    # Group cameras
-    region_map = {}
-    for cam in cctv_data:
-        rid = cam.get('id', '')
-        if '_' in rid:
-            r = rid.split('_')[0]
-            if r not in region_map:
-                region_map[r] = []
-            region_map[r].append(cam)
+        config = load_json(CONFIG_FILE)
+        current_status = load_json(STATUS_FILE)
+        
+        if not isinstance(current_status, dict):
+            log("Status file is not a dict. Initializing.")
+            current_status = {}
 
-    # Check
-    for region_name, conf in config.items():
-        if region_name in region_map:
-            is_healthy = test_region(region_name, region_map[region_name])
+        if "regions" not in current_status:
+            current_status["regions"] = {}
+
+        # Group cameras
+        region_map = {}
+        # Ensure cctv_data is a list
+        items = cctv_data if isinstance(cctv_data, list) else []
+        for cam in items:
+            rid = cam.get('id', '')
+            if not rid: continue
+            
+            if '_' in rid:
+                r = rid.split('_')[0]
+                if r not in region_map:
+                    region_map[r] = []
+                region_map[r].append(cam)
+            elif rid.startswith('L12'):
+                if 'PAJU' not in region_map:
+                    region_map['PAJU'] = []
+                region_map['PAJU'].append(cam)
+
+        # Pass 2: Check ALL discovered regions
+        all_regions = set(region_map.keys()) | set(config.keys())
+        
+        log(f"Discovered {len(all_regions)} regions: {sorted(all_regions)}")
+
+        for region_name in sorted(all_regions):
+            cameras = region_map.get(region_name, [])
+            if not cameras: 
+                continue
+            
+            conf = config.get(region_name, {})
+            is_healthy = test_region(region_name, cameras)
             
             # Update Status
             if region_name not in current_status["regions"]:
@@ -169,15 +222,19 @@ def run_sentinel():
                 status_entry["active_source"] = "main"
             else:
                 status_entry["status"] = "DOWN"
-                # If we have a sub, switch to it. Config defines "sub".
-                if conf.get("sub", {}).get("type") != "none":
+                # If we have a sub, switch to it. 
+                if conf.get("sub", {}).get("type") and conf.get("sub", {}).get("type") != "none":
                     status_entry["active_source"] = "sub"
                 else:
-                    status_entry["active_source"] = "main" # No backup, stay main (or show error)
+                    status_entry["active_source"] = "main"
 
-    current_status["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    save_json(STATUS_FILE, current_status)
-    log("--- Sentinel Finished ---")
+        current_status["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        save_json(STATUS_FILE, current_status)
+        log("--- Sentinel Finished ---")
+    except Exception as e:
+        log(f"FATAL ERROR in run_sentinel: {e}")
+        log(traceback.format_exc())
+        sys.exit(1)
 
 if __name__ == "__main__":
     run_sentinel()

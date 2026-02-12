@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 CCTV_DATA_FILE = "cctv_data.json"
 SAMPLE_SIZE = 300  # Increased for better accuracy
 TIMEOUT = 10
-FAILURE_THRESHOLD = 0.35  # Alert if more than 35% of streams fail (HLS-focused)
+FAILURE_THRESHOLD = 0.15  # Alert if more than 15% of streams fail (Stricter)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -105,7 +105,8 @@ def generate_daejeon_url(item):
 
 def check_hls_stream(item):
     """Check if HLS/MP4 stream is accessible"""
-    url = item.get("url", "")
+    # Prioritize directUrl if available
+    url = item.get("directUrl") or item.get("url", "")
     name = item.get("name", "Unknown")
     cctv_id = item.get("id", "Unknown")
     url_type = item.get("urlType", "")

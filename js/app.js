@@ -1090,7 +1090,7 @@ function openVideoLayer(cctv) {
     let navHtml = '';
     if (currentIndex !== -1) {
         navHtml = `
-            <span style="display:inline-flex; align-items:center; margin-left:10px; gap:5px;">
+            <span style="display:inline-flex; align-items:center; margin-right:10px; gap:5px;">
                 <button class="nav-btn prev" ${currentIndex === 0 ? 'disabled' : ''} title="이전 CCTV">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                 </button>
@@ -1101,7 +1101,7 @@ function openVideoLayer(cctv) {
         `;
     }
 
-    titleEl.innerHTML = `${cctv.name} ${navHtml}`;
+    titleEl.innerHTML = `${navHtml} ${cctv.name}`;
 
     // Attach Nav Listeners
     if (currentIndex !== -1) {
