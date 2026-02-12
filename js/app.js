@@ -727,7 +727,28 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
     const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev');
+    const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
     const isGits = url.includes('gitsview.gg.go.kr');
+
+    // YouTube Handling
+    if (isYouTube) {
+        let videoId = null;
+        if (url.includes('v=')) {
+            videoId = url.split('v=')[1].split('&')[0];
+        } else if (url.includes('youtu.be/')) {
+            videoId = url.split('youtu.be/')[1].split('?')[0];
+        }
+
+        if (videoId) {
+            const iframe = document.createElement('iframe');
+            iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&controls=0`;
+            iframe.className = 'youtube-iframe';
+            iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
+            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+            iframe.allowFullscreen = true;
+            return iframe;
+        }
+    }
 
     // GITS / MP4 / Native
     if (isGits || isMp4) {
