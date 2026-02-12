@@ -723,6 +723,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const isHls = url.includes('.m3u8');
     const isMp4 = url.includes('.mp4');
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
+    const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
     const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev');
     const isGits = url.includes('gitsview.gg.go.kr');
@@ -742,12 +743,12 @@ function createVideoElement(cctv, sourceIndex = 0) {
         return video;
     }
 
-    // UTIC Portal URLs (Fallback) - iframe
+    // UTIC Portal / ITS Popup URLs - iframe
     // iframe error handling is limited (cannot detect 404 inside iframe easily).
     // We assume if it's UTIC JSP it "works" or shows an error image.
     // But if we have backups, we might want to skip UTIC? 
     // For now, keep as is.
-    if (isUtic) {
+    if (isUtic || isItsEmbed) {
         const iframe = document.createElement('iframe');
         iframe.src = url;
         iframe.className = 'utic-iframe';

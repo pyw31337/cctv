@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>강릉시 CCTV</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #gwp {
+            width: 100%;
+            height: 100%;
+        }
+
+        #error-msg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-family: sans-serif;
+            text-align: center;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="gwp"></div>
+    <div id="error-msg"></div>
+
+    <script src="https://its.gn.go.kr/js/cctv/gwp.js"></script>
+    <script>
+        // Gangneung ITS Configuration
+        const GWP_BASE = 'cctv.gn.go.kr:443/media';
+        const GWP_USERNAME = 'nezero';
+        const GWP_CERTIFICATE = 'BFfgJVFseQFJla5g/nTPIl9Ky856XX/mjXH3SNHhtoLDICA8hfd+iY8qRYp6rvfo';
+        const GWP_PASSWORD = 'nezero';
+
+        // Parse query parameters
+        const params = new URLSearchParams(window.location.search);
+        const camUrl = params.get('camUrl'); // Genetec Entity UUID
+
+        function showError(msg) {
+            const el = document.getElementById('error-msg');
+            el.textContent = msg;
+            el.style.display = 'block';
+            console.error(msg);
+        }
+
+        async function getToken(entityId) {
+            const creds = GWP_USERNAME + ';' + GWP_CERTIFICATE + ':' + GWP_PASSWORD;
+            // Token fetch must be over HTTPS
+            const url = 'https://' + GWP_BASE + '/v2/token/' + entityId;
+            try {
+                const resp = await fetch(url, {
+                    credentials: 'include',
+                    headers: { 'Authorization': 'Basic ' + btoa(creds) }
+                });
+                if (!resp.ok) throw new Error(`Token fetch failed: ${resp.status}`);
+                return await resp.text();
+            } catch (e) {
+                console.error('Token Error:', e);
+                // GWP might retry or handle null, but usually throws
+                throw e;
+            }
+        }
+
+        async function playStream(entityId) {
+            if (!entityId) {
+                showError('Invalid Camera ID (camUrl missing)');
+                return;
+            }
+
+            try {
+                const container = document.getElementById('gwp');
+                const player = gwp.buildPlayer(container);
+
+                // Construct the Service object (Async factory)
+                const endpoint = 'https://' + GWP_BASE;
+
+                // 1. Build the service with the endpoint and token retriever
+                const service = await gwp.buildMediaGatewayService(endpoint, getToken);
+
+                // 2. Start the player with the service AND entity ID
+                // GWP v1.0.360 requires (entityId, service) for startWithService
+                await player.startWithService(entityId, service);
+
+                // 3. Start playback (no args needed as player is initialized)
+                await player.playLive();
+
+            } catch (e) {
+                console.error('Stream error:', e);
+                showError('Stream unavailable: ' + e.message);
+            }
+        }
+
+        // Start if GWP loaded
+        if (typeof gwp !== 'undefined') {
+            playStream(camUrl);
+        } else {
+            window.onload = () => playStream(camUrl);
+        }
+    </script>
+</body>
+
+</html>
