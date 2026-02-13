@@ -1,0 +1,262 @@
+
+
+ 
+
+<!doctype html>
+<html lang="ko">
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=edge, chrome=1"/>
+<meta name="Description" content="사이트설명" />
+<meta name="Keywords" content="키워드" />
+<link rel="stylesheet" type="text/css" href="/css/style.css"/>
+<link rel="stylesheet" type="text/css" href="/css/video-js.css"/>
+<script type="text/javascript" src="/js/jquery-1.11.1.js"></script>
+<script type="text/javascript" src="/js/jquery-ui.min.js"></script>
+<script type="text/javascript" src="/js/video-js.7.3.0.min.js"></script>
+<!-- <script type="text/javascript" src="https://openapi.map.naver.com/openapi/v3/maps.js?clientId=LGjpGBUGQ51z4GNcF3n9"></script> -->
+<script type="text/javascript" src="https://openapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=sih2b4lhmg"></script>
+
+<title>CCTV정보</title>
+</head>
+<body>
+	<div class="skiptoContent">
+        <a href="#gnb">메인메뉴 바로가기</a>
+        <a href="#content">본문내용 바로가기</a>
+    </div>
+	<!-- wrap -->
+	<div id="wrap" class="sub">
+		
+    	<!-- header -->
+    	<div id="header">
+            <div class="other_site">
+                <div class="inner">
+                    <div class="info">4통8달 충주의 모든 교통상황을 한눈에</div>
+                    <a href="/relate/relateSite.do" class="link">교통관련사이트</a>
+                    <!-- <a href="/admin/index.do" class="admin">관리자</a> -->
+                </div>
+            </div>
+            <div class="gnbWrap">
+                <div class="inner">
+                    <h1><a href="/main/main.do" class="topLogo"><img src="/images/header_logo.png" alt="충주교통정보센터" /></a></h1>
+                    <!-- gnb Menu -->
+                    <ul id="gnb" class="f-clear">
+                        <li class="menu01">
+                            <a href="/intro/center.do" class="mainMenu">소개</a>
+                            <ul class="subMenu">
+                                <li><a href="/intro/center.do" title="센터소개"><span>센터소개</span></a></li>
+								<li><a href="/intro/service.do" title="서비스안내"><span>시스템소개</span></a></li>
+								<li><a href="/intro/location.do" title="찾아오시는길"><span>찾아오시는길</span></a></li>
+                            </ul>
+                        </li>
+                        <li class="menu02">
+                            <a href="http://its.chungju.go.kr/bis" title="버스정보" target="_blank" class="mainMenu">버스정보</a>
+                        </li>
+                        <li class="menu03">
+                            <a href="/traffic/realtime.do" title="교통정보" class="mainMenu">교통정보</a>
+                            <ul class="subMenu">
+                                <li><a href="/traffic/realtime.do" title="소통정보">소통정보</a></li>
+                                <li><a href="/traffic/cctv.do" title="CCTV 정보">CCTV 정보</a></li>
+                            </ul>
+                        </li>
+                        <li class="menu04">
+                            <a href="/notice/list.do" title="공지사항" class="mainMenu">공지사항</a>
+                        </li>
+                        <li class="menu05">
+                            <a href="/relate/siteMap.do" title="사이트맵">사이트맵</a>
+                        </li>
+                    </ul>
+                    <!-- //gnb Menu -->
+                </div>
+            </div>
+        </div>
+        <!-- //header
+        map area -->
+
+        <!--contents-->
+        <div id="contents" class="map">
+            <div class="mapUIWrap">
+                <div class="mapTop">
+                    <dl class="f-clear">
+                        <dt>CCTV 정보</dt>
+                        <dd style="float:right;margin:18px 10px 0 0">
+                            <span>원활</span>
+                            <span style="position:relative;">
+    							<img src="/images/mapping-green.png" width="65" height="10" alt="도로소통정보범례" style="margin:0 -40px 0 0">
+    							<img src="/images/mapping-yellow.png" width="90" height="10" alt="도로소통정보범례" style="margin:0 -40px 0 0">
+    							<img src="/images/mapping-red.png" width="60" height="10" alt="도로소통정보범례" style="margin:0 0 0 0">
+    						</span>
+                            <span>정체</span>
+                        </dd>
+                    </dl>
+                </div>
+
+                <div class="mapContent">
+                	<div id="mapArea" class="mapWrap"></div>
+                	<ul id="mapTypeBox">
+						<li class="select" id="mapType"><a href="javascript:void(0)" title="지도화면">지도</a></li>
+						<li id="hybridType"><a href="javascript:void(0)" title="스카이뷰화면">스카이뷰</a></li>
+					</ul>
+                    <!--hideShowButton 뒤에 hide class 넣으면 열림 버튼으로 바뀝니다.-->
+                    <div class="sideInfoList">
+	                    <a href="#" class="hideShowButton">메뉴숨김</a>
+                        <ul class="list cctv">
+	                        
+							<li><a href="javascript:showCctv('1','01.제1로터리','rtmp://211.236.106.5:1935/live/cctv01.stream','36.972395','127.933238',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv01.stream/playlist.m3u8')">01.제1로터리</a></li>
+							
+							<li><a href="javascript:showCctv('2','02.풍동IC','rtmp://211.236.106.5:1935/live/cctv02.stream','36.9362602','127.9245624',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv02.stream/playlist.m3u8')">02.풍동IC</a></li>
+							
+							<li><a href="javascript:showCctv('3','03.수안보휴게소','rtmp://211.236.106.5:1935/live/cctv03.stream','36.8975998','127.977291',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv03.stream/playlist.m3u8')">03.수안보휴게소</a></li>
+							
+							<li><a href="javascript:showCctv('4','04.호암4','rtmp://211.236.106.5:1935/live/cctv04.stream','36.960304','127.926437',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv04.stream/playlist.m3u8')">04.호암4</a></li>
+							
+							<li><a href="javascript:showCctv('5','05.칠금4','rtmp://211.236.106.5:1935/live/cctv05.stream','36.981194','127.913051',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv05.stream/playlist.m3u8')">05.칠금4</a></li>
+							
+							<li><a href="javascript:showCctv('6','06.법원4','rtmp://211.236.106.5:1935/live/cctv06.stream','36.982282','127.92842',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv06.stream/playlist.m3u8')">06.법원4</a></li>
+							
+							<li><a href="javascript:showCctv('7','07.신연수4','rtmp://211.236.106.5:1935/live/cctv07.stream','36.982363','127.939793',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv07.stream/playlist.m3u8')">07.신연수4</a></li>
+							
+							<li><a href="javascript:showCctv('8','08.영덕4','rtmp://211.236.106.5:1935/live/cctv08.stream','37.0728816','127.9320839',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv08.stream/playlist.m3u8')">08.영덕4</a></li>
+							
+							<li><a href="javascript:showCctv('9','09.공군3','rtmp://211.236.106.5:1935/live/cctv09.stream','37.025464','127.9227536',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv09.stream/playlist.m3u8')">09.공군3</a></li>
+							
+							<li><a href="javascript:showCctv('10','10.문화4','rtmp://211.236.106.5:1935/live/cctv10.stream','36.972957','127.922986',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv10.stream/playlist.m3u8')">10.문화4</a></li>
+							
+							<li><a href="javascript:showCctv('11','11.건대4','rtmp://211.236.106.5:1935/live/cctv11.stream','36.966434','127.906732',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv11.stream/playlist.m3u8')">11.건대4</a></li>
+							
+							<li><a href="javascript:showCctv('12','12.충주IC','rtmp://211.236.106.5:1935/live/cctv12.stream','36.9677828','127.8345944',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv12.stream/playlist.m3u8')">12.충주IC</a></li>
+							
+							<li><a href="javascript:showCctv('13','13.안림4-1','rtmp://211.236.106.5:1935/live/cctv13.stream','36.9694146','127.9468389',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv13.stream/playlist.m3u8')">13.안림4-1</a></li>
+							
+							<li><a href="javascript:showCctv('14','14.안림4-2','rtmp://211.236.106.5:1935/live/cctv14.stream','36.9696136','127.9466603',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv14.stream/playlist.m3u8')">14.안림4-2</a></li>
+							
+							<li><a href="javascript:showCctv('15','15.약막','rtmp://211.236.106.5:1935/live/cctv15.stream','36.9732331','127.9630845',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv15.stream/playlist.m3u8')">15.약막</a></li>
+							
+							<li><a href="javascript:showCctv('16','16.금곡사거리','rtmp://211.236.106.5:1935/live/cctv16.stream','36.9871454','127.9457739',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv16.stream/playlist.m3u8')">16.금곡사거리</a></li>
+							
+							<li><a href="javascript:showCctv('17','17.더조은APT4','rtmp://211.236.106.5:1935/live/cctv17.stream','36.957685','127.940372',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv17.stream/playlist.m3u8')">17.더조은APT4</a></li>
+							
+							<li><a href="javascript:showCctv('18','18.첨단삼거리','rtmp://211.236.106.5:1935/live/cctv18.stream','36.9732644','127.8261866',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv18.stream/playlist.m3u8')">18.첨단삼거리</a></li>
+							
+							<li><a href="javascript:showCctv('19','19.갈동사거리','rtmp://211.236.106.5:1935/live/cctv19.stream','37.020991','127.8514995',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv19.stream/playlist.m3u8')">19.갈동사거리</a></li>
+							
+							<li><a href="javascript:showCctv('20','20.킹스데일사거리','rtmp://211.236.106.5:1935/live/cctv20.stream','37.0176882','127.822588',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv20.stream/playlist.m3u8')">20.킹스데일사거리</a></li>
+							
+							<li><a href="javascript:showCctv('21','21.포스코건설사거리','rtmp://211.236.106.5:1935/live/cctv21.stream','37.0121908','127.8302759',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv21.stream/playlist.m3u8')">21.포스코건설사거리</a></li>
+							
+							<li><a href="javascript:showCctv('22','22.롯데맥주1공장','rtmp://211.236.106.5:1935/live/cctv22.stream','37.0030157','127.8329673',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv22.stream/playlist.m3u8')">22.롯데맥주1공장</a></li>
+							
+							<li><a href="javascript:showCctv('23','23.기업도시-4','rtmp://211.236.106.5:1935/live/cctv23.stream','37.0115248','127.8149576',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv23.stream/playlist.m3u8')">23.기업도시-4</a></li>
+							
+							<li><a href="javascript:showCctv('24','24.기업도시-5','rtmp://211.236.106.5:1935/live/cctv24.stream','37.0065923','127.8155948',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv24.stream/playlist.m3u8')">24.기업도시-5</a></li>
+							
+							<li><a href="javascript:showCctv('25','25.기업도시-6','rtmp://211.236.106.5:1935/live/cctv25.stream','37.0033173','127.8183012',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv25.stream/playlist.m3u8')">25.기업도시-6</a></li>
+							
+							<li><a href="javascript:showCctv('26','26.목행육교','rtmp://211.236.106.5:1935/live/cctv26.stream','37.0035764','127.9166193',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv26.stream/playlist.m3u8')">26.목행육교</a></li>
+							
+							<li><a href="javascript:showCctv('27','27.목행천주교','rtmp://211.236.106.5:1935/live/cctv27.stream','37.0115216','127.9156004',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv27.stream/playlist.m3u8')">27.목행천주교</a></li>
+							
+							<li><a href="javascript:showCctv('28','28.산척소림','rtmp://211.236.106.5:1935/live/cctv28.stream','37.0809096','127.9535847',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv28.stream/playlist.m3u8')">28.산척소림</a></li>
+							
+							<li><a href="javascript:showCctv('29','29.주덕오거리','rtmp://211.236.106.5:1935/live/cctv29.stream','36.9762274','127.7926614',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv29.stream/playlist.m3u8')">29.주덕오거리</a></li>
+							
+							<li><a href="javascript:showCctv('30','30.용두사거리','rtmp://211.236.106.5:1935/live/cctv30.stream','36.9618448','127.8815854',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv30.stream/playlist.m3u8')">30.용두사거리</a></li>
+							
+							<li><a href="javascript:showCctv('31','31.임광사거리-1','rtmp://211.236.106.5:1935/live/cctv31.stream','36.9875342','127.9283308',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv31.stream/playlist.m3u8')">31.임광사거리-1</a></li>
+							
+							<li><a href="javascript:showCctv('32','32.금가사암리','rtmp://211.236.106.5:1935/live/cctv32.stream','37.0381652','127.9277828',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv32.stream/playlist.m3u8')">32.금가사암리</a></li>
+							
+							<li><a href="javascript:showCctv('33','33.탄금공원삼거리','rtmp://211.236.106.5:1935/live/cctv33.stream','36.9861322','127.9039782',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv33.stream/playlist.m3u8')">33.탄금공원삼거리</a></li>
+							
+							<li><a href="javascript:showCctv('34','34.금릉사거리','rtmp://211.236.106.5:1935/live/cctv34.stream','36.9876259','127.917774',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv34.stream/playlist.m3u8')">34.금릉사거리</a></li>
+							
+							<li><a href="javascript:showCctv('35','35.금릉초사거리','rtmp://211.236.106.5:1935/live/cctv35.stream','36.9935387','127.9280778',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv35.stream/playlist.m3u8')">35.금릉초사거리</a></li>
+							
+							<li><a href="javascript:showCctv('36','36.연수초교사거리','rtmp://211.236.106.5:1935/live/cctv36.stream','36.9872777','127.9393191',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv36.stream/playlist.m3u8')">36.연수초교사거리</a></li>
+							
+							<li><a href="javascript:showCctv('37','37.체육관사거리','rtmp://211.236.106.5:1935/live/cctv37.stream','36.98254','127.9345782',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv37.stream/playlist.m3u8')">37.체육관사거리</a></li>
+							
+							<li><a href="javascript:showCctv('38','38.동신APT삼거리','rtmp://211.236.106.5:1935/live/cctv38.stream','36.9826647','127.9161344',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv38.stream/playlist.m3u8')">38.동신APT삼거리</a></li>
+							
+							<li><a href="javascript:showCctv('39','39.봉계사거리','rtmp://211.236.106.5:1935/live/cctv39.stream','36.978394','127.9180887',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv39.stream/playlist.m3u8')">39.봉계사거리</a></li>
+							
+							<li><a href="javascript:showCctv('40','40.대가미사거리','rtmp://211.236.106.5:1935/live/cctv40.stream','36.9782187','127.9280931',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv40.stream/playlist.m3u8')">40.대가미사거리</a></li>
+							
+							<li><a href="javascript:showCctv('41','41.삼원사거리','rtmp://211.236.106.5:1935/live/cctv41.stream','36.97507','127.924558',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv41.stream/playlist.m3u8')">41.삼원사거리</a></li>
+							
+							<li><a href="javascript:showCctv('42','42.사과나무사거리','rtmp://211.236.106.5:1935/live/cctv42.stream','36.969318','127.913454',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv42.stream/playlist.m3u8')">42.사과나무사거리</a></li>
+							
+							<li><a href="javascript:showCctv('43','43.호수사거리','rtmp://211.236.106.5:1935/live/cctv43.stream','36.9671831','127.9236107',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv43.stream/playlist.m3u8')">43.호수사거리</a></li>
+							
+							<li><a href="javascript:showCctv('44','44.동촌사거리','rtmp://211.236.106.5:1935/live/cctv44.stream','36.9691806','127.9382826',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv44.stream/playlist.m3u8')">44.동촌사거리</a></li>
+							
+							<li><a href="javascript:showCctv('45','45.기업도시7','rtmp://211.236.106.5:1935/live/cctv45.stream','37.0066985','127.8180006',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv45.stream/playlist.m3u8')">45.기업도시7</a></li>
+							
+							<li><a href="javascript:showCctv('46','46.유한킴벌리사거리','rtmp://211.236.106.5:1935/live/cctv46.stream','36.9991503','127.8418628',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv46.stream/playlist.m3u8')">46.유한킴벌리사거리</a></li>
+							
+							<li><a href="javascript:showCctv('47','47.코이즈 앞 사거리','rtmp://211.236.106.5:1935/live/cctv47.stream','36.9852849','127.8311652',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv47.stream/playlist.m3u8')">47.코이즈 앞 사거리</a></li>
+							
+							<li><a href="javascript:showCctv('48','48.임광사거리-2','rtmp://211.236.106.5:1935/live/cctv48.stream','36.9873352','127.9285094',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv48.stream/playlist.m3u8')">48.임광사거리-2</a></li>
+							
+							<li><a href="javascript:showCctv('54','49.아이파크대로변','rtmp://211.236.106.5:1935/live/cctv49.stream','36.993667','127.937357',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv49.stream/playlist.m3u8')">49.아이파크대로변</a></li>
+							
+							<li><a href="javascript:showCctv('56','50.GNP삼거리','rtmp://211.236.106.5:1935/live/cctv50.stream','37.009548','127.932422',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv50.stream/playlist.m3u8')">50.GNP삼거리</a></li>
+							
+							<li><a href="javascript:showCctv('55','51.모다아울렛삼거리','rtmp://211.236.106.5:1935/live/cctv51.stream','36.961869','127.897226',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv51.stream/playlist.m3u8')">51.모다아울렛삼거리</a></li>
+							
+							<li><a href="javascript:showCctv('52','52.원호암오거리','rtmp://211.236.106.5:1935/live/cctv52.stream','36.952725','127.939106',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv52.stream/playlist.m3u8')">52.원호암오거리</a></li>
+							
+							<li><a href="javascript:showCctv('53','53.함지사거리','rtmp://211.236.106.5:1935/live/cctv53.stream','36.95441','127.919918',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv53.stream/playlist.m3u8')">53.함지사거리</a></li>
+							
+							<li><a href="javascript:showCctv('57','54.삼원주유소','rtmp://211.236.106.5:1935/live/cctv54.stream','36.964633','127.860314',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv54.stream/playlist.m3u8')">54.삼원주유소</a></li>
+							
+							<li><a href="javascript:showCctv('58','55.루암교차로','rtmp://211.236.106.5:1935/live/cctv55.stream','37.00846','127.867792',',N','CCTVLIST','https://its.chungju.go.kr:4443/live/cctv55.stream/playlist.m3u8')">55.루암교차로</a></li>
+							
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!--//contents-->
+        
+<!--//contents 
+        footer-->
+        <div id="footer">
+        	<div class="inner">
+                <div class="logo"><img src="/images/footer_logo.png" alt="충주교통정보센터" /></div>
+            	<div class="addressWrap" style="padding:12px 0 0 215px">
+                    <address>[27339] 충청북도 충주시 팽고리산길 108 (금릉동) 도시종합정보센터</address>
+					<p style="font-size:14px;">불편신고: <a href="tel:850-6340"> 850-6340~6343</a>, <a href="tel:080-087-5000">080-087-5000</a></p>
+                    <p>Copyright © CHUNGJU ADVANCED TRAFFIC INFORMATION. All rights reserved.</p>
+                </div>
+            </div>
+        </div>
+        <!-- //footer -->
+
+    </div>
+    <!--//wrap-->
+<script type="text/javascript" src="/js/naverMap.js"></script>
+<script type="text/javascript" src="/js/itsFnc.js"></script>
+<script type="text/javascript">
+cctvCtlrId = true;
+getVertex();
+getCctvCtlr();
+
+var hideShowFlag = true;
+$('.hideShowButton').click(function(){
+	
+	if(hideShowFlag == true)
+	{
+		$('.sideInfoList').animate({'left':'-200'});
+		$('.hideShowButton').addClass('hide');
+		hideShowFlag = false;
+	}
+	else
+	{
+		$('.sideInfoList').animate({'left':'0'});
+		$('.hideShowButton').removeClass('hide');
+		hideShowFlag = true;
+	}
+});
+</script>
+</body>
+</html>

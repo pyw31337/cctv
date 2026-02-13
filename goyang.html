@@ -1,0 +1,156 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<META HTTP-EQUIV='Pragma' CONTENT='no-cache'>
+	<META HTTP-EQUIV='Cache-Control' CONTENT='no-cache'>
+	
+    <title>고양시교통정보센터</title>
+    <link rel="shortcut icon" href="../favicon.ico">
+	<link rel="icon" href="../favicon.ico">
+	
+	<link rel="stylesheet" type="text/css" href="./css/lib/jquery.bxslider.min.css"/>
+    <link rel="stylesheet" type="text/css" href="./css/style.css"/>
+    <link rel="stylesheet" type="text/css" href="./css/m_style.css"/>
+	<link rel="stylesheet" type="text/css" href="./css/lib/video-js.css"/>
+
+	<script src="./js/lib/jquery-1.12.4.min.js"></script>
+	<script src="./js/comm/common.js"></script>
+	<script src="./js/comm/naverMapKey.js"></script>
+	<script src="./js/comm/naverApiFunc.js"></script>
+	<script src="./js/traffic_cctv.js"></script>
+	<script src="./js/lib/video-js.7.3.0.min.js"></script>
+</head>
+
+<body>
+	
+<div class="menu_wrap">
+	<header class="menubox">
+		<h1><a href="main.view" title="고양시교통정보센터"><img src="./images/logo.png" alt="고양시교통정보센터"></a></h1>
+		<a href="http://www.goyang.go.kr/index.do" title="고양시청바로가기" class="logogoyang" target="blank"><img src="./images/goyang_logo.png" alt="고양시청"></a> 
+    	<button class="m_menu"></button>
+    	<nav class="menuli">
+    		<button class="m_menuclose"></button>
+			<ul class="m_menulist">
+				<li class="menu menu1 menu_sub_off"><a href="bus_route.view" title="버스정보" class="m_menua">버스정보</a>
+					<div class="menu_sub">
+						<ul>
+							<li><a href="bus_route.view" title="노선정보">노선정보</a></li>
+							<li><a href="bus_busstop.view" title="정류장정보">정류장정보</a></li>
+						</ul>
+					</div>
+					
+				</li>
+            	<li class="menu menu2"><a href="traffic.view" title="교통정보" class="m_menua">교통정보</a>
+					<div class="menu_sub">
+						<ul>
+							<li><a href="traffic.view" title="소통상황">소통상황</a></li>
+							<li><a href="traffic_cctv.view" title="CCTV">CCTV</a></li>
+							<li><a href="traffic_vms.view" title="VMS">VMS</a></li>
+						</ul>
+					</div>
+				</li>
+				<li class="menu menu3"><a href="parking.view" title="주차정보">주차정보</a></li>
+				<li class="menu menu4"><a href="statistics1.view" title="교통통계" class="m_menua">교통통계</a>
+					<div class="menu_sub">
+						<ul>
+							<li><a href="statistics1.view" title="주요 구간별 통계">주요 구간별 통계</a></li>
+							<li><a href="statistics2.view" title="교통 정체 정보">교통 정체 정보</a></li>
+						</ul>
+					</div>
+				</li>
+				<!-- <li class="menu menu3"><a href="trip.view" title="견학신청">견학신청</a></li> -->
+				<li class="menu menu5"><a href="center_intro.view" title="센터소개" class="m_menua">센터소개</a>
+					<div class="menu_sub">
+						<ul>
+							<li><a href="center_intro.view" title="교통정보센터 소개">교통정보센터 소개</a></li>
+							<li><a href="center_system.view" title="시스템 구성">시스템 구성</a></li>
+							<li><a href="center_notice.view" title="공지사항">공지사항</a></li>
+							<li><a href="center_way.view" title="찾아오시는 길">찾아오시는 길</a></li>
+						</ul>
+					</div>
+				</li>
+			</ul>
+		</nav>  
+		<div class="m_menu_back"></div>
+	</header>	
+</div>
+	<article class="max_wrap">
+		
+		<!-- 왼쪽 시작 -->
+		<div class="max_left">
+			<div class="sub_title">
+				<h2>교통정보</h2>
+				<p class="txt">고양시의 교통정보를 확인하세요.</p>
+				
+				<div class="tabBox trtabBox">
+					<ul>
+						<li><a href="traffic.view">소통상황</a></li>
+						<li class="click"><a href="traffic_cctv.view">CCTV</a></li>
+						<li><a href="traffic_vms.view">VMS</a></li>
+					</ul>
+				</div>
+			</div>
+			
+			<!-- CCTV -->
+			<div class="tabcon">
+				<div class="titlebox tr2_title">
+					<h3><span>CC</span>TV</h3>
+					<p>CCTV를 통해 교통상황을 확인하세요.</p>
+				</div>
+
+				<div class="list_conten trlist_conten2">
+					<p class="count">· 총 <span>0</span>건  <button class="mapview">지도보기</button></p>
+					<div class="listBox cctvlist">
+						<ul id="cctv_list" class="list">
+							<!-- <li class="listli">
+							 	CCTV 이름이 나옵니다.
+							</li>
+							<li class="listli">
+							 	CCTV 이름이 나옵니다.							
+							</li> -->
+						</ul>
+					</div>
+				</div>
+
+			</div>
+			<!-- CCTV 끝-->
+		</div>
+		<!-- 왼쪽 끝-->
+		
+		<!-- 지도 시작 -->
+		<div class="sub_map">
+			
+	<div class="m_map_top">
+		<p class="title">교통정보</p> <!-- <p class="title"> 안의 내용이 변동됩니다.</p> - 교통정보일 떄 : "교통정보", CCTV일 때 : CCTV 이름이 나옵니다. , VMS일 때 : VMS 이름이 나옵니다. -->
+		<button class="btn_listview">목록보기</button>
+	</div>
+	<!-- 아이콘 쇼 히든 버튼 -->
+	<div class="map_icon">
+		<ul>
+			<li><button class="mapicon1">소통정보</button></li> <!-- 선택 된 버튼에  .click 추가 -->
+			<li><button class="mapicon2">CCTV</button></li>
+			<li><button class="mapicon3">VMS</button></li>
+			<li><button class="mapicon4">돌발상황</button></li>
+		</ul>
+		<!-- <ul>
+			<li>
+				<video id="video" class="video-js vjs-default-skin vjs-theme-city" width="400" height="300">
+					영상이 지원되지 않는 브라우저입니다.
+				</video>
+			</li>
+		</ul> -->
+	</div>
+	<!-- 아이콘 쇼 히든 버튼 -->
+			
+	<div class="map_conten" id="nMapArea">지도 나올곳</div>
+		</div>
+		<!-- 지도 끝 -->
+		
+	</article>
+    
+</body>
+</html>

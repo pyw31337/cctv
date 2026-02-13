@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width,initial-scale=1, maximum-scale=1"/>
+        <meta name="description" content="포항시 교통정보센터입니다"/>
+        <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+        <title>포항시 교통정보센터</title>
+        <!--<script th:src="@{/js/jquery/jquery-3.6.0.min.js}" charset="UTF-8"></script>-->
+<!--<script th:src="@{/js/jquery/jquery-ui.min.js}" charset="UTF-8"></script>-->
+<!--<script th:src="@{/js/jquery/jquery-ui-touch-punch.min.js}" charset="UTF-8"></script>-->
+
+<script src="/js/jquery/jquery-3.6.0.min.js?v=1754276312658"></script>
+<script charset="UTF-8" src="/js/jquery/jquery-ui.min.js?v=1754276312658"></script>
+<script charset="UTF-8" src="/js/jquery/jquery-ui-touch-punch.min.js?v=1754276312658"></script>
+<link rel="stylesheet" href="/css/common.css?v=1754276312658">
+<link rel="stylesheet" href="/css/jquery-ui.css?v=1754276312658">
+<script charset="UTF-8" src="/js/common/common.js?v=1754276312658"></script>
+<link rel="icon" type="image/png" href="/images/favicon/favicon-16x16.png?v=1754276312658" />
+
+        <link rel="stylesheet" href="/css/traffic.css?v=1754276312658">
+<!--<link rel="stylesheet" th:attr="href='/css/video-7.10.2.css?v=' + ${tm}">-->
+<link rel="stylesheet" href="/css/video-7.11.8.css?v=1754276312658">
+<script type="text/javascript" charset="UTF-8" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=2d2909a26bbfddaf0d594536d06ef584&amp;libraries=drawing&amp;libraries=clusterer&amp;libraries=services"></script>
+<script type="text/javascript" charset="UTF-8" src="/js/traffic/traffic.js?v=1754276312658"></script>
+<!--<script type="text/javascript" charset="UTF-8" th:attr="src='/js/videojs/video-7.10.2.js?v=' + ${tm}"></script>-->
+<!--<script type="text/javascript" charset="UTF-8" th:attr="src='/js/videojs/video-7.11.8.min.js?v=' + ${tm}"></script>-->
+<script type="text/javascript" charset="UTF-8" src="/js/videojs/hls.js?v=1754276312658"></script>
+    </head>
+    <body id="body">
+        <header>
+    <div class="header-menu">
+        <div class="logo" onclick="movePath(&#39;/&#39;)">
+            <div>
+                <img src="/images/logo/logo.png" alt="포항시 로고">
+            </div>
+            <p>포항시교통정보센터</p>
+        </div>
+        <div class="top-menu">
+            <div class="top-menu-cont traffic">
+                <a>교통정보</a>
+            </div>
+            <div class="top-menu-cont statistics">
+                <a>교통통계</a>
+            </div>
+            <div class="top-menu-cont parking">
+                <a>주차정보</a>
+            </div>
+            <div class="top-menu-cont bus">
+                <a>버스정보</a>
+            </div>
+            <div class="top-menu-cont notice">
+                <a>공지사항</a>
+            </div>
+            <div class="top-menu-cont center">
+                <a>교통정보센터</a>
+            </div>
+            <div class="down-menu">
+                <div>
+                    <div>
+                        <div>
+                            <div class="traffic-child" onclick="movePath(&#39;/trafficMap/cctvMap&#39;)">교통CCTV</div>
+                            <div class="traffic-child" onclick="movePath(&#39;/trafficMap/intersections&#39;)">스마트교차로</div>
+                            <div class="traffic-child" onclick="movePath(&#39;/trafficMap/vms&#39;)">도로전광판</div>
+                            <div class="traffic-child" onclick="movePath(&#39;/trafficMap/incidents&#39;)">돌발정보</div>
+                            <div class="traffic-child" onclick="movePath(&#39;/trafficMap/realtimetraffic&#39;)">소통정보</div>
+                        </div>
+                        <div>
+                            <div class="statistics-child" onclick="movePath(&#39;/statistics/traffic01&#39;)">교통량통계</div>
+                            <div class="statistics-child" onclick="movePath(&#39;/statistics/traffic02&#39;)">소통통계</div>
+                            <div class="statistics-child" onclick="movePath(&#39;/statistics/congestion&#39;)">정체통계</div>
+                        </div>
+                        <div>
+                            <div class="parking-child" onclick="movePath(&#39;/trafficMap/parking&#39;)">주차정보</div>
+                        </div>
+                        <div>
+                            <div class="bus-child" onclick="openBusSite(0)">노선</div>
+                            <div class="bus-child" onclick="openBusSite(1)">정류소</div>
+                            <div class="bus-child" onclick="openBusSite(2)">요금</div>
+                        </div>
+                        <div>
+                            <div class="notice-child" onclick="movePath(&#39;/notice/list&#39;)">공지사항</div>
+                        </div>
+                        <div>
+                            <div class="center-child" onclick="movePath(&#39;/center/center&#39;)">센터소개</div>
+                            <div class="center-child" onclick="movePath(&#39;/center/way&#39;)">오시는길</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="three-line-menu">
+                <span tabindex="0" id="menu" onclick="menuOpen()">
+                     <img src="/images/icon/menu.png" alt="menu">
+                </span>
+                <div id="menu-modal">
+                    <div class="modal-close-box">
+                        <div class="modal-close" onclick="closeModal('header #menu-modal')"></div>
+                    </div>
+                    <div class="modal-container">
+                        <div>
+                            <img class="modal-icon" src="/images/icon/menu_icon1.png" alt="교통정보 아이콘">
+                            <div class="modal-icon-title">
+                                <h4>교통정보</h4>
+                            </div>
+                            <div class="sub-number">
+                                <h1>01</h1>
+                            </div>
+                            <p onclick="movePath('/trafficMap/cctvMap')">교통CCTV</p>
+                            <p onclick="movePath('/trafficMap/intersections')">스마트교차로</p>
+                            <p onclick="movePath('/trafficMap/vms')">도로전광판</p>
+                            <p onclick="movePath('/trafficMap/incidents')">돌발정보</p>
+                            <p onclick="movePath('/trafficMap/realtimetraffic')">소통정보</p>
+                        </div>
+                        <div>
+                            <img class="modal-icon" src="/images/icon/menu_icon2.png" alt="교통통계 아이콘">
+                            <div class="modal-icon-title">
+                                <h4>교통통계</h4>
+                            </div>
+                            <div class="sub-number">
+                                <h1>02</h1>
+                            </div>
+                            <p onclick="movePath('/statistics/traffic01')">교통량통계</p>
+                            <p onclick="movePath('/statistics/traffic02')">소통통계</p>
+                            <p onclick="movePath('/statistics/congestion')">정체통계</p>
+                        </div>
+                        <div>
+                            <img class="modal-icon" src="/images/icon/parking.png" alt="주차정보 아이콘">
+                            <div class="modal-icon-title">
+                                <h4>주차정보</h4>
+                            </div>
+                            <div class="sub-number">
+                                <h1>03</h1>
+                            </div>
+                            <p onclick="movePath('/trafficMap/parking')">
+                                주차정보
+                            </p>
+                        </div>
+                        <div>
+                            <img class="modal-icon" src="/images/icon/menu_icon3.png" alt="버스정보 아이콘">
+                            <div class="modal-icon-title">
+                                <h4>버스정보</h4>
+                            </div>
+                            <div class="sub-number">
+                                <h1>04</h1>
+                            </div>
+                            <p onclick="openBusSite(0)">
+                                노선
+                                <img class="modal-direction" src="/images/icon/direction.png" alt="외부사이트 이미지">
+                            </p>
+                            <p onclick="openBusSite(1)">
+                                정류소
+                                <img class="modal-direction" src="/images/icon/direction.png" alt="외부사이트 이미지">
+                            </p>
+                            <p onclick="openBusSite(2)">
+                                요금
+                                <img class="modal-direction" src="/images/icon/direction.png" alt="외부사이트 이미지">
+                            </p>
+                        </div>
+                        <div>
+                            <img class="modal-icon" src="/images/icon/menu_icon4.png" alt="공지사항 아이콘">
+                            <div class="modal-icon-title">
+                                <h4>공지사항</h4>
+                            </div>
+                            <div class="sub-number">
+                                <h1>05</h1>
+                            </div>
+                            <p onclick="movePath('/notice/list')">
+                                공지사항
+                            </p>
+                        </div>
+                        <div>
+                            <img class="modal-icon" src="/images/icon/menu_icon5.png" alt="교통정보센터 아이콘">
+                            <div class="modal-icon-title">
+                                <h4>교통정보센터</h4>
+                            </div>
+                            <div class="sub-number">
+                                <h1>06</h1>
+                            </div>
+                            <p onclick="movePath('/center/center')">
+                                센터소개
+                            </p>
+                            <p onclick="movePath('/center/way')">
+                                오시는길
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<script>
+    const menus =  $('.top-menu');
+    const downMenu = $('.down-menu');
+    const downMenuChildren = $('.down-menu > div > div > div > div');
+    const selected = "traffic";
+    const mobileMenu = $('.three-line-menu');
+    menus.on('mouseleave', function(){
+        if (mobileMenu.css('display') === 'none') {
+            downMenu.css('display', 'none');
+        }
+    })
+
+    menus.on('mouseover', function() {
+        if (mobileMenu.css('display') === 'none') {
+           downMenu.css('display', 'flex');
+        }
+    });
+
+    downMenuChildren.on('mouseleave', function() {
+        let className = $(this).attr('class');
+        if (!className.includes(selected)) {
+            className = className.replace('-child', '');
+            $('.' + className).removeClass('on');
+        }
+    });
+
+    downMenuChildren.on('mouseover', function() {
+        let className = $(this).attr('class');
+        if (!className.includes(selected)) {
+            className = className.replace('-child', '');
+            $('.' + className).addClass('on');
+        }
+    });
+
+    if (selected){
+        $('.' + selected).addClass('on');
+    }
+
+</script>
+        <div class="trafficWrap">
+            <div id="map">
+                <div class="left-list-area">
+    <ul class="list-tab">
+        <li id="cctv-tab" title="CCTV" onclick="movePath('/trafficMap/cctvMap')">
+            <div class="cctv-tab-icon"></div>
+            <div>CCTV</div>
+        </li>
+        <li id="intersection-tab" title="스마트교차로" onclick="movePath('/trafficMap/intersections')">
+            <div class="intersection-tab-icon"></div>
+            <div>스마트교차로</div>
+        </li>
+        <li id="vms-tab" title="도로전광판" onclick="movePath('/trafficMap/vms')">
+            <div class="vms-tab-icon"></div>
+            <div>도로전광판</div>
+        </li>
+        <li id="incident-tab" title="돌발정보" onclick="movePath('/trafficMap/incidents')">
+            <div class="incident-tab-icon"></div>
+            <div>돌발정보</div>
+        </li>
+        <li id="traffic-tab" title="소통정보" onclick="movePath('/trafficMap/realtimetraffic')">
+            <div class="traffic-tab-icon"></div>
+            <div>소통정보</div>
+        </li>
+        <li id="parking-tab" title="주차정보" onclick="movePath('/trafficMap/parking')">
+            <div class="parking-tab-icon"></div>
+            <div>주차정보</div>
+        </li>
+    </ul>
+    <div class="list-search">
+        <div>검색</div>
+        <input id="search-box" name="search-list" type="text" placeholder="검색어를 입력하세요">
+    </div>
+    <ul class="list-content list"></ul>
+</div>
+<div class="toggle-button" title="보이기/숨기기" onclick="toggleEvent()">
+    &lt;
+</div>
+<!--<div class="location-btn" onclick="toggleLocationBox()"><img th:src="@{/images/icon/search-icon.png}" alt="찾기 이미지" width="14" height="14">지점검색</div>-->
+<div class="location-box">
+    <div class="top">
+        <input type="text" placeholder="검색어를 입력하세요" id="location-text" autocomplete="off" onkeyup="searchLocation(event)" name="location-text">
+        <div class="search-btn" onclick="searchLocation()">찾기</div>
+    </div>
+    <ul class="list-content spot"></ul>
+</div>
+<div class="legend-bottom">
+    <h5>범례</h5>
+    <ul>
+        <li>
+            <button id="cctv-legend">
+                <div class="cctv-legend-icon"></div>
+                <div>CCTV</div>
+            </button>
+        </li>
+        <li>
+            <button id="intersection-legend">
+                <div class="intersection-legend-icon"></div>
+                <div>스마트교차로</div>
+            </button>
+        </li>
+        <li>
+            <button id="vms-legend">
+                <div class="vms-legend-icon"></div>
+                <div>도로전광판</div>
+            </button>
+        </li>
+        <li>
+            <button id="incident-legend">
+                <div class="incident-legend-icon"></div>
+                <div>돌발정보</div>
+            </button>
+        </li>
+        <li>
+            <button id="traffic-legend">
+                <div class="traffic-legend-icon"></div>
+                <div>소통정보</div>
+            </button>
+        </li>
+        <li>
+            <button id="parking-legend">
+                <div class="parking-legend-icon"></div>
+                <div>주차정보</div>
+            </button>
+        </li>
+    </ul>
+</div>
+<script>
+    const _type = "cctv";
+
+    const tab = $('#' + _type + '-tab');
+    const legend = $('#' + _type + '-legend');
+    tab.addClass('active');
+    tab.attr('onclick', '').unbind('click');
+    legend.addClass('active');
+    tab.children().eq(0).addClass('active');
+    legend.children().eq(0).addClass('active');
+    $('.traffic-color-legend').addClass(_type);
+</script>
+            </div>
+<!--            <select class="mobile-select" name="mobile-select" title="cctv-목록">-->
+<!--                <option value="-">CCTV 목록을 선택해주세요</option>-->
+<!--            </select>-->
+        </div>
+        <footer>
+    <div class="footer-gray">
+        <div>
+            <div style="display: flex;">
+                <div title="교통정보센터" class="footer-link">
+                    <span class="button" onclick="movePath('/')">교통정보센터</span>
+                </div>
+                <div title="영상정보처리기기 관리방침" class="footer-link">
+                    <span style="padding: 1rem;">|</span>
+                    <span class="button" onclick="openModal('.modal.video_proc_modal')">영상정보처리기기 관리방침</span>
+                </div>
+                <div title="저작권보호정책" class="footer-link">
+                    <span style="padding: 1rem;">|</span>
+                    <span class="button" onclick="openModal('.modal.copyright_modal')">저작권보호정책</span>
+                </div>
+            </div>
+            <div title="관련 기관" class="button-box" onclick="openModal('.modal.relate_modal')">
+                <span class="button">관련 기관</span>
+            </div>
+        </div>
+    </div>
+    <div class="footer-white">
+        <div>
+            <div>
+                <div>
+                    <div title="37683. 경상북도 포항시 남구 시청로1">
+                        <img class="footer-white-img" src="/images/icon/location.png" alt="icon"
+                             style="width: 20px; height: 20px; margin-right: 0.5rem;">
+                        <span>37683. 경상북도 포항시 남구 시청로1</span>
+                    </div>
+                    <div title="Tel.054-270-8282">
+                        <img class="footer-white-img" src="/images/icon/phone.png" alt="icon"
+                             style="width: 20px; height: 20px; margin-right: 0.5rem;">
+                        <span>054-270-8282</span>
+                    </div>
+                    <div title="Fax.054-270-3620">
+                        <img class="footer-white-img" src="/images/icon/fax.png" alt="icon"
+                             style="width: 20px; height: 20px; margin-right: 0.5rem;">
+                        <span>054-270-3620</span>
+                    </div>
+                </div>
+                <div class="copyright">ⓒ POHANG CITY. All Rights Reserved.</div>
+            </div>
+        </div>
+    </div>
+    <div class="mobile-footer">
+        <div>
+            <a href="/trafficMap/cctvMap">
+                <div>
+                    <img src="/images/icon/menu_icon1-2.png" alt="신호 아이콘" width="30" height="30">
+                </div>
+                <span>교통정보</span>
+            </a>
+        </div>
+        <div>
+            <a href="/statistics/traffic01">
+                <div>
+                    <img src="/images/icon/menu_icon2.png" alt="통계 아이콘" width="30" height="30">
+                </div>
+                <span>교통통계</span>
+            </a>
+        </div>
+        <div>
+            <a target="_blank" rel="noopener noreferrer" href="https://www.pohang.go.kr/bis/busRoute.do">
+                <div>
+                    <img src="/images/icon/menu_icon3.png" alt="버스 아이콘" width="30" height="30">
+                </div>
+                <span>버스정보</span>
+            </a>
+        </div>
+        <div>
+            <a href="/center/center">
+                <div>
+                    <img src="/images/icon/menu_icon5.png" alt="센터 아이콘" width="30" height="30">
+                </div>
+                <span>교통정보센터</span>
+            </a>
+        </div>
+    </div>
+</footer>
+
+<div class="modal relate_modal">
+    <div class="relate_org">
+        <span class="relate_org_close" title="닫기" onclick="closeModal('.modal.relate_modal')"></span>
+        <div class="relate_org_content">
+        </div>
+    </div>
+</div>
+<div class="modal copyright_modal">
+    <div>
+        <div>
+
+            <h5>저작권 보호 정책</h5>
+            <div class="content">
+                <p class="title">
+                    <u>포항시 교통정보센터 홈페이지 저작권보호정책</u>
+                </p>
+                <p>
+                    &nbsp;
+                </p>
+                <p class="normal">
+                    포항시 교통정보센터 홈페이지가 제공하는 내용을 보호하고, 저작권 등 타인의 권리를 침해하지 않도록 본 저작권 정책을 운영하고 있습니다.
+                </p>
+                <p class="normal">
+                    본 정책에 명시되지 아니한 저작권 관련사항은 저작권법을 준용합니다. 저작권보호정책은 관련 법률 및 정부지침의 변경 등에 따라 개정될 수 있습니다.
+                </p>
+                <p>
+                    &nbsp;
+                </p>
+                <p class="sub-title">제<i>1</i>장. 게시물의 저작권 귀속 및 책임</p>
+                <p>
+                    &nbsp;
+                </p>
+                <p class="sub-content">
+                    제<i>1</i>조<i>(</i>저작권 귀속<i>)</i> 교통정보센터는 홈페이지에 게재 또는 등록한 게시물에 대한 저작권을 갖습니다.
+                </p>
+                <p>
+                    &nbsp;
+                </p>
+                <p class="sub-content">
+                    제<i>2</i>조<i>(</i>게시물 이용<i>)</i> 교통정보센터가 저작권을 가지고 있는 게시물을 이용하는 경우에는
+                    학술·연구 등의 목적으로만 이용하여야 하며, 교통 정보서비스 센터의 명시적 동의 없이 게시물의 전부 또는 일부를
+                    영리적 목적으로 이용하는 경우에는 민·형사상의 책임을 부담할 수 있습니다.
+                </p>
+                <p>
+                    &nbsp;
+                </p>
+                <p class="sub-title">제<i>2</i>장. 게시물 중단 요청과 중단</p>
+                <p>
+                    &nbsp;
+                </p>
+                <p class="sub-content">
+                    제<i>3</i>조<i>(</i>게시물 중단<i>)</i> 교통정보센터 홈페이지에 자신의 저작물이 게재되어
+                    그 중단을 요청하려고 하는 자는 당해 게시물의 저작권이 자신에게 있음을 입증하여야 하며, 입증된 게시물에 대하여 교통정보센터는
+                    게재를 중단합니다.
+                </p>
+                <p>
+                    &nbsp;
+                </p>
+                <p class="sub-content">
+                    제<i>4</i>조<i>(</i>허위 주장<i>)</i> 교통정보센터 홈페이지에 게재된 게시물의 저작권을 주장하는 자는 그 주장이 허위임이 밝혀졌을
+                    경우 민·형사상의 책임을 부담할 수 있습니다.
+                </p>
+                <p>
+                    &nbsp;
+                </p>
+                <p class="sub-content">
+                    제<i>5</i>조<i>(</i>게시물 삭제<i>)</i> 교통정보센터 홈페이지에 게재된 게시물이 타인의 저작권을 침해하였음이 명백할 경우
+                    교통정보센터는 그 게시물을 예고 없이 삭제할 수 있습니다.
+                </p>
+            </div>
+            <div style="margin-left: auto;width: 100px; height: 30px;">
+                <button class="modal_close_button" onclick="closeModal('.modal.copyright_modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal video_proc_modal">
+    <div>
+        <div>
+            <h5>영상정보처리기기 관리방침</h5>
+            <div class="content">
+                <p class="title">
+                    포항시 교통정보센터 영상정보처리기기 운영관리방침
+                </p>
+                <p class="normal">
+                    본 영상정보처리기기 운영·관리 방침을 통해 포항시 교통정보센터에서 처리하는 영상정보가 어떠한 용도와 방식으로 이용·관리되고 있는지 알려드립니다.
+                </p>
+                <p>
+                    &nbsp;
+                </p>
+                <p>
+                    <strong>1. 영상정보처리기기의 설치 근거 및 설치 목적</strong>
+                </p>
+                <p>
+                    ⌜개인정보보호법⌟ 제25조 제1항 제5호 “교통정보의 수집·분석 및 제공을 위하여 필요한 경우”
+                </p>
+                <p>
+                    &nbsp;
+                </p>
+                <p>
+                    <strong>2. 설치 대수, 설치 위치 및 촬영 범위</strong>
+                </p>
+                <table>
+                    <tr>
+                        <td style="width: 204px;">
+                            <p>설치 대수</p>
+                        </td>
+                        <td style="width: 407px;">
+                            <p>설치 위치 및 촬영 범위</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="width: 204px;">
+                            <p>203대</p>
+                        </td>
+                        <td style="width: 407px;">
+                            <p>도로</p>
+                        </td>
+                    </tr>
+                </table>
+                <p>
+                    &nbsp;
+                </p>
+                <p>
+                    <strong>3. 관리책임자 및 접근권한자</strong>
+                </p>
+                <p>
+                    귀하의 영상 정보를 보호하고 개인영상정보와 관련한 문의를 처리하기 위하여 아래와 같이 개인영상정보 보호책임자를 두고 있습니다.
+                </p>
+                <table>
+                    <tr>
+                        <td style="width: 153px;">
+                            <p>역할</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>담당</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>소속</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>연락처</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="width: 153px;">
+                            <p>관리책임자</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>교통지원과장</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>교통지원과</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>054-270-3610</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="width: 153px;">
+                            <p>접근권한자</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>업무담당자</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>교통지원과</p>
+                        </td>
+                        <td style="width: 153px;">
+                            <p>054-270-3654</p>
+                        </td>
+                    </tr>
+                </table>
+                <p>
+                    &nbsp;
+                </p>
+                <p>
+                    <strong>4. 영상 정보의 촬영 시간, 보관 기간, 보관 장소 및 처리 방법</strong>
+                </p>
+                <table>
+                    <tr>
+                        <td style="width: 204px;">
+                            <p>촬영 시간</p>
+                        </td>
+                        <td style="width: 204px;">
+                            <p>보관 기간</p>
+                        </td>
+                        <td style="width: 204px;">
+                            <p>보관장소</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="width: 204px;">
+                            <p>24시간</p>
+                        </td>
+                        <td style="width: 204px;">
+                            <p>촬영일로부터 30일 간</p>
+                        </td>
+                        <td style="width: 204px;">
+                            <p>포항시 교통정보센터</p>
+                        </td>
+                    </tr>
+                </table>
+                <p>&nbsp;</p>
+                <p>
+                    <strong>5. 영상정보처리기기 설치 및 관리 등의 위탁에 관한 사항</strong>
+                </p>
+                <table>
+                    <tr>
+                        <td style="width: 204px;">
+                            <p>수탁업체</p>
+                        </td>
+                        <td style="width: 204px;">
+                            <p>담당자</p>
+                        </td>
+                        <td style="width: 204px;">
+                            <p>연락처</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="width: 204px;">
+                            <p>㈜동인시스템</p>
+                        </td>
+                        <td style="width: 204px;">
+                            <p>개인정보취급자</p>
+                        </td>
+                        <td style="width: 204px;">
+                            <p>032-513-6390</p>
+                        </td>
+                    </tr>
+                </table>
+                <p>
+                    본 기관은 아래와 같이 영상정보처리기기 설치 및 관리 등을 위탁하고 있으며, 관계 법령에 따라 위탁 계약 시 개인정보가 안전하게 관리될 수 있도록 필요한 사항을 규정하고 있습니다.
+                </p>
+                <p>&nbsp;</p>
+                <p>
+                    <strong>6. 개인영상정보의 확인 방법 및 장소에 관한 사항</strong>
+                </p>
+                <p>
+                    확인 방법 : 공공기관의 정보공개에 관한 법률 제9조 제1항, 개인정보보호법 제3조 및 동법 제18조에 의거, 개인정보의 목적 외 이용·제공이 제한되어 제3자에게 제공할 수 없으며
+                    <strong>수사기관이 범죄의 수사에 필요한 경우 제공·열람할 수 있음</strong>을 참고 바랍니다.
+                </p>
+                <p>확인 장소 : 포항시 교통정보센터</p>
+                <p>&nbsp;</p>
+                <p>
+                    <strong>7. 정보주체의 영상정보 열람 등 요구에 대한 조치</strong>
+                </p>
+                <p>
+                    개인영상정보에 관하여 정보주체가 열람 또는 존재 확인·삭제를 원하는 경우 언제든지 영상정보처리기기 운영자에게 요구하실 수 있습니다. 단, 귀하가 촬영된 개인영상정보 및 명백히
+                    정보주체의 급박한 생명, 신체, 재산의 이익을 위하여 필요한 개인영상정보에 한정되며 본 기관은 지체 없이 필요한 조치를 하겠습니다.
+                </p>
+                <p>&nbsp;</p>
+                <p>
+                    <strong>8. 영상정보의 안전성 확보조치</strong>
+                </p>
+                <p>
+                    본 기관에서 처리하는 영상정보는 암호화 조치 등을 통하여 안전하게 관리되고 있습니다. 또한 본 기관은 개인영상정보보호를 위한 관리적 대책으로 개인정보에 대한 접근 권한을 차등
+                    부여하고 있고, 개인영상정보의 위·변조 방지를 위하여 개인영상정보의 생성 일시, 열람 시 열람 목적·열람자·열람 일시 등을 기록하여 관리하고 있습니다. 이 외에도 개인영상정보의
+                    안전한 물리적 보관을 위하여 잠금장치를 설치하고 있습니다.
+                </p>
+                <p>&nbsp;</p>
+                <p>
+                    <strong>9. 영상정보처리기기 운영관리방침 변경에 관한 사항</strong>
+                </p>
+                <p>
+                    이 영상정보처리기기 운영·관리방침은 법령·정책 또는 보안 기술의 변경에 따라 내용의 추가·삭제 및 수정이 있을 시에는 지체 없이 본 기관 홈페이지를 통해 변경사유 및 내용 등을
+                    공지하도록 하겠습니다.
+                </p>
+            </div>
+            <div style="margin-left: auto;width: 100px; height: 30px;">
+                <button class="modal_close_button" onclick="closeModal('.modal.video_proc_modal')">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    getDataAsync('/api/common/web-organ', 'POST', null, null, (jsonData)=>{
+        const $orgContent = $('.relate_org_content');
+        if (jsonData && jsonData.length > 0) {
+            jsonData.forEach((obj)=>{
+                const div = $(`<div>${obj.name}</div>`);
+                div.on('click', ()=>{
+                    window.open(obj.url, '_blank', "noopener noreferrer")
+                })
+                $orgContent.append(div);
+            })
+        }
+    }, null);
+
+</script>
+    </body>
+</html>

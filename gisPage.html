@@ -1,0 +1,747 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>인천교통정보센터</title>
+		
+		<link rel="/favicon.ico" type="image/x-icon"/>
+		<!--브라우저 css 리셋-->
+		<link rel="stylesheet" href="/css/icthome/reset.css" type="text/css" />
+		<!--폰트-->
+		<!--프리텐다드GOV-->
+		<link rel="stylesheet" as="style" href="/fonts/pretendard-gov/pretendard-gov-subset.css"/>
+		<!--나눔스퀘어Neo-->
+		<link rel="stylesheet" as="style" href="/fonts/NanumSquareNeo/nanumsquareneo.css"/>
+		<!--공통-->
+		<link rel="stylesheet" href="/css/icthome/common.css" type="text/css" />
+		<!--제이쿼리-->
+		<script src="/plugins/jquery/jquery-3.7.1.min.js"></script>
+		<!--브레드크럼브-->
+		<link rel="stylesheet" href="/css/icthome/breadcrumb.css" type="text/css" />
+
+		
+<meta charset="UTF-8">
+
+<meta name="robots" content="noindex, follow">
+<!--페이지-->
+	<link rel="stylesheet" href="/css/icthome/gis.css" type="text/css" />
+	<link rel="stylesheet" href="/css/icthome/gis-modal.css" type="text/css" />
+	<link rel="stylesheet" href="/plugins/site/videojs/video-js.8.23.4.min.css" type="text/css" />
+  	
+  	<script>
+  	(function(){
+  		var s = document.createElement('script');
+  		s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=75ae61d9ebbbda05df22a98be7b7e7ca&autoload=false';//서버
+  		//s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=54836c9288aa9b77f52e8714b5298831&autoload=false';//로컬
+  		
+  		s.async = true;
+  		s.defer = true;
+  		document.head.appendChild(s);
+  	})();
+  	</script>
+
+
+<!-- 외부 라이브러리 호출 -->
+  <!-- Video.js 8.23.4 (최신 버전) - HLS 지원 내장 (VHS) -->
+  <script src="/plugins/site/videojs/video-js.8.23.4.min.js?v=1.0.0"></script>
+  <!-- Video.js 8에서는 VHS가 내장되어 있으므로 videojs-contrib-hls는 필요 없음 -->
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-BTPHGFMVQF',{
+    'page_title': '교통정보'
+  });
+</script>
+
+		<!--반응형-->
+		<link rel="stylesheet" href="/css/icthome/responsive.css" type="text/css" />
+		
+		<script type="text/javaScript">
+			(function () {
+				const localTheme = localStorage.getItem("mode");
+				if(localTheme === 'dark'){
+					document.write('<body class="dark">');
+				}else{
+					document.write('<body class="light">');
+				}
+			})();
+		</script>
+	</head>
+	<body class="light">
+		<!--헤더 시작-->
+		
+<header id="header">
+    <!--탑메뉴 시작 : 모바일용 헤더-->
+    <div id="top-bar">
+        <div class="top-bar-inner container">
+            <a class="m-logo" href="/main/mainPage.do">
+                <img src="/images/icthome/logo.svg" alt="인천광역시 교통정보센터" />
+            </a>
+            <ul class="top-bar-menu-list">
+                <li class="top-bar-item m-menu">
+                    <a class="top-bar-link body" role="button">
+                        <img
+                                src="/images/icthome/icon-menu.svg"
+                                alt="전체메뉴"
+                                class="invert"
+                        />전체메뉴
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+    <!--탑메뉴 끝-->
+    <!--gnb 시작-->
+    <nav id="gnb">
+        <div class="gnb-inner container">
+            <a class="logo" href="/main/mainPage.do">
+                <img src="/images/icthome/logo.svg" alt="인천광역시 교통정보센터" />
+            </a>
+            <ul class="gnb-menu-list">
+                <li class="gnb-menu-item">
+                    <a class="gnb-menu-link" href="#">교통정보</a>
+                    <!--하위메뉴-->
+                    <ul class="gnb-downmenu-list body-l">
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=traffic">소통정보</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=incd">돌발정보</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=cctv">교통 CCTV</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=bus">버스노선</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=busstop">버스 정류소</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=vms">교통안내 전광판</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=parking">주차장</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=main-electric">전기차 충전소</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=main-crossroad">스마트 교차로</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=school">어린이보호구역</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/gis/gisPage.do?preParam=traffic-signal">신호개방교차로</a>
+                        </li>
+                        
+                        
+                    </ul>
+                    <!--하위메뉴 끝-->
+                </li>
+                <li class="gnb-menu-item">
+                    <a class="gnb-menu-link" role="button">통계분석 </a>
+                    <!--하위메뉴-->
+                    <ul class="gnb-downmenu-list body-l">
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/stat/statTraffic.do">교통정보</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/stat/statPublic.do">대중교통</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/stat/statTaxi.do">택시정보</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/stat/statAccident.do">교통사고</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/stat/openApis.do">OPEN-API</a>
+                        </li>
+                    </ul>
+                    <!--하위메뉴 끝-->
+                </li>
+                <li class="gnb-menu-item">
+                    <a class="gnb-menu-link" role="button">알림마당 </a>
+                    <!--하위메뉴-->
+                    <ul class="gnb-downmenu-list body-l">
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/board/noticeList.do">공지사항</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/board/faqList.do">자주묻는질문</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/board/promoList.do">홍보자료</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/board/pressList.do">보도자료</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/board/cardNewsList.do">카드뉴스</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/board/archiveList.do">자료실</a>
+                        </li>
+                    </ul>
+                    <!--하위메뉴 끝-->
+                </li>
+                <li class="gnb-menu-item">
+                    <a class="gnb-menu-link" role="button">센터소개 </a>
+                    <!--하위메뉴-->
+                    <ul class="gnb-downmenu-list body-l">
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/introduce/center.do">센터소개</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/introduce/system.do">시스템소개</a>
+                        </li>
+                    </ul>
+                    <!--하위메뉴 끝-->
+                </li>
+                <li class="gnb-menu-item">
+                    <a class="gnb-menu-link" role="button">센터방문 </a>
+                    <!--하위메뉴-->
+                    <ul class="gnb-downmenu-list body-l">
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/reserve/apply.do">방문예약</a>
+                        </li>
+                        <li class="gnb-downmenu-item">
+                            <a class="gnb-downmenu-link" href="/reserve/applyHistoryList.do">방문이력</a>
+                        </li>
+                    </ul>
+                    <!--하위메뉴 끝-->
+                </li>
+            </ul>
+        </div>
+    </nav>
+    <!--gnb 끝-->
+</header>
+	    <!--헤더 끝-->
+
+	    <!-- Body -->
+		
+  <!--팝업모달창-->
+  <div class="popInfoWrap parking-card" style="z-index: 101;"></div>
+
+  <!--지도 영역 시작-->
+  <section id="map" style="left:0px;top:0px">
+
+    <!--지도 메뉴 보기 버튼 : 모바일용-->
+    <button class="img-btn border-primary-dark m-side-menu-btn">
+      <img src="/images/icthome/icon-menu-f.svg" alt="메뉴 보기" class="invert" />
+    </button>
+    <!--지도 영역-->
+    <articla class="gis-map">
+      <!--마커 on/off 버튼-->
+      <ul class="map-marker-btn-list">
+        <li class="map-marker-btn-item active" id="roadOnMap">
+          <button type="button" class="map-quick-btn" value="road">
+            <img src="/images/icthome/icon-traffic-s.svg" alt="소통정보" />
+          </button>
+          <h5>소통정보</h5>
+        </li>
+        <li class="map-marker-btn-item" id="incdOnMap">
+          <button type="button" class="map-quick-btn" value="incd">
+            <img src="/images/icthome/icon-acc-s.svg" alt="돌발정보" />
+          </button>
+          <h5>돌발정보</h5>
+        </li>
+        <li class="map-marker-btn-item" id="cctvOnMap">
+          <button type="button" class="map-quick-btn" value="cctv">
+            <img src="/images/icthome/icon-cctv-s.svg" alt="cctv" />
+          </button>
+          <h5>교통</h5><h5>CCTV</h5>
+        </li>
+        <li class="map-marker-btn-item" id="busStopOnMap">
+          <button type="button" class="map-quick-btn" value="busStop">
+            <img src="/images/icthome/icon-busstop-s.svg" alt="정류소" />
+          </button>
+          <h5>버스</h5><h5>정류소</h5>
+        </li>
+        <li class="map-marker-btn-item" id="vmsOnMap">
+          <button type="button" class="map-quick-btn" value="vms">
+            <img src="/images/icthome/icon-vms-s.svg" alt="vms" />
+          </button>
+          <h5>교통안내</h5><h5>전광판</h5>
+        </li>
+        <li class="map-marker-btn-item" id=parkingInfoOnMap>
+          <button type="button" class="map-quick-btn" value="parking">
+            <img src="/images/icthome/icon-parking-s.svg" alt="주차장" />
+          </button>
+          <h5>주차장</h5>
+        </li>
+        <li class="map-marker-btn-item" id="chargerInfoOnMap">
+          <button type="button" class="map-quick-btn" value="charger">
+            <img src="/images/icthome/icon-electric-l.svg" alt="전기차충전소" />
+          </button>
+          <h5>전기차</h5><h5>충전소</h5>
+        </li>
+        <li class="map-marker-btn-item" id=smartCrossOnMap>
+        <button type="button" class="map-quick-btn" value="crossRoad">
+          <img src="/images/icthome/icon-crossroads-s.svg" alt="스마트교차로" />
+        </button>
+          <h5>스마트</h5><h5>교차로</h5>
+      </li>
+        <li class="map-marker-btn-item" id="schoolZoneOnMap">
+          <button type="button" class="map-quick-btn" value="schoolZone">
+            <img src="/images/icthome/icon-schoolzone-l.svg" alt="어린이보호구역" />
+          </button>
+          <h5>어린이</h5><h5>보호구역</h5>
+        </li>
+        <li class="map-marker-btn-item" id="openSignalOnMap">
+          <button type="button" class="map-quick-btn" value="charger">
+            <img src="/images/icthome/icon-map-signal.svg" alt="신호개방교차로" />
+          </button>
+          <h5>신호개방</h5><h5>교차로</h5>
+        </li>
+      </ul>
+      <!--지도 범례 박스-->
+      <div class="map-legend-box">
+        <!--범례 박스 접힘 상태-->
+        <ul class="map-legend-s">
+          <li class="map-legend-s-item t-m-success h4">
+            <div class="bg-m-success"></div>
+            원활
+          </li>
+          <li class="map-legend-s-item t-m-caution h4">
+            <div class="bg-m-caution"></div>
+            서행
+          </li>
+          <li class="map-legend-s-item t-m-danger h4">
+            <div class="bg-m-danger"></div>
+            정체
+          </li>
+          <li class="map-legend-s-item t-m-noinfo h4">
+            <div class="bg-m-noinfo"></div>
+            정보없음
+          </li>
+        </ul>
+        <!--범례 박스 열림 상태-->
+        <div class="map-legend-l">
+          <div class="d-flex align-center space-between">
+            <h4>도로별 소통상태 기준속도</h4>
+            <img src="/images/icthome/icon-close.svg" class="close-btn" />
+          </div>
+          <div class="map-legend-info sub-txt">
+            <ul class="map-legend-info-txt">
+              <li class="d-flex gap align-center">
+                <h4>단위<span class="body"> km/h</span></h4>
+                <div class="bg-m-success"></div>
+                <div class="bg-m-caution"></div>
+                <div class="bg-m-danger"></div>
+              </li>
+              <li class="d-flex gap align-center">
+                <h4>일반도로</h4>
+                <p>20이상</p>
+                <p>20-10</p>
+                <p>10이하</p>
+              </li>
+              <li class="d-flex gap align-center">
+                <h4>도시고속도로</h4>
+                <p>50이상</p>
+                <p>50-30</p>
+                <p>30이하</p>
+              </li>
+            </ul>
+            <ul class="map-legend-color">
+              <li class="d-flex align-center body-s">
+                <div class="bg-m-success"></div>
+                원활
+              </li>
+              <li class="d-flex align-center body-s">
+                <div class="bg-m-caution"></div>
+                서행
+              </li>
+              <li class="d-flex align-center body-s">
+                <div class="bg-m-danger"></div>
+                정체
+              </li>
+              <li class="d-flex align-center body-s">
+                <div class="bg-m-noinfo"></div>
+                정보없음
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </articla>
+    <!--지도 사이드 메뉴-->
+    <article class="side-menu-wrap">
+      <div class="side-menu">
+        <!--검색영역-->
+        <div class="search-box">
+          <img src="/images/icthome/searchbox-bg.svg" />
+          <h3 class="d3 mb-1">교통정보통합검색</h3>
+          <div class="d-flex search-input-wrap">
+            <div class="search-input-box">
+              <input type="search" class="search-input" />
+            </div>
+            <button type="button" class="img-btn" id="search-btn">
+              <img src="/images/icthome/icon-search.svg" alt="검색" />
+            </button>
+          </div>
+        </div>
+        <!--목록-->
+        <ul class="gis-list mb-1">
+          <!--검색 결과 : 사용자가 키워드 검색 시에만 사용합니다-->
+          <li class="gis-list-result hidden">
+            <div class="d-flex">
+              <h3 class="d4 keywordVisible"></h3>
+              <p class="secondary-txt body-l">검색결과</p>
+            </div>
+            <p class="secondary-txt">총 <span id="searchCnt"></span>개소</p>
+          </li>
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>소통정보</p>
+                <p class="secondary-txt"><span id="comCnt">-</span>개소</p>
+              </div>
+              <img
+                src="/images/icthome/icon-arrow-down-s.svg"
+                alt="목록 보기"
+                class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list">
+              <li class="gis-downmenu-item-wrap">
+                    <div class="gis-downmenu-item roadSummary">고속도로</div>
+                  <ul class="gis-downmenu-list-02" id="highWayInfo"></ul>
+              </li>
+              <li class="gis-downmenu-item-wrap">
+                    <div class="gis-downmenu-item roadSummary">주간선도로</div>
+                  <ul class="gis-downmenu-list-02 summaryDiv" id="mainRoadInfo"></ul>
+              </li>
+              <li class="gis-downmenu-item-wrap">
+                    <div class="gis-downmenu-item roadSummary">보조간선도로</div>
+                  <ul class="gis-downmenu-list-02 summaryDiv" id="subRoadInfo"></ul>
+              </li>
+            </ul>
+          </li>
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>돌발정보</p>
+                <p class="secondary-txt"><span id="incdCnt">-</span>개소</p>
+              </div>
+              <img
+                src="/images/icthome/icon-arrow-down-s.svg"
+                alt="목록 보기"
+                class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="incdList">
+            </ul>
+          </li>
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>교통 CCTV</p>
+                <p class="secondary-txt"><span id="cctvCnt">-</span>개소</p>
+              </div>
+              <img
+                src="/images/icthome/icon-arrow-down-s.svg"
+                alt="목록 보기"
+                class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="cctvList">
+            </ul>
+          </li>
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>버스노선</p>
+                <p class="secondary-txt"><span id="routeCnt">-</span>개소</p>
+              </div>
+              <img
+                src="/images/icthome/icon-arrow-down-s.svg"
+                alt="목록 보기"
+                class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="routeList">
+            </ul>
+          </li>
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>버스 정류소</p>
+                <p class="secondary-txt"><span id="busStopCnt">-</span>개소</p>
+              </div>
+              <img
+                src="/images/icthome/icon-arrow-down-s.svg"
+                alt="목록 보기"
+                class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="busStopList">
+            </ul>
+          </li>
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>교통안내 전광판</p>
+                <p class="secondary-txt"><span id="vmsCnt">-</span>개소</p>
+              </div>
+              <img
+                      src="/images/icthome/icon-arrow-down-s.svg"
+                      alt="목록 보기"
+                      class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="vmsList">
+            </ul>
+          </li>
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>주차장</p>
+                <p class="secondary-txt"><span id="parkingCnt">-</span>개소</p>
+              </div>
+              <img
+                      src="/images/icthome/icon-arrow-down-s.svg"
+                      alt="목록 보기"
+                      class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="parkingList">
+            </ul>
+          </li>
+
+
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>전기차충전소</p>
+                <p class="secondary-txt"><span id="chargerCnt">-</span>개소</p>
+              </div>
+              <img
+                      src="/images/icthome/icon-arrow-down-s.svg"
+                      alt="목록 보기"
+                      class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="chargerList">
+            </ul>
+          </li>
+
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>스마트 교차로</p>
+                <p class="secondary-txt"><span id="smartCrossCnt">-</span>개소</p>
+              </div>
+              <img
+                      src="/images/icthome/icon-arrow-down-s.svg"
+                      alt="목록 보기"
+                      class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="smartCrossList">
+            </ul>
+          </li>
+
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>어린이보호구역</p>
+                <p class="secondary-txt"><span id="schoolZoneCnt">-</span>개소</p>
+              </div>
+              <img
+                      src="/images/icthome/icon-arrow-down-s.svg"
+                      alt="목록 보기"
+                      class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="schoolZoneList">
+            </ul>
+          </li>
+          <li class="gis-list-item">
+            <div class="gis-list-inner">
+              <div class="d-flex">
+                <p>신호개방교차로</p>
+                <p class="secondary-txt"><span id="openSignalCnt">-</span>개소</p>
+              </div>
+              <img
+                      src="/images/icthome/icon-arrow-down-s.svg"
+                      alt="목록 보기"
+                      class="invert"
+              />
+            </div>
+            <!--하위메뉴-->
+            <ul class="gis-downmenu-list" id="openSignalList">
+            </ul>
+          </li>
+        </ul>
+        <!--메뉴 닫기 버튼 : 모바일 전용-->
+        <div class="btn-wrap addHeight20p">
+          <button type="button" class="button teriary-btn w-full">
+            지도 보기
+          </button>
+        </div>
+      </div>
+      <!--메뉴 접고 펴기 버튼 : PC 전용-->
+      <button type="button" class="menu-fold-btn">
+        <img src="/images/icthome/icon-arrow-fill-s.svg" alt="메뉴 접기" />
+      </button>
+
+    </article>
+  </section>
+
+
+  <!--지도영역 끝-->
+  <script type="text/javascript">
+/*     vw.ol3.MapOptions = {
+            basemapType: vw.ol3.BasemapType.GRAPHIC
+          , controlDensity: vw.ol3.DensityType.EMPTY
+          , interactionDensity: vw.ol3.DensityType.BASIC
+          , controlsAutoArrange: true
+          , homePosition: vw.ol3.CameraPosition
+          , initPosition: vw.ol3.CameraPosition
+         };
+
+        vmap = new vw.ol3.Map("map",  vw.ol3.MapOptions); */
+  </script>
+  <script src="/js/icthome/map.js?v=1.0.9"></script>
+
+		<!-- Body 끝-->
+
+		<!--풋터-->
+		
+<footer id="footer">
+    <article class="footer-con container">
+        <img src="/images/icthome/logo-w.svg" class="f-logo" alt="인천광역시 교통정보센터"/>
+        <div class="footer-con-inner">
+            <div class="f-info">
+                <p class="mb-1">
+                    인천광역시 남동구 경인로680번길 25 (간석 3동 67-11)
+                </p>
+                <!--연락처-->
+                <ul class="f-info-list">
+
+                    <li class="f-info-item h4">교통시설물관리(견학신청) 032-440-1796</li>
+                </ul>
+                <ul class="f-info-list">
+                    <li class="f-info-item h4">신호등 고장 032-864-6805</li>
+                    <li class="f-info-item h4">버스정보센터 080-080-0359</li>
+                </ul>
+            </div>
+
+            <div class="d-flex w-m" style="flex-direction: column;">
+                
+                <div class="f-nuri-div">
+                    <label for="nuri"></label>
+                    <select id="nuri" class="f-nuri-div" onchange="if(this.value) window.open(this.value);">
+                        <option value="" selected>관련 누리집</option>
+                        <option value="https://www.incheon.go.kr/">인천광역시</option>
+                        <option value="https://www.its.go.kr/">ITS국가정보센터</option>
+                        <option value="https://www.utic.go.kr/">도시교통정보센터(UTIS)</option>
+                        <option value="https://www.tago.go.kr/">TAGO</option>
+                        <option value="http://bus.incheon.go.kr/">버스정보시스템</option>
+                        <option value="https://parking.incheon.go.kr/">주차정보시스템</option>
+                        <option value="https://www.airport.kr/">인천국제공항</option>
+                    </select>
+                </div>
+                
+                <div class="f-nuri-div" style="margin-top: 30px;">
+                    <a href="https://www.incheon.go.kr/IC030601" target="_blank">
+                        <img src="/images/icthome/logo-michugol.png" alt="">
+                    </a>
+                </div>
+            </div>
+        </div>
+        <!--풋터 하단 : 사이트 이용정책 모음-->
+        <ul class="f-btm-list">
+            <li class="f-btm-item">
+                <a href="https://www.incheon.go.kr/IC050401" class="f-btm-link h4">개인정보처리방침</a>
+            </li>
+            <li class="f-btm-item">
+                <a href="https://www.incheon.go.kr/IC051101" class="f-btm-link">개인정보침해신고</a>
+            </li>
+            <li class="f-btm-item">
+                <a href="https://www.incheon.go.kr/IC050501" class="f-btm-link">영상정보처리기기운영관리방침</a>
+            </li>
+            <li class="f-btm-item">
+                <a href="/main/copy.do" class="f-btm-link">저작권정책</a>
+            </li>
+            <li class="f-btm-item">
+                <a href="/main/mail.do" class="f-btm-link">이메일 무단수집 거부</a>
+            </li>
+            <li class="f-btm-item">
+                <a href="/main/siteMap.do" class="f-btm-link">사이트맵</a>
+            </li>
+        </ul>
+    </article>
+</footer>
+
+<!--모드 전환 / 위로 가기 버튼-->
+<div class="page-btn-wrap">
+
+
+    <div class="chatbot-box">
+        <div class="chatbot-header">
+            <span class="chatbot-title">인천 교통정보센터 챗봇</span>
+            <button class="chatbot-close">&times;</button>
+        </div>
+
+        <div class="chatbot-body">
+            <div class="chatbot-greeting">
+                <p>안녕하세요, <strong>인천광역시 <span class="highlight">교통정보센터 챗봇</span></strong>입니다!<br />
+                    궁금한 내용을 입력해주세요.</p>
+            </div>
+
+            <div class="chat">
+                <p><strong>이렇게 질문해보세요.</strong></p>
+                <ul>
+                    <li>🚦 인천시 주요교차로 CCTV영상을 보고싶어</li>
+                    <li>🚦 센터 견학신청은 어떻게해?</li>
+                    <li>🚦 인천시 교통관련 분석 보고서는 어디있어?</li>
+                    <li>☑ 현재는 홈페이지 안내 기능만을 지원합니다.</li>
+                    <li>(현재는 시범 서비스중입니다. 일 25회 응답으로 제한중입니다.)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="chatbot-input">
+            <input type="text" placeholder="궁금한 내용을 입력해 주세요." />
+            <button class="send-btn">Enter</button>
+        </div>
+    </div>
+
+    <div class="page-btn chat-btn">
+        <div class="new">NEW</div>
+        <img src="/images/icthome/btn-chatbot.svg" alt="챗봇 호출" />
+    </div>
+    <div class="page-btn mode-btn">
+        <img src="/images/icthome/icon-darkmode.svg" alt="모드 변경" class="mode-icon mt-14p" />
+    </div>
+    <div class="page-btn go-to-top">
+        <img src="/images/icthome/icon-gototop.svg" alt="위로 가기" class="mt-14p"/>
+    </div>
+</div>
+<!--스크립트-->
+
+		<!--풋터 끝-->
+
+	    <!--로컬 : 전체 공통 / 페이지-->
+	    <script src="/js/icthome/app.js"></script>
+		<script src="/js/icthome/common.js?v=20250509"></script>
+	</body>
+</html>

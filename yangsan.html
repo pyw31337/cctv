@@ -1,0 +1,406 @@
+<!doctype html>
+
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ko">
+
+<!-- <head th:replace="fragments/header :: commonHead"></head> -->
+<head>
+    <title>용인-서울고속도로 | 교통정보</title>
+    
+		<meta charset="utf-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="format-detection" content="telephone=no" />
+		<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0" />
+		<link rel="shortcut icon" type="image/x-icon" href="/static/images/favicon.ico" />
+		<script src="/js/jquery-3.2.1.js"></script>
+		<script src="/js/lib/jquery-1.8.3.min.js"></script>
+		<script src="/js/user.js"></script>
+		<script src="/js/jquery-ui-1.10.3.custom.js"></script>
+		<script src="/js/home/header.js"></script>
+		<script src="/js/lib/accordion.js"></script>	
+		<!-- 네이버 애널리틱스 -->
+		<!-- <script type="text/javascript" src="//wcs.naver.net/wcslog.js"></script>
+		
+		<script type="text/javascript"> 
+		</script> -->
+
+	
+    
+		<link rel="stylesheet" href="/css/common.css" />
+		<link rel="stylesheet" href="/css/accordion.css" />
+		<link rel="stylesheet" href="/css/jquery-ui.css" />
+		<!-- YSWHP NEW -->
+		<link rel="stylesheet" href="/css/ys_style.css" />
+		<link rel="stylesheet" href="/css/default.css" />
+		<link rel="stylesheet" href="/css/sub.css" />
+		<link rel="stylesheet" href="/css/media.css" />
+	
+    
+</head>
+<body id="subLayout">
+	<div id="wrap">
+	    <header class="global_header transition">
+		<h1 class="logo"><a href="/">경수고속도로(주)</a></h1>
+		<!-- 비회원, 준회원이 메인로고 클릭시 로그아웃 처리 -->
+<!-- 		<h1 class="logo" sec:authorize="!hasAnyRole('ROLE_TEMP', 'ROLE_SMS_ONLY_USER')"><a th:href="@{/}">경수고속도로(주)</a></h1> -->
+<!-- 		<h1 class="logo" sec:authorize="hasAnyRole('ROLE_TEMP', 'ROLE_SMS_ONLY_USER')"><a th:href="@{/logout}">경수고속도로(주)</a></h1> -->
+		
+		<!-- 대메뉴 -->
+		<ul class="gnb">
+			<!-- user.js :: makeMeunList()에서 메뉴 생성 -->
+		</ul>
+		
+		<div class="spot">
+			<!-- 비회원 사용자 -->
+			<a href="/login">로그인</a>
+			<a href="/join/initJoinStepOne">회원가입</a>
+			<!-- 임시 사용자 -->
+			
+			
+			
+			<!-- 개인 사용자 -->
+			
+			
+			<!-- 개인사업자, 법인사업자 -->
+			
+			
+			<!-- 로그아웃 -->
+			
+			<!-- 권한 확인 -->
+			
+		</div>
+		
+		<!-- 소메뉴 -->
+		<div class="gnb_area" style="display : none;">
+			<ul class="gnb_inner"></ul>
+		</div>
+		<div class="backScreen"></div>
+		
+		<a href="#;" class="btn_m_menu"></a>
+		
+		<div class="menu_dim">
+			<a href="#" class="btn_close"></a>
+			
+			<div class="menu_wrap hotel">
+				<div class="head">
+					<!--로그인전-->
+					<a class="login" href="/login">로그인</a>
+					<a class="btn_join" href="/join/initJoinStepOne">회원가입</a>
+					<!--로그인후 -->
+					
+					
+					
+					
+					
+				</div> 
+				<div class="menu_list"></div>		
+			</div> 
+		</div>
+	</header>
+		
+        <!-- 화면 구성 -->
+        <div class="sub">
+			<div class="w_wrap">
+				<div class="page_site">
+					<span class="location">교통정보</span>
+					<h2 class="title">교통정보</h2>
+					<p class="msg">실시간 교통상황을 확인하실 수 있습니다.</p>
+	  			</div>
+			</div>
+	
+	 		<div class="routeWrap">
+				<h3 class="cont_ti_wh">노선안내</h3>
+				<div class="remark">
+					<ul>
+						<li class="noinfo">정보없음</li>
+						<li class="fast">원활</li>
+						<li class="tie">지체</li>
+						<li class="delay">정체</li>
+					</ul>
+				</div>
+				<!--구간명 및 방향-->
+				<div class="w_wrap">
+					<ul class="zone_name">
+						<li class="start">용인방향</li>
+						<li class="ic01">흥덕IC</li>
+						<li class="ic02">광교/상현IC</li>
+						<li class="ic03">서수지IC</li>
+						<li class="ic09">서수지TG</li>
+						<li class="ic04">서분당IC</li>
+						<li class="ic05">서판교IC</li>
+						<li class="ic08">금토JC</li>
+						<li class="ic06">고등IC</li>
+						<li class="ic07">헌릉IC</li>
+						<li class="last">서울방향</li>
+					</ul>
+					<div class="direction">
+						<div class="arr from_yongin">하행 서울방면</div>
+						<div class="arr to_seoul">하행 서울방면</div>
+						<div class="arr to_yongin">상행 용인방면</div>
+						<div class="arr from_seoul">상행 용인방면</div>
+					</div>
+				</div><!--//구간명 및 방향-->
+				<div class="route w_wrap">
+					<!--구간(소통정보)-->
+					<div class="canvas">
+						<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="1011.9px" height="202.1px" viewBox="0 0 1011.9 202.1" style="overflow:visible;enable-background:new 0 0 1011.9 202.1;" xml:space="preserve">
+							<!--상행(서울방면)-->
+							<g>
+								<path id="" class="line noinfo" d="M1.5,122.5c0,0,22.3,3.6,29,3"></path>
+								<path id="yongin_8" class="line" d="M30.5,125.5c9.3-0.8,18.8-34.8,27.4-41.6c3.7-2.9,31.6-19,61.3-34.3"></path>
+								<path id="yongin_7" class="line" d="M119.2,49.7c38.9-20,84.3-42.2,95.2-44c5.7-0.9,11.2-1.7,17-1.7"></path>
+								<path id="yongin_6" class="line" d="M231.3,4.1c10.9,0,22.8,2.7,38.8,11.4c24.5,13.4,25.7,7.3,58.9,9.1"></path>
+								<path id="yongin_5" class="line" d="M329,24.6c9.2,0.3,31.4-1.3,57.6,8.2c24.3,8.8,19.7,10.3,40.8,11.8"></path>
+								<path id="yongin_4" class="line" d="M427.5,44.6c23.3,1.2,41.9-7.1,86.7-0.4c44.8,6.7,52.7,18.9,71.1,25c5.5,1.8,10.4,3.2,14.9,4.1"></path>
+								<path id="yongin_3" class="line" d="M600.1,73.4c21.5,4.6,32.8,0.5,52.6,5.1c36.8,12.2,31.9,14.8,72.3,39.2c3.7,2.2,7.8,4.7,12,7.3"></path>
+								<path id="yongin_2" class="line" d="M737,125c20.6,12.5,45.7,27.5,53.6,29.2c6.2,1.3,11.9,2.2,17.7,2.6"></path>
+								<path id="yongin_1" class="line" d="M808.4,156.6c13.1,1,26.7-0.1,47.9-2.6c30.7-3.7,49,10.4,65,20.1c8.7,5.4,16.4,8.5,25.8,9.1"></path>
+								<path class="line noinfo" d="M947.1,183.2c7.8,0.5,16.8-0.9,28.7-4.2c26.4-7.3,31.9-9.8,31.9-9.8"></path>
+							</g>
+							<!--//하행-->
+							
+							<!--상행(서울방면)-->
+							<g>
+								<path id="" class="line noinfo" d="M0.5,134.5c0,0,26.2,3.6,32.9,3c2.1,0.1,5.8-1.5,5.8-1.5"></path>
+								<path id="seoul_1" class="line" d="M39.3,136.1c12-6.5,18.3-31.1,25.4-41c2.7-3.8,24.9-14.1,54.6-29.4"></path>
+								<path id="seoul_2" class="line" d="M119.2,65.7c38.9-20,84.3-44.2,95.2-46c7.5-1.6,16.9-1.6,16.9-1.6c10.9"></path>
+								<path id="seoul_3" class="line" d="M231.3,18.1c10.9,0,19.2,3.6,35.5,11.8 c24.8,12.5,28.2,9.5,62.2,9.7"></path>
+								<path id="seoul_4" class="line" d="M329,39.6c9.2,0.3,28.6-1.6,57.1,9.1c20.6,7.7,18.1,9.7,41.4,10.9"></path>
+								<path id="seoul_5" class="line" d="M427.5,59.6c23.3,1.2,41.9-7.1,86.7-0.4c44.8,6.7,52.7,18.9,71.1,25c5.5,1.8,10.4,3.2,14.9,4.1"></path>
+								<path id="seoul_6" class="line" d="M600.1,88.4c21.5,4.6,34.2,0,53,5.9c26.8,8.4,29.6,12.8,69.6,38c4,2.5,8.6,5.3,13.5,8.3"></path>
+								<path id="seoul_7" class="line" d="M736.2,140.6c20.8,12.5,46.7,27,54.4,28.6c6.2,1.3,11.9,2.2,17.7,2.6"></path>
+								<path id="seoul_8" class="line" d="M808.4,171.7c13.4,1,26.7-0.1,47.9-2.6c30.7-3.7,45.9,9.6,61.9,19.3c7.9,4.8,15.6,8.1,24.6,9.2"></path>
+								<path id="" class="line noinfo" d="M942.7,197.7c9.2,1.2,19.8,0.2,33.1-3.5c26.4-7.3,34.4-10.8,34.4-10.8"></path>
+							</g>
+							<!--//하행-->
+	 					</svg>
+	 				</div><!--//구간(소통정보)-->
+				</div>
+			</div>
+			
+			<article class="w_wrap">
+				<p class="cctv_guide"><i></i>CCTV 영상은 다수의 원활한 사용을 위해서 60초로 제한되어있습니다.</p>
+				<div class="cctv_wrap">
+					<aside class="cctv_list">
+						<a class="cctv_name pointer" id="cctv_1001">
+							<strong class="course">흥덕IC</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1003">
+							<strong class="course">금광 지하차도</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1005">
+							<strong class="course">신대 지하차도</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1007">
+							<strong class="course">여수내 지하차도</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1009">
+							<strong class="course">동역 지하차도</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1011">
+							<strong class="course">광교상현IC</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1012">
+							<strong class="course">길마재터널</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1014">
+							<strong class="course">길마재교</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1015">
+							<strong class="course">성복터널</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1017">
+							<strong class="course">서수지IC</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1018">
+							<strong class="course">서수지TG</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1019">
+							<strong class="course">동천터널</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1021">
+							<strong class="course">동천육교</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1022">
+							<strong class="course">고기터널</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1024">
+							<strong class="course">대장1교</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1025">
+							<strong class="course">서분당IC램프</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1026">
+							<strong class="course">대장2교</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1027">
+							<strong class="course">하산운터널 1</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1029">
+							<strong class="course">하산운터널 중앙</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1031">
+							<strong class="course">하산운터널 3</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1033">
+							<strong class="course">서판교IC진입 용인</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1034">
+							<strong class="course">서판교IC 2</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1036">
+							<strong class="course">운중터널</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1038">
+							<strong class="course">금토 1교</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1039">
+							<strong class="course">금토 TG</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1040">
+							<strong class="course">고산터널</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1042">
+							<strong class="course">고등IC</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1044">
+							<strong class="course">고등IC 램프</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1045">
+							<strong class="course">고등터널</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1047">
+							<strong class="course">고등</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1048">
+							<strong class="course">심곡터널 1</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1050">
+							<strong class="course">심곡터널 2</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1052">
+							<strong class="course">심세곡관리동</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1054">
+							<strong class="course">세곡터널 1</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1056">
+							<strong class="course">세곡터널 2</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1058">
+							<strong class="course">헌릉IC</strong>
+							<span class="btn">CCTV</span>
+						</a>
+						<a class="cctv_name pointer" id="cctv_1059">
+							<strong class="course">헌릉IC램프</strong>
+							<span class="btn">CCTV</span>
+						</a>
+					</aside>
+					<div class="cctvArea">
+						
+					</div>
+				</div>
+			</article>
+		</div>
+    
+	    <div class="global_footer">
+		<div class="footer_menu">
+			<ul>
+				<li class="footer_menu_type1"><a href="/agreement/useOfPersonalInfoForTemp">개인정보처리방침</a></li>
+				<li class="footer_menu_type2"><a style="color:#70707b;" href="/agreement/imageOperationManagementPolicy">영상기기 운영관리방침</a></li>
+				<li class="footer_menu_type2"><a style="color:#70707b;" href="/agreement/websiteTermsUseForTemp">홈페이지 이용약관</a></li>
+				<li class="footer_menu_type2"><a style="color:#70707b;" href="/agreement/collectionOfEmail">이메일 주소 무단 수집거부</a></li>
+			</ul>
+		</div>
+		<div class="footer_address">
+			<ul>
+				<li><em>주소</em>(16803)경기도 용인시 수지구 성복1로 260</li>
+				<li class="last"><em>대표이사</em>김재성</li>
+			</ul>
+			<ul>
+				<li><em>TEL</em>1599-2505</li>
+				<li class="last"><em>FAX</em>031-548-2205</li>
+			</ul>
+		</div>
+		<span class="copy_right">ⓒ 2021 YSWAY corp. All rights reserved.</span>
+		<div class="related_site">
+			<select name="related_site" id="related_site" title="새창열림" onchange="window.open(this.options[this.selectedIndex].value,'_blank')">
+		      <option value="" selected="selected">관련사이트</option>
+		      <option value="http://www.molit.go.kr/portal.do">국토교통부</option>
+		      <option value="http://www.cephis.re.kr/">민자도로 관리지원센터</option>
+		      <option value="http://www.ex.co.kr/">한국도로공사</option>
+			  <option value="http://www.seoulbeltway.co.kr">서울고속도로주식회사</option>
+			  <option value="http://www.hiway21.co.kr/">신공항 하이웨이(주)</option>
+			  <option value="http://www.dbeway.co.kr/">신대구부산고속도로(주)</option>
+			  <option value="http://www.machang-bridge.com/">(주)마창대교</option>
+			  <option value="http://www.cneway.co.kr/">천안논산고속도로</option>
+			  <option value="http://www.schighway.co.kr/">서울춘천고속도로</option>
+			  <option value="http://www.busanulsanway.co.kr/">부산울산고속도로</option>
+			  <option value="http://gits.gg.go.kr/main.do">경기도교통정보센터</option>
+			  <option value="http://www.smartway.seoul.kr/">서울도시고속도로교통정보</option>
+			  <option value="http://www.incheonbridge.com/">인천대교</option>
+			  <option value="http://www.sseway.co.kr/">제2서해안고속도로</option>
+			  <option value="http://www.ggex.co.kr/">경기고속도로</option>
+			  <option value="http://www.mweway.co.kr/">수원광명고속도로</option>
+			  <option value="http://www.knway.co.kr/main.php">강남순환도로</option>
+			  <option value="http://www.igex.co.kr/index.html">인천김포고속도로</option>
+			  <option value="http://www.gpeway.com/">구리포천고속도로</option>
+		    </select>
+	    </div>		
+		<h1 class="logo">
+			<img src="/images/common/logo_ys.svg" />
+		</h1>
+	</div>
+	    <div>
+        <script type="text/javascript" src="/js/common/util.js"></script>
+        <script type="text/javascript" src="/webjars/jquery-number/2.1.3/jquery.number.min.js"></script>
+        <!-- 화면 js파일 -->
+        <script type="text/javascript" src="/js/trfc/traffic.js"></script>
+	</div>
+    </div>
+    
+    	<!-- 네이버 애널리틱스 스크립트 -->
+	<script type="text/javascript" src="//wcs.naver.net/wcslog.js"></script>
+	<script>
+		if(!wcs_add) var wcs_add = {};
+		wcs_add["wa"] = "42e8cd79382608";
+		if(window.wcs) {
+		  wcs_do();
+		}
+	</script>	
+</body>
+</html>

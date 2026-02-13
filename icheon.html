@@ -1,0 +1,178 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <title>이천교통정보센터 - 교통 소통상황 영상</title>
+	<meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="title" content="남양주교통정보센터">
+    <meta name="keywords" content="남양주교통정보센터">
+   
+    <link rel="stylesheet" type="text/css" href="css/commonForBase.css">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <link rel="stylesheet" type="text/css" href="css/m_style.css">
+    <link rel="stylesheet" type="text/css" href="./css/lib/video-js.css">
+    
+    <script src="js/lib/jquery-1.12.4.min.js"></script>	
+    <script src="./js/lib/jquery.vticker.min.js"></script>
+	<script src="./js/lib/video-js.7.3.0.min.js"></script>
+	
+	<script src="./js/comm/kakaoMapKey.js"></script>
+    <script src="./js/comm/KakaoApiFunc.js"></script> 
+    
+<!--     <script src="./js/webViewer/midsvr.js"></script> -->
+<!-- 	<script src="./js/webViewer/video.js"></script> 
+<!-- 	<script src="./js/webViewer/adapter.js"></script> -->
+<!-- 	<script src="./js/webViewer/kurento-client.js"></script> -->
+<!-- 	<script src="./js/webViewer/kurento-utils.js"></script> -->
+    
+	<script src="js/comm/common.js"></script>
+	<script src="js/cctv.js"></script>
+    
+</head>
+
+    
+<body>
+
+    <div id="wrap" class="trafficsubwrap">
+        
+<!--메뉴시작-->
+
+    <header id="header" class="">
+    	<a href="#container" id="mainskip" title="본문 바로가기" class="mainskip" tabindex="0">본문 바로가기</a>
+    	<h1>
+    		<a href="./index.view">
+    			<img src="./images/logo.png" alt="이천시 교통정보센터">
+    		</a>
+   		</h1>
+   		<button class="menubtn" title="메뉴">메뉴</button>
+        <nav class="menu">
+            <ul>
+                <li class="munulist" id="traffic"> 	
+               		<a href="traffic.view" title="교통정보"  class="mainmenu">교통정보</a>
+                	<img src="./images/dot.png" alt="">
+                	<ul class="submenu">
+                		<li><a href="traffic.view" title="실시간 소통정보">소통정보</a></li>
+                		<li><a href="cctv.view" title="CCTV">CCTV</a></li>
+                		<li><a href="vms.view" title="VMS">VMS</a></li>
+                		<li><a href="smart.view" title="스마트교차로">스마트교차로</a></li>
+                	</ul>
+                </li>
+                <li class="munulist" id="accident">
+                	<a href="accident.view" title="돌발정보" class="mainmenu">돌발정보</a>
+                	<img src="./images/dot.png" alt="">
+                	<ul class="submenu">
+                		<li><a href="accident.view" title="실시간 돌발정보">실시간 돌발정보</a></li>
+                	</ul>
+                </li>
+                <li class="munulist">
+                	<a href="#" title="버스정보 새창열림" onclick="javascript:busClickTabMove();" class="mainmenu">버스정보</a>
+                	<img src="./images/dot.png" alt="">
+                	<ul class="submenu">
+                		<li><a href="public_traffic.view" title="경기버스정보 새창열림" target="_blank" >경기버스정보</a></li>
+                	</ul>
+                </li>
+                <li class="munulist" id="analysis">
+                	<a href="analysis.view" title="교통수집/분석정보" class="mainmenu mainmenuletter">교통통계</a> 
+                	<img src="./images/dot.png" alt="">            	
+                	<ul class="submenu">
+                		<li><a href="analysis.view" title="주요 교통정보">주요 교통정보</a></li>
+                	</ul> 	
+                </li>
+                <li class="munulist" id="center">
+                	<a href="center.view" title="이용안내" class="mainmenu">소개 및 안내</a>
+                	<img src="./images/dot.png" alt="">
+                	<ul class="submenu">
+                		<li><a href="center.view" title="센터소개">센터소개</a></li>
+                		<li><a href="board.view" title="공지사항">공지사항</a></li>
+                		<li><a href="location.view" title="찾아오는길">찾아오는 길</a></li>
+                	</ul>
+                </li>
+            </ul>
+        </nav>
+		<!-- 소통정보 검색 (검색하면 소통정보 검색결과 창으로 바로 이동)-->
+		<button class="headersearch" title="검색창 열기">검색</button>
+		<div class="headersearchconten">
+			<h2>도로검색</h2>
+			<button class="headersearch_close" title="검색창 닫기">검색창 닫기</button>
+			<div class="searchbox">
+				<input type="search" placeholder="도로명을 입력하세요." title="도로검색" id="input_header">
+				<button class="search" title="검색" id="header_search">검색</button>
+			</div>
+		</div>
+		<!-- 소통정보 검색 -->
+    </header>
+
+<!--메뉴끝-->
+        
+       
+        
+        <article class="trafficwrap" id="container">
+            <h2>교통정보</h2>
+
+            <section class="trafficbox">
+            	<h3><span>CC</span>TV</h3>
+            	<p class="trinfo">실시간 소통 상황을 영상으로 확인하세요.</p>
+            		
+            	<div class="traffictabbox">
+            		<nav>
+            			<ul>
+            				<li><a href="traffic.view" title="실시간 소통정보 ">소통정보</a></li>
+                			<li class="click"><a href="cctv.view" title="CCTV 선택됨">CCTV</a></li>
+                			<li><a href="vms.view" title="VMS">VMS</a></li>
+                			<li><a href="smart.view" title="스마트교차로">스마트교차로</a></li>
+            			</ul>
+            		</nav>
+					<div class="trafficsearch">
+						<input type="search" title="도로명검색" id="search_keyword" placeholder="CCTV 설치명을 입력하세요.">
+						<button title="검색" type="button" id="btn_search_cctv">검색</button>
+					</div>
+            	</div>
+            		
+            	<p class="trcount">· 결과 <span></span>건</p>
+            	<div class="road_list" id="cctvlist">
+            		<ul class="trtab1" id="cctvul">
+            		<!-- 	<li><button>강변북로</button></li>
+            			<li><button>경춘로</button></li>
+            			<li><button>구리-포천 고속도로</button></li> -->
+            		</ul>
+            	</div>
+            	<button class="arrowbtn listclose" title="소통정보 목록 닫기">목록 닫기</button>
+            	<button class="arrowbtn listopen" title="소통정보 목록 열기">목록 열기</button>
+            </section>
+            	
+            <section class="mapbox">
+            	<h3>소통정보 지도</h3>
+                
+                    <!--CCTV 팝업-->
+<!--                     <div class="popup pop_cctv">
+                    	<h5>제2경인고속도로 인천방향</h5>
+                    	<button class="btnre" title="새로고침">새로고침</button>
+                        <button class="btnclose" title="닫기">닫기</button>
+                        <div class="pop_conten">
+                        	<div class="cctv">cctv나올 곳</div>
+                        	<p class="cctvtxt">영상은 30초간 제공됩니다.</p>
+                        </div>
+                   </div> -->
+                    <!--CCTV 팝업 끝-->
+                <div class="mapchoice">
+                   	<ul id="mapSettingbtn">
+                    	<li data-action="normalMap"	class="mapchoice1"><button title="일반지도" data-action="normalMap" class="click">일반지도</button></li>
+                    	<li data-action="satiMap" class="mapchoice2"><button title="위성지도" data-action="satiMap">위성지도</button></li>
+                    </ul>
+                </div>
+            	<div class="map" id="nMapArea"></div>
+            </section>            	
+
+            
+            
+		</article>
+
+   </div>
+   
+    
+    
+    
+</body>
+</html>

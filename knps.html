@@ -1,0 +1,304 @@
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>
+국립공원공단
+</title>
+ <meta name="viewport" content="width=device-width">
+<link rel="stylesheet" href="/resource/css20/sub_style.css">
+<script src="/resource/js/jquery.min.js"></script>
+<script src="/resource/js/jquery.cookie.js"></script>
+<script>
+
+/*  하루팝업 창닫기 */
+
+ function close_mainpop () {
+  var toDay = new Date();
+  if ($("#p_close").is(':checked') == true) {
+   $.cookie("NoMainPopLay", toDay.getDay(), {
+    expires: 1,
+    path : '/'
+   });
+  };
+ 	 $("#layer_pop").hide();
+ }
+ 
+ /* 하루팝업 창닫기 end */
+
+ $(document).ready(function(){
+
+     var toDay = new Date();
+     if($.cookie("_NoMainPopLay") != toDay.getDay()){
+
+    		$("#layer_pop").show();
+		}
+	 	
+ });
+</script>
+</head>
+<body>
+<div id="wrap">
+
+<!-- header start -->
+
+
+
+
+
+
+
+  
+  
+
+
+	<link rel="stylesheet" href="/resource/css20/dropdown.css">
+
+	<div class="nav_wrapper">
+ <div id="h_logo"><a href="/main/index_m.do" title="홈으로"><img src="/resource/img20/h_logo2.png" alt="국립공원"/></a></div>
+ <div id="login"><a href="/member/login.do" title="로그인"><img src="/resource/img20/bt_login2.png" alt="로그인"/></a>
+			</div>
+  
+  <div class="spinner-master">
+    <input type="checkbox" id="spinner-form" />
+    <label for="spinner-form" class="spinner-spin">
+    <div class="spinner diagonal part-1"></div>
+    <div class="spinner horizontal"></div>
+    <div class="spinner diagonal part-2"></div>
+    </label>
+  </div>
+  <nav id="menu" class="menu">
+    <ul class="dropdown"> 
+	
+      <li ><a href="#Link" title="Link">우리나라 국립공원</a>
+        <ul>
+		 <li><a href="#Link" title="Link">국립공원은?</a>
+		 <ul>
+		 <li><a href="/pintro/intro.do" title="Link">국립공원은?</a></li>
+		 <li><a href="/pintro/history.do" title="Link">국립공원 역사</a></li>
+		 <li><a href="/pintro/knps.do" title="Link">국립공원공단</a></li>
+		 </ul>
+		 
+		 </li>
+		 <li><a href="/park/parkmenu.do" title="Link">공원별 탐방정보</a></li>
+		</ul>
+      </li>
+      <li ><a href="#Link" title="Link">안전한 탐방</a>
+       <ul>
+		 <li><a href="#Link" title="Link">기상정보</a>
+		<ul>
+		 <li><a href="/main/menuctrl.do?menuNo=11" title="Link">기상정보</a></li>
+		 <li><a href="/main/menuctrl.do?menuNo=10" title="Link">실시간영상</a></li>
+		 </ul>
+		 
+		 </li>
+		 <li><a href="/main/menuctrl.do?menuNo=20" title="Link">탐방통제정보</a></li>
+		  <li><a href="/main/menuctrl.do?menuNo=09" title="Link">입산시간지정제</a></li>
+		   <li><a href="/main/menuctrl.do?menuNo=08" title="Link">행동요령</a></li>
+		    <li><a href="https://www.safetyreport.go.kr/api?apiKey=B4800018IUFRLJU4XWPL1V8CNPI" target="_blank" title="Link">안전신고</a></li>
+		</ul>
+      </li>
+      <li ><a href="#Link" title="Link">건강한 국립공원</a>
+      <ul>
+		 <li><a href="/bio/intro.do" title="Link">건강한 국립공원</a></li>
+		 <li><a href="/bio/seatrip.do" title="Link">new! 비대면 해양생태계!</a></li>
+		 </ul>
+        
+      </li>
+      <li ><a href="#Link" title="Link">함께하는 국립공원</a>
+         <ul>
+		 <li><a href="#Link" title="Link">새소식</a>
+		 <ul>
+		 <li><a href="/intro/notice.do" title="Link">공지사항</a></li>
+		 <li><a href="/intro/notice.do?pnewsGrpCd=PNE02&parkId=" title="Link">보도자료</a></li>
+		  <!-- li><a href="/parkwith/cardNews.do" title="Link">카드뉴스</a></li-->
+		 </ul>
+		 
+		 </li>
+		 <li><a href="/parkwith/photo.do" title="Link">생생포토</a></li>
+		  <li><a href="/parkwith/ifm.do" title="Link">홍보자료</a></li>
+		  <li><a href="/main/menuctrl.do?menuNo=14" title="Link">추천정보</a></li>
+		  <li><a href="/parkwith/open.do" title="Link">고객의 소리</a></li>
+		   <!--li><a href="http://archive.knps.or.kr" title="Link" target="_blank">국립공원 탐방아카이브</a></li-->
+		</ul>
+      </li>
+      <li ><a href="https://m.knps.or.kr/park/orgMember.do" title="Link">직원 연락처</a></li>
+    </ul>
+  </nav>
+	
+	</div>
+	
+	<script src="/resource/js20/dropdown.js"></script>
+	
+<!-- header end -->
+<div id="sub_tit" class="sub02"> 기상정보 <br/>
+  <span>안전한 탐방  &gt; 기상정보 &gt; 실시간 영상</span> </div>
+<section id="content">
+  <div class="park_cctv">
+    <div>현장의 기상 및 통신상황에 따라 영상이 일시 중지 될 수 있습니다. </div>
+    <ul>
+     <!--li class="off"><a href="javascript:alert('점검중입니다.');" onfocus="this.blur()"  title="새창열림" style="cursor: pointer;">계룡산국립공원(천황봉)-점검중</a></li-->
+      <li onclick="openCCTV('16');">계룡산국립공원(천황봉) </li>
+      <li onclick="openCCTV('12');" >다도해해상국립공원(지리청송해변)</li>
+    <!--li class="off"><a href="javascript:alert('점검중입니다.');" onfocus="this.blur()"  title="새창열림" style="cursor: pointer;">덕유산국립공원(설천봉)-점검중</a></li-->
+      <li onclick="openCCTV('10');" >덕유산국립공원(설천봉)</li>
+      
+      <li onclick="openCCTV('15');">무등산국립공원(장불재)</li>
+      <li onclick="openCCTV('18');"> 변산반도국립공원(죽막탐방로)</li>
+      <li onclick="openCCTV('1');">북한산국립공원(백운대)</li>
+      <li  onclick="openCCTV('14');">북한산국립공원(사패산)</li>
+      <!--li onclick="openCCTV('8');">설악산국립공원(대청봉)</li-->
+      <li onclick="openCCTV('2');" >설악산국립공원(울산바위)</li>
+      
+         <!-- li class="off"><a href="javascript:alert('점검중입니다.');" onfocus="this.blur()"  title="새창열림" style="cursor: pointer;">설악산국립공원(울산바위)</a></li-->
+      
+      
+      <li onclick="openCCTV('3');" >소백산국립공원(연화봉)</li>
+      <li onclick="openCCTV('11');">오대산국립공원(두로령)</li>
+      <li onclick="openCCTV('7');" >지리산국립공원(장터목)</l>
+     <li onclick="openCCTV('4');" >지리산국립공원(천왕봉)</li>
+     
+      <!-- li class="off"><a href="javascript:alert('점검중입니다.');" onfocus="this.blur()"  title="새창열림" style="cursor: pointer;">지리산국립공원(천왕봉)-점검중</a></li-->
+      <li onclick="openCCTV('9');" >주왕산국립공원(기암)</li>
+      <li onclick="openCCTV('6');" >태백산국립공원(천제단)</li>
+       <li onclick="openCCTV('21');">태안해안국립공원(학암포)</li>
+      <li onclick="openCCTV('17');" >치악산국립공원(상원사)</li> 
+
+      <li onclick="openCCTV('5');">한려해상국립공원(각산)</li>
+    </ul>
+  </div>
+ 
+  <!-- div id="nuri">
+	<div class="img" ><img src="http://www.knps.or.kr/portal/images/img_opencode1_m.jpg"   alt="공공누리마크 제1유형"/></div>
+	<div class="txt">사용 시 저작물의 출처를 표시해야 합니다.(출처: 국립공원공단)<br/>
+	- 상업적, 비상업적 이용 가능<br/>
+	- 변형 등 2차적 저작물 작성 가능
+	</div>
+	</div--> 
+	<a href="/live/test.do">-&nbsp;-</a></section>
+<!-- //wrap--> 
+<script type="text/javascript">
+<!--
+
+	
+function openCCTV(id){
+	if(confirm("실시간 기상영상 열람시 데이터 사용량이 급격히 증가할 수 있습니다. 접근하시겠습니까?")){
+		
+
+		
+		if(id == "1"){ //북한산
+				window.open('/live/bukhan.do', '_blank');
+			}else if(id == "2"){ //설악산
+				window.open('/live/seorak.do', '_blank');
+			}else if(id == "3"){ //소백산
+				window.open('/live/sobaek.do', '_blank');
+			}else if(id == "4"){//지리산 천왕복
+				window.open('/live//jiri.do', '_blank');
+			}else if(id == "5"){//한려해상
+				window.open('/live/cctv5.do', '_blank');
+			}else if(id == "6"){//태백산
+				window.open('/live/cctv6.do', '_blank');
+			}else if(id == "7"){//지리산장터목
+				window.open('/live/cctv7.do', '_blank');
+			}else if(id == "8"){//설악산 중청
+				window.open('/live/cctv8.do', '_blank');
+			}else if(id == "9"){//주왕산*
+				window.open('/live/cctv9.do', '_blank');
+			}else if(id == "10"){//덕유산
+				window.open('/live/cctv10.do', '_blank');
+			}else if(id == "11"){//오대산
+				window.open('/live/cctv11.do', '_blank');
+			}
+			else if(id == "12"){//다도해해상공원
+				window.open('/live/cctv12.do', '_blank');
+			}else if(id == "14"){//다도해해상공원
+				window.open('/live/cctv14.do', '_blank');
+			}else if(id == "15"){//다도해해상공원
+				window.open('/live/cctv15.do', '_blank');
+			}else if(id == "16"){//다도해해상공원
+				window.open('/live/cctv16.do', '_blank');
+			}else if(id == "17"){//치악산공원
+				window.open('/live/cctv17.do', '_blank');
+			}else if(id == "18"){//변산반도국립공원
+				window.open('/live/cctv18.do', '_blank');
+			}else if(id == "21"){//태안해안공원
+				window.open('/live/cctv21.do', '_blank');
+				
+			}
+	}
+}
+//-->
+</script> 
+<script type="text/javascript" src="/resource/js/menu.js"></script>
+
+
+
+<div id="footer">
+<div id="footer_menu">
+<ul>
+			
+			<li><a href="/common/mcorporation.do">소개</a></li>
+			<li><a href="/common/privacy.do" class="privacy" >개인정보처리방침</a></li>
+			<li><a href="/common/copyright.do">저작권정책</a></li>
+			<li><a href="https://www.knps.or.kr/portal/main.do?device=pc" class="confirmation">PC버전</a></li>
+			<li><a href="/common/sitemap.do"  class="last">sitemap</a></li>
+		</ul>
+</div>
+<div id="copyright">
+
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          
+          26466 강원특별자치도 원주시 혁신로 22(반곡동) 국립공원공단 <br/> 
+          대표전화(일반문의) : 033-769-9300 고객센터(예약문의) : 1670-9201 팩스번호 : 033-769-9419
+          
+        
+
+<br/>Copyright © Korea National Park Service. All Rights Reserved. 
+
+</div>
+
+<script>
+
+	$(document).ready(function(){
+    $('.confirmation').on('click', function () {
+        return confirm('PC 버전을 모바일에서 열람시 데이터 사용량이 급격히 증가할 수 있습니다. 접근하시겠습니까?');
+    });
+   });     
+</script>
+
+<!-- AceCounter Mobile WebSite Gathering Script V.8.0.2019080601 -->
+<script language='javascript'>
+	var _AceGID=(function(){var Inf=['m.knps.or.kr','m.knps.or.kr','AZ2A80696','AM','0','NaPm,Ncisy','ALL','0']; var _CI=(!_AceGID)?[]:_AceGID.val;var _N=0;if(_CI.join('.').indexOf(Inf[3])<0){ _CI.push(Inf);  _N=_CI.length; } return {o: _N,val:_CI}; })();
+	var _AceCounter=(function(){var G=_AceGID;var _sc=document.createElement('script');var _sm=document.getElementsByTagName('script')[0];if(G.o!=0){var _A=G.val[G.o-1];var _G=(_A[0]).substr(0,_A[0].indexOf('.'));var _C=(_A[7]!='0')?(_A[2]):_A[3];var _U=(_A[5]).replace(/\,/g,'_');_sc.src='https:'+'//cr.acecounter.com/Mobile/AceCounter_'+_C+'.js?gc='+_A[2]+'&py='+_A[1]+'&up='+_U+'&rd='+(new Date().getTime());_sm.parentNode.insertBefore(_sc,_sm);return _sc.src;}})();
+</script>
+<noscript><img src='https://gmb.acecounter.com/mwg/?mid=AZ2A80696&tp=noscript&ce=0&' border='0' width='0' height='0' alt=''></noscript>
+<!-- AceCounter Mobile Gathering Script End -->
+</body>
+</html>

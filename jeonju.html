@@ -1,0 +1,206 @@
+
+
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+    <title>CCTV : 전주시 교통정보센터</title>
+    <link rel="shortcut icon" href="../favicon.ico">
+    <link rel="icon" href="../favicon.ico">
+    <link rel="stylesheet" type="text/css" href="../css/style.css"/>
+    <link rel="stylesheet" type="text/css" href="../css/m_style.css"/>
+    <script src="../js/lib/jquery-1.12.4.min.js"></script>
+    <script src="../js/lib/jquery.i18n.properties.js"></script>
+    <script src="../js/lib/hashMap.js"></script>
+    <script src="../js/comm/common.js"></script>
+    <script src="../js/comm/kakaoMapKey.js"></script>
+    <script src="../js/comm/KakaoApiFunc.js"></script>
+    <script src="../js/atms/traffic2.js"></script>
+    <script type="text/javascript" src="../js/lib/xeus.player.2.2.0.js"></script>
+</head>
+
+
+<body>
+
+<div class="cctvwrap">
+    <div class="cctv_conwrap">
+        <div class="cctvtop">
+            <h4 id="p_label"></h4>
+            <ul class="cctvtopbtn">
+                <li>
+                    <button title="닫기" class="btnclose">닫기</button>
+                </li>
+                <li><button title="전체화면" class="full-screen full">전체화면</button></li>
+            </ul>
+        </div>
+        <div class="cctv_content">
+            <h4>영상은 30초만 제공 됩니다.</h4>
+            <div id="xeus-player" class="playerWrap"></div>
+        </div>
+    </div>
+    <div class="back"></div>
+</div>
+
+<div class="mainwrap mapwrap koclick trclick">
+
+    
+
+
+        <!--메뉴시작-->
+        <header>
+            <h1><a href="../its/main.view?lang=ko" title="전주시 교통정보센터"><span>전주시 교통정보센터</span></a></h1>
+            <button class="m_menubtn"></button>
+            <button class="m_menu_close"></button>
+            <ul class="language">
+                 <li class="ko"><a href="../its/main.view?lang=ko" title="한국어">한국어</a></li>
+                 <li class="en"><a href="../fore/main.view?lang=en" title="English">English</a></li>
+                 <li class="ch"><a href="../fore/main.view?lang=zh" title="中文">中文</a></li>
+                 <li class="je"><a href="../fore/main.view?lang=ja" title="日本語">日本語</a></li>
+            </ul>
+            <div class="m_menu">
+                <nav>
+                    <ul>
+                        <li class="bus"><a href="../its/bus1.view" title="버스운행정보">버스운행정보 </a></li>
+                        <li class="fast">
+                            <a
+                                    href="http://map.daum.net/?map_type=TYPE_MAP&target=car&urlX=533465&urlY=646335&urlLevel=3"
+                                    title="빠른길찾기"
+                                    target="_blank"
+                                    rel="noopener"
+                            >
+                                빠른길찾기
+                            </a>
+                        </li>
+                        <li class="traffic"><a href="../its/traffic1.view" title="교통정보">교통정보</a></li>
+                        <li class="vicinity"><a href="../its/vicinity1.view" title="주변정보">주변정보</a></li>
+                        <li class="traffic4"><a href="../its/traffic4.view" title="교통통계">교통통계</a></li>
+                        <li class="center"><a href="../its/center.view" title="센터소개">센터소개</a></li>
+                    </ul>
+                </nav>
+            </div>
+            <div class="manu_back"></div>
+            <div class="m_foot1">
+                <ul class="site">
+                    <li>
+                        <select title="관련사이트_선택변경시 새창으로 사이트가 열립니다." class="select_related_site"> <!--해당사이트 선택 시 새창으로 사이트가 열리게 해주세요-->
+                            <option value="">관련사이트</option>
+                            <option value="http://www.jeonju.go.kr">전주시청</option>
+                            <option value="http://www.police.go.kr">경찰청</option>
+                            <option value="http://www.tago.go.kr">TAGO</option>
+                            <option value="http://www.molit.go.kr">국토교통부</option>
+                            <option value="http://www.koroad.or.kr">도로교통공단</option>
+                            <option value="http://www.ex.co.kr">한국도로공사</option>
+                            <option value="http://www.tbn.or.kr/main.tbn?area_code=8">TBN전북교통방송</option>
+                            <option value="http://www.its.go.kr">국가교통정보센터</option>
+                        </select>
+                    </li>
+                </ul>
+            </div>
+        </header>
+        <!--메뉴끝-->
+        
+   
+
+    <article class="subwrap">
+        <h2><span>교통</span>정보</h2>
+        <div class="sub_left_box">
+            <!--탭 시작-->
+            <div class="sub_top traffic_top">
+                <ul class="tab_box">
+                    <li><a href="../its/traffic1.view" title="소통정보" class="tab1">소통정보</a></li>
+                    <li class="click"><a href="../its/traffic2.view" title="CCTV" class="tab2">CCTV</a></li>
+                    <li><a href="../its/traffic3.view" title="주차장" class="tab3">주차장</a></li>
+                </ul>
+                <!--CCTV검색인풋-->
+                <div class="businput">
+                    <input type="search" id="input_cctvnm" title="CCTV위치명 입력" placeholder="CCTV 설치위치명을 입력해주세요.">
+                    <button id="btn_search" title="검색"></button>
+                </div>
+            </div>
+            <!--탭끝-->
+
+            <!--CCTV리스트 시작-->
+            <div class="sub_conten tr_conten">
+                <div class="sub_title cctv_title">
+                    <h3><span>CC</span>TV</h3>
+                    <p>다양한 교통정보 서비스 중 CCTV를 통해<br>현재 교통상황을 확인할 수 있습니다.</p>
+                </div>
+                <div class="sub_list_box">
+                    <div class="list_top">
+                        <p class="result">· 검색결과 <span id="text_cnt"></span>건</p>
+                        <button id="btn_map" class="btn_tr_map">지도보기</button>
+                    </div>
+
+                    <!--리스트-->
+                    <div class="sub_list_line cctvli">
+                        <ul>
+                            <!-- <li><p class="txttitle">번영로</p></li>
+                            <li><p class="txttitle">호남제일문</p></li> -->
+                        </ul>
+                    </div>
+                    <!--리스트 끝-->
+
+                </div>
+            </div>
+            <!--CCTV리스트 끝-->
+
+        </div>
+        <!-- 서브메뉴 버튼 -->
+        <div class="sub_left_box_btn">
+            <div class="sub_left_box_hide_btn" style="display: block;">
+                <a id="btn_hide"></a>
+            </div>
+            <div class="sub_left_box_show_btn" style="display: none;">
+                <a id="btn_show"></a>
+            </div>
+        </div>
+        <!--지도-->
+        <div class="map_box">
+            <!--모바일용-->
+            <div class="m_map_top">
+                <p class="stoptitle"></p>
+                <ul class="btn">
+                    <li class="mo_btn_map"><button class="btn_list" title="목록보기">목록보기</button></li><!--모바일용버튼-->
+                </ul>
+            </div>
+            <!--모바일용 끝-->
+
+            <!--한줄소통정보-->
+            
+
+
+<div class="delay_info">
+	<div id="delay_info_left" class="delay_info_left">
+		<p><span>지정체 정보 로딩중</span></p>
+		<!-- <p><span>[지체]</span>거마평로2 (거마로4가 방면) [안행로 ~ 완산소방소] <span>24km</span></p> -->
+	</div>
+	
+	<ul class="comment">
+		<li class="green">원활</li>
+		<li class="yellow">지체</li>
+		<li class="red">정체</li>
+		<li class="gray">정보없음</li>
+	</ul>
+</div>
+
+            <!-- <button class="me" title="내위치"></button> -->
+            <ul class="map_contenbox">
+                <li title="로드뷰 보기" class="btn_road_view" id="toggle_road_view"></li>
+                <li class="map_conten" id="map_conten"></li>
+                <li class="map_conten" id="road_conten"></li>
+            </ul>
+        </div>
+        <!--지도끝-->
+
+    </article>
+
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,56 @@
+
+
+
+
+
+
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"> 
+ <title>북한산국립공원::LIVECAM</title>
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="/resource/css/skin.css">
+<link rel="stylesheet" href="/resource/css/renewal.css">
+<script src="/resource/js/hls.js"></script>
+</head>
+<body>
+<div style="width:400px; margin:0 auto;" id="content" class="pop_weather">
+<h5> <span id="parkText">북한산 국립공원 실시간 기상 </span> : <span id="descText" style="color:green;">우이동에서 백운대를 바라보는 장면</span></h5>
+<video width="400px" height="150px" controls id="video"></video>
+<div class="notice">현장의 기상 및 통신 상황에 따라 영상이 일시 중지 될 수 있습니다. </div>
+
+</div>
+<script>
+      var video = document.getElementById('video');
+      if (Hls.isSupported()) {
+        var hls = new Hls({
+          debug: true,
+        });
+        hls.loadSource('https://live.knps.or.kr/cctv/hls/bukhan.m3u8');
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MEDIA_ATTACHED, function () {
+          video.muted = true;
+          video.play();
+        });
+      }
+      // hls.js is not supported on platforms that do not have Media Source Extensions (MSE) enabled.
+      // When the browser has built-in HLS support (check using `canPlayType`), we can provide an HLS manifest (i.e. .m3u8 URL) directly to the video element through the `src` property.
+      // This is using the built-in support of the plain video element, without using hls.js.
+      else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = 'https://live.knps.or.kr/cctv/hls/bukhan.m3u8';
+        video.addEventListener('canplay', function () {
+          video.play();
+        });
+      }
+    </script>
+    
+<!-- AceCounter Mobile WebSite Gathering Script V.8.0.2019080601 -->
+<script>
+	var _AceGID=(function(){var Inf=['m.knps.or.kr','m.knps.or.kr','AZ2A80696','AM','0','NaPm,Ncisy','ALL','0']; var _CI=(!_AceGID)?[]:_AceGID.val;var _N=0;if(_CI.join('.').indexOf(Inf[3])<0){ _CI.push(Inf);  _N=_CI.length; } return {o: _N,val:_CI}; })();
+	var _AceCounter=(function(){var G=_AceGID;var _sc=document.createElement('script');var _sm=document.getElementsByTagName('script')[0];if(G.o!=0){var _A=G.val[G.o-1];var _G=(_A[0]).substr(0,_A[0].indexOf('.'));var _C=(_A[7]!='0')?(_A[2]):_A[3];var _U=(_A[5]).replace(/\,/g,'_');_sc.src='https:'+'//cr.acecounter.com/Mobile/AceCounter_'+_C+'.js?gc='+_A[2]+'&py='+_A[1]+'&up='+_U+'&rd='+(new Date().getTime());_sm.parentNode.insertBefore(_sc,_sm);return _sc.src;}})();
+</script>
+<noscript><img src='https://gmb.acecounter.com/mwg/?mid=AZ2A80696&tp=noscript&ce=0&' border='0' width='0' height='0' alt=''></noscript>
+<!-- AceCounter Mobile Gathering Script End -->
+</body>
+</html>

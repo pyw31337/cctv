@@ -1,0 +1,635 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ko" lang="ko">
+<head>
+<meta http-equiv="content-type" content="text/html; charset=euc-kr"/>
+<title>영상 정보  | 수원교통정보</title>
+<meta name="title" content="수원교통정보" />
+<meta name="author" content="수원교통정보" />
+<meta name="keywords" content="수원교통정보, 수원시" />
+<link rel="stylesheet" type="text/css" href="/_ssc/lla_bus.css" />
+
+<!--메뉴-->
+<script type="text/javascript" src="/_sj/jquery-1.7.1.min.js"></script>
+<script type="text/javascript" src="/_sj/gnb_sub.js"></script>
+<!-- 메뉴_End -->
+
+<script type="text/javascript" src="/_sj/js.js"></script>
+<!-- map 관련 -->
+<script>
+	window.g_maptype = 'CCTVMAP';
+</script>
+<script src="/UtWebGIS/js/jquery/jquery-1.11.0.min.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/jquery/jquery-ui.min.js"></script>
+<script src="/UtWebGIS/js/common.js"></script>
+
+<script src="/UtWebGIS/js/js4IE8.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/proj4js-1.0.3/lib/proj4js.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/OpenLayers-2.13/OpenLayers.debug.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/OpenLayers-2.13/OpenLayers.zoombar.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/UtControls.js"></script>
+<script src="/UtWebGIS/js/OpenLayers.UtCustomMap.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/layers/OpenLayers.Layer.UtCustomLayer.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/layers/OpenLayers.Layer.NaverHybrid.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/layers/OpenLayers.Layer.NaverCadstral.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/layers/OpenLayers.Layer.NaverSatellite.js" type="text/javascript"></script>
+<script src="/UtWebGIS/js/layers/OpenLayers.Layer.NaverStreet.js" type="text/javascript"></script>
+
+<script src="/UtWebGIS/js/layers/OpenLayers.Layer.VWorldStreet.js" type="text/javascript"></script>
+
+<script src="/UtWebGIS/js/UTWebGIS/UTWebGIS.Popup.js"></script>
+<script src="/UtWebGIS/js/UTWebGIS/UTWebGIS.Config.js"></script>
+<script src="/UtWebGIS/js/UTWebGIS/UTWebGIS.Ctr.js"></script>
+<!-- 로딩 에드온 -->
+
+
+<script type="text/javascript" src="/common/js/navigation.js"></script>
+
+<script type="text/javascript">
+Proj4js.defs["TM"]= "+proj=tmerc +lat_0=38 +lon_0=128 +k=0.9999 +x_0=400000 +y_0=600000 +ellps=bessel +towgs84=-146.414,507.337,680.507,0,0,0,0 +units=m +no_defs";
+var onlineLayer = "VWorldStreet";
+var mapObj = null;
+markerConfig['cctv'].enable = true;
+
+function init() {
+	var rightAreaSize = $("#innerWrap").width() - 214;
+	$("#rightArea").css({
+		'width' : rightAreaSize + "px"
+	});
+
+
+	if (onlineLayer === null || onlineLayer === "null" ) {
+		onlineLayer = "VWorldStreet";
+	}
+	var zoomEvent = function(e) {
+		var curLevel = e.object.zoom;
+		var targetLevel = Math.abs(curLevel - 6);
+//		$("#levelPanel").children("li.on").removeClass("on");
+//		$("#levelPanel").children("li.zoomBtn"+targetLevel).addClass("on");
+	};
+
+	mapObj = new $.UtWebGISCtr({
+									zoomEvent : zoomEvent,
+									onlineLayer : onlineLayer,
+									startZoomLevel : 11,
+									endZoomLevel : 18,
+									initZoomLevel : 2,
+									initCoords : new OpenLayers.LonLat(14139843.426, 4476486.222)
+								});
+}
+
+
+function viewerPopup() {
+
+	var cctvid = document.cctv.getItemValue("cctvid");
+	var groupid = document.cctv.getItemValue("grID")
+	var priorityid = document.cctv.getItemValue("prID");
+
+	var popX = window.event.clientX - 20;
+	var popY = window.event.clientY - 50;
+
+  // player stop
+  var obj = document.getElementById("cctv");
+  var objDoc = obj .contentWindow || obj .contentDocument;
+  objDoc.sfp5player('cctvObj').stop();
+
+	window.open("viewerPopup_hls.jsp?cctvid="+cctvid+"&groupid="+groupid+"&priorityid="+priorityid,"cctvviewer","width=727,height=420,location=no,resizable=no, left=" + popX + ", top= " + popY );
+}
+
+function playCCTV(cctvId, cctvTitle) {
+//	if(cctvId=="54") {
+//		alert(cctvTitle +" CCTV영상은 준비중 입니다.");
+//	}
+//	else if(cctvId=="5"){
+//			alert(cctvTitle +" CCTV영상은 준비중 입니다.");
+//	}else{
+	document.cctv.searchCCTV(cctvId);
+	document.getElementById("cctvTitle").innerHTML = cctvTitle;
+	gotoCCTV(cctvId);
+
+//	}
+}
+
+function gotoCCTV(cctvId) {
+	mapObj.goToFeature('cctv', cctvId);
+}
+
+$(window).resize(function() {
+	var rightAreaSize = $("#innerWrap").width() - 214;
+	$("#rightArea").css({
+		'width' : rightAreaSize + "px"
+	});
+});
+
+
+</script>
+
+</head>
+
+<!--<body id="bodyWrap" onload="javascript:document.cctv.reLoad(); return false;">-->
+<body id="bodyWrap" onload="init();">
+
+<div id="container_outer">
+  <div id="container">
+<!--	body Header -->
+	
+
+
+
+
+
+
+
+
+
+
+
+
+	<dl id="skipnavigation">
+  <dt class="skip">바로가기 메뉴</dt>
+  <dd><a href="#body_contents" class="skip_navi">본문 바로가기</a></dd>
+  </dl>
+  <noscript>*  본 브라우저는 스크립트를 지원하지 않습니다. 홈페이지가 정상적으로 보이지 않을때는 최신 브라우저를 설치하여 사용하시길 권장합니다.</noscript>
+
+
+  <!--//#skipnavigation End-->
+<div id="header_wrap">
+
+<!--header Start-->
+<div id="header">
+ <h1 id="logo"><img src="/_gmi/cni/redaeh/logo01.jpg" alt="수원교통정보센터" /> <span><a href="/"><img src="/_gmi/cni/redaeh/logo02.jpg" alt="수원교통정보센터" /></a></span></h1>
+
+		<ul id="global"> 
+			<li><a href="/"><img src="/_gmi/cni/redaeh/gnb1.gif" alt="홈" /></a></li> 
+			<li><a href="/_lmth/01_switsinfo/swits_0201.jsp"><img src="/_gmi/cni/redaeh/gnb2.gif" alt="찾아오시는 길" /></a></li>
+			<li><a href="/_lmth/06_etc/sitemap.jsp"><img src="/_gmi/cni/redaeh/gnb3.gif" alt="사이트맵" /></a></li>
+
+		</ul>
+		<script type="text/javascript">initImgOver("global");</script> <!--글로벌End -->
+
+
+		<div class="gnb" id="nav">
+<p class="desc">지도 표출방식 변환작업에 따라 일부 메뉴의 서비스가 원활하지 않을 수 있으니 양해해주시기 바랍니다. 이용에 불편을 드려 죄송합니다.</p>
+			<ul id="gn" style="display:flex; justify-content: space-between;">
+				<li class="category01"><p><a href="/_lmth/01_switsinfo/swits_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m1.gif" alt="센터소개" /></a></p>
+					<ul id="gn1">
+						<li><a href="/_lmth/01_switsinfo/swits_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m1_s1.gif" alt="ITS소개" /></a></li>
+						<li><a href="/_lmth/01_switsinfo/renewal01.jsp"><img src="/_gmi/cni/redaeh/gnb_m1_s5.gif" alt="주요시스템 안내" /></a></li>
+						<li><a href="/_lmth/01_switsinfo/swits_0201.jsp"><img src="/_gmi/cni/redaeh/gnb_m1_s2.gif" alt="찾아오시는 길" /></a></li>
+						<!-- <li><a href="/_lmth/01_switsinfo/swits_0301.jsp"><img src="/_gmi/cni/redaeh/gnb_m1_s3.gif" alt="사이트사용방법" /></a></li> -->
+						<li class="line2"><a href="/_lmth/01_switsinfo/swits_0403.jsp"><img src="/_gmi/cni/redaeh/gnb_m1_s4.gif" alt="영상정보처리기기 운영·관리 방침" /></a></li>
+					</ul>
+				</li>
+				<li class="category02"><p><a href="/_lmth/02_trafficinfo/s1_flowAccident.jsp" ><img src="/_gmi/cni/redaeh/gnb_m2.gif" alt="교통정보" /></a></p>
+					<ul id="gn2">
+						<li><a href="/_lmth/02_trafficinfo/statistic_0101.jsp" target="_self"><img src="/_gmi/cni/redaeh/gnb_m2_s1.gif" alt="도로별통계" /></a></li>
+						<li><a href="/_lmth/02_trafficinfo/s1_flowAccident.jsp" target="_self" title="새창열림"><img src="/_gmi/cni/redaeh/gnb_m2_s2.gif" alt="도로소통정보" /></a></li>
+						<li><a href="http://www.utic.go.kr/map/map.do?menu=incident&amp;x=127.028&amp;y=37.263" target="_blank" title="새창열림"><img src="/_gmi/cni/redaeh/gnb_m2_s3.gif" alt="돌발정보" /></a></li>
+						<li><a href="/trafficInfo/s5_cctvInfo.jsp" target="_self" title="새창열림"><img src="/_gmi/cni/redaeh/gnb_m2_s4.gif" alt="영상정보" /></a></li>
+						<li><a href="/_lmth/02_trafficinfo/statistic_0102.jsp" target="_self"><img src="/_gmi/cni/redaeh/gnb_m2_s7.gif" alt="교통량정보" /></a></li>
+					</ul>
+				</li>
+
+				<li class="category03"><p><a href="/_lmth/03_businfo/bus_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m3.gif" alt="버스정보" /></a></p>
+					<ul id="gn3">
+						<li><a href="/_lmth/03_businfo/bus_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m3_s6.gif" alt="노선/정류장검색" /></a></li>
+						<!-- <li><a href="/_lmth/03_businfo/bus_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m3_s1.gif" alt="노선검색" /></a></li>
+						<li><a href="/_lmth/03_businfo/bus_0201.jsp"><img src="/_gmi/cni/redaeh/gnb_m3_s2.gif" alt="정류장검색" /></a></li> -->
+						<li><a href="/_lmth/03_businfo/bus_0301.jsp"><img src="/_gmi/cni/redaeh/gnb_m3_s7.gif" alt="경로안내" /></a></li>
+						<li><a href="http://ggairportbus.co.kr/" target="_blank"><img src="/_gmi/cni/redaeh/gnb_m3_s4.gif" alt="공항버스" /></a></li>
+						<!--<li><a href="/_lmth/03_businfo/bus_0501.jsp"><img src="/_gmi/cni/redaeh/gnb_m3_s5.gif" alt="노선정보 다운로드" /></a></li>-->
+					</ul>
+				</li>
+				<li class="category04"><p><a href="/_lmth/04_parkinginfo/parking_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m4.gif" alt="주차정보" /></a></p>
+					<ul id="gn4">
+						<li><a href="/_lmth/04_parkinginfo/parking_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m4_s1.gif" alt="공영/거주자주차장" /></a></li>
+										<!--	<li><a href="/_lmth/04_parkinginfo/parking_0201.jsp"><img src="/_gmi/cni/redaeh/gnb_m4_s2.gif" alt="야간주차허용구간" /></a></li>
+						<li><a href="/_lmth/04_parkinginfo/parking_0301.jsp"><img src="/_gmi/cni/redaeh/gnb_m4_s3.gif" alt="도시계획시설주차장" /></a></li>-->
+						<li><a href="/_lmth/04_parkinginfo/parking_0401.jsp"><img src="/_gmi/cni/redaeh/gnb_m4_s4.gif" alt="구별주차장정보" /></a></li>
+					</ul>
+				</li>
+
+				<li class="category05"><p><a href="/_lmth/05_etcinfo/board_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m5.gif" alt="기타정보" /></a></p>
+					<ul id="gn5">
+						<li><a href="/_lmth/05_etcinfo/board_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m5_s1.gif" alt="공지사항" /></a></li>
+						<!-- <li><a href="/_lmth/05_etcinfo/board_0201.jsp"><img src="/_gmi/cni/redaeh/gnb_m5_s2.gif" alt="열린시장실" /></a></li> -->
+						<li><a target="_blank" title="새창으로 열기" href="https://map.naver.com/v5/directions/-/-/-/transit?c=14140719.4718395,4475183.1936735,15,0,0,0,dh" onclick="window.openFlashMap(this.href, 'flashMap', '1024', '768'); return false;"><img src="/_gmi/cni/redaeh/gnb_m2_s5.gif" alt="빠른길검색" /></a></li>
+						<li><a href="/_lmth/05_etcinfo/etc_0101.jsp"><img src="/_gmi/cni/redaeh/gnb_m5_s3.gif" alt="교통관련사이트" /></a></li>
+					</ul>
+				</li>
+
+				<!-- <li class="category06"><p><a href="/_lmth/05_etcinfo/myweb.jsp"><img src="/_gmi/cni/redaeh/gnb_m6.gif" alt="맞춤정보1" /></a></p>
+					<ul id="gn6">
+						<li><a href="/_lmth/05_etcinfo/myweb.jsp"><img src="/_gmi/cni/redaeh/gnb_m6_s1.gif" alt="맞춤정보" /></a></li>
+						
+
+					</ul>
+				</li> -->
+
+
+
+			</ul>
+ 		<script type="text/javascript">initImgOver("gn");</script> 
+		<script type="text/javascript">initImgOver("gn1");</script> 
+		<script type="text/javascript">initImgOver("gn2");</script> 
+		<script type="text/javascript">initImgOver("gn3");</script> 
+		<script type="text/javascript">initImgOver("gn4");</script> 
+		<script type="text/javascript">initImgOver("gn5");</script> 
+		<!-- <script type="text/javascript">initImgOver("gn6");</script>  -->
+		</div>
+
+
+
+		</div>
+<!--header End-->
+
+</div><!--header_wrap -->
+
+<!--	// body Header 	-->
+
+
+<!-- container_flowAccident Area -->
+<div id="container_flowAccident" >
+
+	<!-- content_flow -->
+	<div id="innerWrap" class="content_flow">
+
+		<!-- leftArea -->
+		<div class="leftArea">
+			<dl>
+				<dt><img src="../../images/trafficetool/sub_02_submenu_title05.gif" alt="영상정보" /></dt>
+				<dd>
+					<img src="../../images/trafficetool/menu_list_7.gif" alt="CCTV 동영상" />
+					<!-- list01 -->
+					<div class="list06">
+						<ul>
+							<li class="title"><span id="cctvTitle">수원역광장삼거리</span></li>
+							<li class="cctv">
+								<iframe id="cctv" name="cctv" src="cctvPlay_hls.jsp" allowtransparency=true marginwidth="0" marginheight="0" border="0" scrolling="no" frameborder="0"  width="202" height="162" align="center" title="CCTV 동영상 플레이어"></iframe>
+								<!--<iframe id="cctv" name="cctv" src="cctvPlay_hls.jsp" allowtransparency=true marginwidth="0" marginheight="0" border="0" scrolling="no" frameborder="0"  width="202" height="136" align="center" title="CCTV 동영상 플레이어"></iframe>-->
+							</li>
+						</ul>
+						<ul>
+							<li class="btL"><img src="../../images/trafficetool/cctvBt07.gif" alt="Replay" onClick="javascript:document.cctv.reLoad(); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" style="cursor:hand;" /></li>
+							<li class="btR"><img src="../../images/trafficetool/cctvBt08.gif" onClick="javascript:viewerPopup(); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" style="cursor:hand;" alt="자세히 보기" title="CCTV 동영상 자세히 보기 팝업" /></li>
+						</ul>
+					</div>
+					<!-- //list06 -->
+				</dd>
+
+				<dd>
+					<div class="leftTitle">
+						<img src="../../images/trafficetool/menu_list_6.gif" alt="CCTV위치 리스트" />
+					</div>
+					<!-- list07 -->
+					<div class="list07">
+<!--
+CCTV 위치 리스트
+-->
+<fieldset>
+	<legend>CCTV 위치 리스트</legend>
+					 	<ul>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('61', 'CJ연구소'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">CJ연구소</a></li-->
+						<li><a href="#" onClick="playCCTV('61', 'CJ연구소'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">CJ연구소</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('68', '가람마을사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">가람마을사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('68', '가람마을사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">가람마을사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('91', '가온마을 305동 사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">가온마을 305동 사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('91', '가온마을 305동 사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">가온마을 305동 사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('57', '경기대후문사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">경기대후문사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('57', '경기대후문사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">경기대후문사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('46', '경기아트센터사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">경기아트센터사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('46', '경기아트센터사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">경기아트센터사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('70', '경찰청고개'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">경찰청고개</a></li-->
+						<li><a href="#" onClick="playCCTV('70', '경찰청고개'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">경찰청고개</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('89', '고등동사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">고등동사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('89', '고등동사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">고등동사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('34', '고색사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">고색사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('34', '고색사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">고색사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('19', '곡선사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">곡선사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('19', '곡선사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">곡선사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('21', '관터사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">관터사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('21', '관터사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">관터사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('56', '광교로삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">광교로삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('56', '광교로삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">광교로삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('23', '광교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">광교사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('23', '광교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">광교사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('58', '광교중앙공원'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">광교중앙공원</a></li-->
+						<li><a href="#" onClick="playCCTV('58', '광교중앙공원'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">광교중앙공원</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('67', '광교중앙로사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">광교중앙로사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('67', '광교중앙로사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">광교중앙로사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('62', '광교중앙역삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">광교중앙역삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('62', '광교중앙역삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">광교중앙역삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('15', '교동사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">교동사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('15', '교동사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">교동사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('11', '구운사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">구운사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('11', '구운사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">구운사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('82', '구운오거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">구운오거리</a></li-->
+						<li><a href="#" onClick="playCCTV('82', '구운오거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">구운오거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('40', '권곡사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">권곡사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('40', '권곡사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">권곡사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('38', '권선사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">권선사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('38', '권선사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">권선사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('3', '권선지하차도 사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">권선지하차도 사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('3', '권선지하차도 사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">권선지하차도 사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('2', '난방공사사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">난방공사사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('2', '난방공사사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">난방공사사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('53', '농수산시장사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">농수산시장사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('53', '농수산시장사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">농수산시장사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('48', '느티나무사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">느티나무사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('48', '느티나무사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">느티나무사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('79', '능골사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">능골사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('79', '능골사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">능골사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('93', '당수'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">당수</a></li-->
+						<li><a href="#" onClick="playCCTV('93', '당수'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">당수</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('14', '도청오거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">도청오거리</a></li-->
+						<li><a href="#" onClick="playCCTV('14', '도청오거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">도청오거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('37', '동수원사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">동수원사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('37', '동수원사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">동수원사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('74', '두암골사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">두암골사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('74', '두암골사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">두암골사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('8', '만석공원사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">만석공원사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('8', '만석공원사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">만석공원사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('47', '망포역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">망포역사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('47', '망포역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">망포역사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('54', '망포지하차도위'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">망포지하차도위</a></li-->
+						<li><a href="#" onClick="playCCTV('54', '망포지하차도위'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">망포지하차도위</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('84', '매교역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">매교역사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('84', '매교역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">매교역사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('32', '매탄권선역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">매탄권선역사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('32', '매탄권선역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">매탄권선역사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('86', '박지성삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">박지성삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('86', '박지성삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">박지성삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('16', '벌말교차로'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">벌말교차로</a></li-->
+						<li><a href="#" onClick="playCCTV('16', '벌말교차로'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">벌말교차로</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('50', '벌터교차로'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">벌터교차로</a></li-->
+						<li><a href="#" onClick="playCCTV('50', '벌터교차로'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">벌터교차로</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('28', '법원사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">법원사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('28', '법원사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">법원사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('17', '비행장사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">비행장사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('17', '비행장사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">비행장사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('87', '산드레미사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">산드레미사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('87', '산드레미사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">산드레미사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('92', '산업단지교차로6'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">산업단지교차로6</a></li-->
+						<li><a href="#" onClick="playCCTV('92', '산업단지교차로6'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">산업단지교차로6</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('63', '산의초교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">산의초교사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('63', '산의초교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">산의초교사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('22', '삼성삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">삼성삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('22', '삼성삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">삼성삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('51', '서둔교차로'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">서둔교차로</a></li-->
+						<li><a href="#" onClick="playCCTV('51', '서둔교차로'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">서둔교차로</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('88', '서천사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">서천사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('88', '서천사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">서천사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('44', '성대역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">성대역사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('44', '성대역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">성대역사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('33', '세류사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">세류사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('33', '세류사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">세류사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('81', '세삼사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">세삼사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('81', '세삼사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">세삼사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('66', '센트럴파크로사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">센트럴파크로사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('66', '센트럴파크로사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">센트럴파크로사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('55', '솔대사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">솔대사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('55', '솔대사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">솔대사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('29', '수원역광장삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">수원역광장삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('29', '수원역광장삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">수원역광장삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('52', '시청사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">시청사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('52', '시청사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">시청사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('64', '신대저수지'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">신대저수지</a></li-->
+						<li><a href="#" onClick="playCCTV('64', '신대저수지'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">신대저수지</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('20', '신매탄사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">신매탄사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('20', '신매탄사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">신매탄사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('85', '안죽골삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">안죽골삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('85', '안죽골삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">안죽골삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('71', '에콘힐사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">에콘힐사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('71', '에콘힐사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">에콘힐사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('59', '연화장'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">연화장</a></li-->
+						<li><a href="#" onClick="playCCTV('59', '연화장'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">연화장</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('31', '영통고가밑사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">영통고가밑사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('31', '영통고가밑사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">영통고가밑사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('49', '영통구청사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">영통구청사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('49', '영통구청사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">영통구청사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('18', '영통사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">영통사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('18', '영통사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">영통사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('25', '영화초교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">영화초교사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('25', '영화초교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">영화초교사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('72', '오목천교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">오목천교사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('72', '오목천교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">오목천교사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('42', '우만사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">우만사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('42', '우만사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">우만사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('6', '운동장사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">운동장사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('6', '운동장사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">운동장사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('5', '원천교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">원천교사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('5', '원천교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">원천교사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('13', '육교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">육교사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('13', '육교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">육교사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('69', '이의중삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">이의중삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('69', '이의중삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">이의중삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('4', '인계사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">인계사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('4', '인계사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">인계사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('39', '인도래사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">인도래사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('39', '인도래사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">인도래사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('36', '장안구청사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">장안구청사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('36', '장안구청사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">장안구청사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('9', '정자사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">정자사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('9', '정자사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">정자사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('30', '정조사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">정조사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('30', '정조사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">정조사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('43', '정천지하보차도위'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">정천지하보차도위</a></li-->
+						<li><a href="#" onClick="playCCTV('43', '정천지하보차도위'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">정천지하보차도위</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('45', '종로사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">종로사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('45', '종로사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">종로사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('60', '중소기업지원센터사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">중소기업지원센터사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('60', '중소기업지원센터사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">중소기업지원센터사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('24', '지동사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">지동사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('24', '지동사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">지동사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('27', '지지대교차로'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">지지대교차로</a></li-->
+						<li><a href="#" onClick="playCCTV('27', '지지대교차로'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">지지대교차로</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('1', '창룡문사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">창룡문사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('1', '창룡문사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">창룡문사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('90', '천천초교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">천천초교사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('90', '천천초교사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">천천초교사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('80', '큰우물사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">큰우물사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('80', '큰우물사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">큰우물사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('35', '터미널사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">터미널사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('35', '터미널사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">터미널사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('26', '퉁소바위사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">퉁소바위사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('26', '퉁소바위사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">퉁소바위사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('83', '평동사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">평동사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('83', '평동사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">평동사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('75', '학술림삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">학술림삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('75', '학술림삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">학술림삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('41', '행정타운사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">행정타운사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('41', '행정타운사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">행정타운사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('76', '호매실도서관사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">호매실도서관사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('76', '호매실도서관사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">호매실도서관사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('78', '호매실사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">호매실사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('78', '호매실사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">호매실사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('77', '호매실지하차도위사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">호매실지하차도위사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('77', '호매실지하차도위사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">호매실지하차도위사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('73', '호매실홈플러스사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">호매실홈플러스사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('73', '호매실홈플러스사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">호매실홈플러스사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('65', '호반마을삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">호반마을삼거리</a></li-->
+						<li><a href="#" onClick="playCCTV('65', '호반마을삼거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">호반마을삼거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('12', '화서문로터리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">화서문로터리</a></li-->
+						<li><a href="#" onClick="playCCTV('12', '화서문로터리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">화서문로터리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('10', '화서역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">화서역사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('10', '화서역사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">화서역사거리</a></li>
+
+						<!--li><a href="#innerWrap" onClick="javascript:palyCCTV('7', '효성사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick}" target="cctv" title="CCTV 위치 리스트">효성사거리</a></li-->
+						<li><a href="#" onClick="playCCTV('7', '효성사거리'); return false;" onkeypress="if(event.keyCode == 13){this.onclick();}" target="_blank" title="CCTV 위치 리스트">효성사거리</a></li>
+
+
+					 	</ul>
+</fieldset>
+					</div>
+				</dd>
+					<!-- //list07 -->
+			</dl>
+		</div>
+
+
+		<!-- rightArea -->
+		<!-- //맵이미지영역 -->
+		<div id="rightArea" class="rightArea" style='width:100%; height:793px;'>
+   			<div id="map" style="position:relative; width:100%; height:100%" />
+		</div>
+		<!-- //rightArea -->
+
+	</div>
+	<!-- //content_flow -->
+
+	<div class="clear"></div>
+	<div class="helpArea">
+		<div class="help">
+			<img src="../../images/trafficetool/traffic_helpic.gif" alt="도움말" />
+			<div class="helpcon">
+				CCTV 영상정보는 원활한 서비스를 위해 1분간만 제공되며, <br />계속하여 보시려면 <img src="../../images/trafficetool/cctvBt07.gif" alt="Replay"/>(다시보기) 버튼을 누르십시오.
+			</div>
+		</div>
+		<div class="help">
+      <!--
+			<div class="helpcon">
+				CCTV는 Media Player를 설치하셔야만 영상을 보실 수 있습니다. <a href="https://www.microsoft.com/ko-kr/download/windows-media-player-details.aspx?id=8163" target="_blank">[MediaPlayer 설치]</a>
+			</div>
+      -->
+			<div class="helpcon">
+				지도위의 CCTV 아이콘(<img src="../../images/mapIcon/cctvIcon.gif" alt="CCTV" />)  위에 마우스를 올리면 CCTV 위치정보를 툴팁으로 확인할 수 있습니다.
+			</div>
+			<div class="helpcon">
+				영상을 크게보시려면 (<img src="../../images/trafficetool/cctvBt08.gif" alt="팝업" />) 버튼을 선택하여 확인할 수 있습니다.
+			</div>
+		</div>
+	</div>
+
+</div>
+</div>
+</div>
+
+<!-- //container_flowAccident Area -->
+
+</body>
+</html>

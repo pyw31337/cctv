@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!-- config fragment 사용 -->
+<head>
+    <title>광주교통정보센터</title>
+    <meta charset="UTF-8">
+    <meta name="format-detection" content="telephone=no" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+    <meta content="initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
+    <meta property="og:type" content="website"/>
+    <meta property="og:title" content=""/>
+    <meta property="og:description" content=""/>
+    <meta property="og:image" content=""/>
+    <meta property="og:url" content=""/>
+    <meta name="robots" content="ALL"/>
+    <meta name="keywords" content=""/>
+    <meta name="description" content="광주교통정보센터"/>
+    <meta name="content-language" content="kr"/>
+    <meta name="_csrf" content="12a5a4f8-a829-4247-a9a9-046e45731564">
+    <meta name="_csrf_header" content="X-CSRF-TOKEN">
+    <link rel="icon" href="/favicon.ico"/>
+
+    <!-- 이 영역에 공통으로 사용할 css, js library를 선언한다. -->
+    <link type="text/css" rel="stylesheet" href="/css/default.css"/>
+    <link type="text/css" rel="stylesheet" href="/css/default.extend.css"/>
+    <link type="text/css" rel="stylesheet" href="/css/jquery.mCustomScrollbar.css"/>
+
+    <script src="/js/utils/polyfill.js"></script>
+    <script src="/js/lib/jquery-3.6.0.min.js"></script>
+    <script src="/js/lib/jquery.mCustomScrollbar.min.js"></script>
+    <script src="/webjars/dayjs/1.10.3/dayjs.min.js"></script>
+    <script src="/js/utils/jquery.fn.extend.js"></script>
+    <script src="/js/utils/gjtic.net.js"></script>
+    <script src="/js/utils/gjtic.util.js"></script>
+    <script src="/js/utils/gjtic.storage.js"></script>
+    <script src="/js/lib/jquery.touchSwipe.min.js"></script>
+    <script src="/webjars/jquery-blockui/2.70/jquery.blockUI.js"></script>
+    <script src="/js/common/header.js"></script>
+
+</head>
+<!-- Content Page의 CSS fragment 삽입 -->
+
+    <link type="text/css" rel="stylesheet" href="/webjars/openlayers/6.4.3/ol.css"/>
+    <link type="text/css" rel="stylesheet" href="/css/slick.css"/>
+
+<!-- Content Page의 script fragment 삽입 -->
+
+    <script src="/webjars/openlayers/6.4.3/ol.js"></script>
+    <script src="/js/hls/hls.js"></script>
+    <script src="/js/common/common.js"></script>
+    <script src="/js/lib/slick.min.js"></script>
+
+<body class="left-open">
+<div class="wrapper" data-container="wrapper">
+    <!-- header fragment 사용 -->
+    
+    <header>
+        <div class="inner">
+            <h1>
+                <a href="/" class="logo"><span class="sr-only">광주광역시교통정보센터</span></a>
+                <!-- 2021.05 삭제 -->
+                <!-- <span class="mo-logo">광주시교통정보센터</span> -->
+            </h1>
+            <div class="header-menu">
+                <ul class="gnb pc-view">
+                    <li>
+                        <a name="trafficMenu" data-button="gnb">교통정보</a>
+                    </li>
+                    <li><a name="parkingMenu" href="/parking">주차장정보</a></li>
+                    <li><a href="/transport" name="transportMenu">대중교통정보</a></li>
+                    <!--
+					<li>
+                        <a th:name="statisticsMenu" data-button="gnb">통계분석 </a>
+                    </li>
+					-->
+                    <li>
+                        <a name="infoMenu" data-button="gnb">소개</a>
+                    </li>
+                    <li>
+                        <a name="communityMenu" data-button="gnb">커뮤니티</a>
+                    </li>
+                </ul>
+                <ul class="gnb mo-view">
+                    <li><a href="/traffic" name="trafficMenu">교통정보</a></li>
+                    <li><a href="/parking" name="parkingMenu">주차장정보</a></li>
+                    <li><a href="/transport" name="transportMenu">대중교통정보</a></li>
+                </ul>
+                <button class="btn-hamburger" data-button="sitemap" data-button-toggle="active">
+                    <span class="hidden">메뉴</span>
+                </button>
+                <div class="mo-dim" data-scroll-lock="container" data-touch-area="siteMap"></div>
+                <div class="sitemap" data-scroll-lock="scroll" data-touch-area="siteMap">
+                    <!-- 2021.05 삭제 -->
+                    <!-- <div class="sitemap-logo"><span></span></div> -->
+                    <button class="mo-close" data-button-toggle="active"
+                            data-target-element="[data-button=sitemap]"></button>
+                    <div class="inner">
+                        <div>
+                            <a href="javascript:void(0);" class="has2depth" data-button="mobileMenu">교통정보</a>
+                            <div class="depth2-wrap">
+                                <ul>
+                                    <li><a href="/traffic">소통정보</a></li>
+                                    <li><a href="/outbreak">돌발정보</a></li>
+                                    <li><a href="/cctv">CCTV정보</a></li>
+                                    <li><a href="/vms">VMS정보</a></li>
+                                    <li><a href="/citscar">C-ITS차량</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div>
+                            <a href="/parking">주차장정보</a>
+                        </div>
+                        <div>
+                            <a href="/transport">대중교통정보</a>
+                        </div>
+						<!--
+                        <div id="statisticMenu">
+                            <a href="javascript:void(0);" class="has2depth" data-button="mobileMenu">통계분석</a>
+                            <div class="depth2-wrap">
+                                <ul>
+                                    <li><a th:href="@{/traffic-statistic}">소통통계</a></li>
+                                    <li><a th:href="@{/road-statistic}">도로통계</a></li>
+                                    <li><a th:href="@{/traffic-need-statistic}">교통수요분석</a></li>
+                                </ul>
+                            </div>
+                        </div>
+						-->
+                        <div>
+                            <a href="javascript:void(0);" class="has2depth" data-button="mobileMenu">소개</a>
+                            <div class="depth2-wrap">
+                                <ul>
+                                    <li><a href="/centerInfo">센터소개</a></li>
+                                    <li><a href="/systemInfo">C-ITS소개</a></li>
+                                    <li><a href="/mobileInfo">모바일안내</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div>
+                            <a href="javascript:void(0);" class="has2depth" data-button="mobileMenu">커뮤니티</a>
+                            <div class="depth2-wrap">
+                                <ul>
+                                    <li><a href="/notice">공지사항</a></li>
+									<li><a href="https://gwangjuon.gwangju.go.kr/intro/index.html" target="_blank">교통불편신고</a></li>
+                                    <li><a href="/open-api">OPEN-API</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div id="mo-header-main" class="mo-header main">
+        <a class="back"><span class="sr-only">이전페이지</span></a>
+        <h2 id="mo-header-title">대중교통정보</h2>
+        <a class="mo-logo"></a>
+        <div class="r-button">
+            <a href="/" class="home"><span class="sr-only">홈</span></a>
+        </div>
+    </div>
+
+    <!--
+        content fragment 사용
+        현재 layout을 사용하는 content fragment의 내용을 삽입한다.
+    -->
+    <div class="container">
+
+    <div>
+        <input type="hidden" id="baseMapUrl" value="https://api.vworld.kr/req/wmts/1.0.0/CCBD2608-529E-303E-9F80-0609B48E115E/Base/{z}/{y}/{x}.png">
+        <input type="hidden" id="satelliteMapUrl" value="https://api.vworld.kr/req/wmts/1.0.0/CCBD2608-529E-303E-9F80-0609B48E115E/Satellite/{z}/{y}/{x}.jpeg">
+        <input type="hidden" id="geoserver" value="https://www.gjtic.go.kr:444/gj_cits/wms">
+    </div>
+
+    <div class="content">
+        <div class="lnb" data-container="lnb">
+            <a data-button-toggle="left-open" data-target-element="body"
+               class="btn-left-folding" id="foldTab">
+            </a>
+
+            <div class="search-type">
+                <a href="/traffic" data-tab-button="traffic" id="traffic">소통</a>
+                <a href="/outbreak" data-tab-button="outbreak" id="outbreak">돌발</a>
+                <a href="/cctv" data-tab-button="cctv" id="cctv" class="active">CCTV</a>
+                <a href="/vms" data-tab-button="vms" id="vms">VMS</a>
+            </div>
+
+            <!-- 디자인 구조상 class="road-type" 돔 부분을 js에서 돔 컨트롤 하고있습니다. -->
+            <div class="mo-road-type" data-content="mobileSelectRoad"></div>
+
+            <!-- 소통 탭 컨텐츠 -->
+            <div class="tab-content" data-tab-content="traffic" style="display: none;">
+                <div data-button="touch" class="btn-resize"></div>
+                <!-- 패널 검색 -->
+                <div class="search-area" data-content="pcSelectRoad">
+                    <div class="search">
+                        <label for="trafficSearch" style="display: none;"> 검색어 </label>
+                        <input type="text" data-input="search" placeholder="도로명을 입력하세요" id="trafficSearch">
+                        <button class="btn-delete" data-button="delete"><span><em class="sr-only">삭제</em></span>
+                        </button>
+                        <button class="btn-search" id="traffic-search"><span><em class="sr-only">검색</em></span></button>
+                        <div class="autocomplete" id="trafficAuto">
+                            <!-- 자동완성 list -->
+                        </div>
+                    </div>
+                </div>
+                <!-- //패널 검색 -->
+                <!-- 기본 정보타이틀 -->
+                <div class="result-default-view cctv">
+                    <strong>소통정보</strong>
+                </div>
+
+                <!-- 결과 타이틀 -->
+                <div class="result-title cctv">
+                    <span>도로명</span>
+                </div>
+                <!-- 결과 리스트 -->
+                <div class="search-result">
+                    <div class="no-result" style="display: none;">
+                        <span id="no-result-text">검색결과가 없습니다.</span>
+                    </div>
+                    <div class="flex-scroll-wrap" style="overflow-y: scroll">
+                        <ul class="result-list traffic" id="trafficInfoList">
+                            <!-- 소통정보 list -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <!-- 돌발 탭 컨텐츠 -->
+            <div class="tab-content" data-tab-content="outbreak" style="display: none;">
+                <div data-button="touch" class="btn-resize"></div>
+                <div class="search-area" data-content="pcSelectRoad">
+                    <div class="search">
+                        <label for="outbreakSearch" style="display: none;"> 검색어 </label>
+                        <input type="text" data-input="search" placeholder="도로명을 입력하세요" id="outbreakSearch">
+                        <button class="btn-delete" data-button="delete"><span><em class="sr-only">삭제</em></span>
+                        </button>
+                        <button class="btn-search" id="outbreak-search"><span><em class="sr-only">검색</em></span>
+                        </button>
+                        <div class="autocomplete" id="outbreakAuto">
+
+                        </div>
+                    </div>
+                </div>
+                <div class="result-default-view">
+                    <strong>돌발정보</strong>
+                </div>
+                <!-- //기본 정보타이틀 -->
+
+                <!-- //패널 검색 -->
+                <div class="result-title">
+                    <span>돌발내용</span>
+                </div>
+                <div class="search-result">
+                    <div class="no-result" style="display: none;">
+                        <span>검색결과가 없습니다.</span>
+                    </div>
+                    <div class="flex-scroll-wrap" style="overflow-y: scroll">
+                        <ul class="result-list outbreak" id="outbreakList">
+                            <!-- 돌발 정보 list -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <!-- CCTV 탭 컨텐츠 -->
+            <div class="tab-content" data-tab-content="cctv">
+                <div data-button="touch" class="btn-resize">
+                    <button class="btn-panel-toggle"><span></span></button>
+                </div>
+                <!-- 패널 검색 -->
+                <div class="search-area" data-content="pcSelectRoad">
+                    <div class="search">
+                        <label for="cctvSearch" style="display: none;"> 검색어 </label>
+                        <input type="text" data-input="search" placeholder="도로명을 입력하세요"
+                               id="cctvSearch">
+                        <button class="btn-delete" data-button="delete"><span><em class="sr-only">삭제</em></span>
+                        </button>
+                        <button class="btn-search" id="cctv-search"><span><em class="sr-only">검색</em></span></button>
+                        <div class="autocomplete" id="cctvAuto">
+
+                        </div>
+                    </div>
+                </div>
+                <!-- //패널 검색 -->
+                <div class="result-default-view cctv">
+                    <strong id="countCctv">CCTV 정보 (<span id="cctvResultCnt"></span>건)</strong>
+                    <div>
+                        <label for="cctvUpDown"></label>
+                        <select id="cctvUpDown">
+                            <option value="sect">도로명</option>
+                            <option value="intersect">교차로</option>
+                        </select>
+                        <button id="bookMarkListBtn" class="btn-bookmark" data-button-toggle="active"><span
+                                class="hidden">즐겨찾기</span></button>
+                    </div>
+                </div>
+                <!--기본 정보타이틀 -->
+
+                <!-- 결과 타이틀 -->
+                <div class="result-title cctv">
+                    <span>도로명</span>
+                    <span class="cctv-name">교차로명</span>
+                </div>
+                <div class="search-result">
+                    <div class="no-result" style="display: none;">
+                        <span>검색결과가 없습니다.</span>
+                    </div>
+                    <!--              <div class="flex-scroll-wrap" data-scroll="search">-->
+                    <div class="flex-scroll-wrap" style="overflow-y: scroll">
+                        <ul class="result-list cctv" id="cctvList">
+                            <!-- cctv list -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VVMS 탭 컨텐츠 -->
+            <div class="tab-content" data-tab-content="vms" style="display: none;">
+                <div class="btn-resize" data-button="touch">
+                    <button class="btn-panel-toggle"><span></span></button>
+                </div>
+                <!-- 패널 검색 -->
+                <div class="search-area" data-content="pcSelectRoad">
+                    <div class="search">
+                        <label for="vmsSearch" style="display: none;"> 검색어 </label>
+                        <input type="text" id="vmsSearch" data-input="search" readonly>
+                        <button class="btn-delete" data-button="delete"><span><em class="sr-only">삭제</em></span>
+                        </button>
+                        <button class="btn-search"><span><em class="sr-only">검색</em></span></button>
+                        <div class="autocomplete">
+                            <!-- 자동완성 list -->
+                        </div>
+                    </div>
+                </div>
+                <!-- //패널 검색 -->
+                <div class="result-default-view">
+                    <strong>VMS 정보 (<span id="vmsResultCnt"></span>건)</strong>
+                </div>
+                <!-- //기본 정보타이틀 -->
+
+                <div class="result-title">
+                    <span>VMS명</span>
+                </div>
+                <div class="search-result">
+                    <div class="no-result" style="display: none;">
+                        <span>검색결과가 없습니다.</span>
+                    </div>
+                    <div class="flex-scroll-wrap" style="overflow-y: scroll">
+                        <ul class="result-list vms">
+                            <!-- vms list -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 임시 background-color -->
+        <div class="map-area" id="map" style="background-color: gray;">
+            <!-- map 들어갈 영역 -->
+
+            <!-- S: 5차 작업 PC 범례 -->
+            <dl class="pc-legend">
+                <dt>범<br>례</dt>
+                <dd>
+                    <ul class="poi-select-list">
+                        <li>
+                            <a data-poi="TRAFFIC" data-button-toggle="active"
+                               class="ic-traffic"></a>
+                            <p>소통</p>
+                        </li>
+                        <li>
+                            <a data-poi="CCTV" data-button-toggle="active"
+                               class="ic-cctv active"></a>
+                            <p>CCTV</p>
+                        </li>
+                        <li>
+                            <a data-poi="OUTBREAK" data-button-toggle="active"
+                               class="ic-outbreak"></a>
+                            <p>돌발</p>
+                        </li>
+                        <li>
+                            <a data-poi="VMS" data-button-toggle="active" class="ic-vms"></a>
+                            <p>VMS</p>
+                        </li>
+                        <li>
+                            <a data-poi="PARKING" data-button-toggle="active"
+                               class="ic-parking"></a>
+                            <p>주차장</p>
+                        </li>
+                    </ul>
+                    <div class="status-bar">
+                        <div class="color">
+                            <span class="good"></span>
+                            <span class="delay"></span>
+                            <span class="bad"></span>
+                            <span class="none"></span>
+                        </div>
+                    </div>
+                </dd>
+            </dl>
+            <!-- E: PC 범례 -->
+
+            <div class="poi" data-icon-wrap="cctv">
+                <!-- CCTV 레이어 -->
+                <div class="layer cctv-info" id="POPUP_CCTV">
+                    <strong class="layer-title" id="cctv-popup-title"></strong>
+                    <button class="btn-close" id="cctv-popup-closer"><span></span></button>
+                    <div id="cctv-popup-content">
+                        <!-- popup content -->
+                    </div>
+                </div>
+
+                <!-- cctv 모바일용 팝업 -->
+                <div class="layer cctv-info" id="POPUP_MO_CCTV">
+                    <strong class="layer-title" id="mo-cctv-popup-title"></strong>
+                    <button class="btn-close" id="mo-cctv-popup-closer"><span></span></button>
+                    <div id="mo-cctv-popup-content">
+                        <!-- popup content -->
+                    </div>
+                </div>
+
+                <!-- cctv name 팝업 -->
+                <div id="cctv-name-popup" style="background-color: black;
+                                               height: 20px;
+                                               width: auto;
+                                               text-align: center;
+                                               color: white;">
+                </div>
+            </div>
+
+            <div class="poi" data-icon-wrap="traffic">
+                <!-- 소통상태 레이어 -->
+                <div class="layer traffic-info" id="POPUP_TRAFFIC" style="opacity: 0.9">
+                    <strong class="layer-title" id="traffic-popup-title"></strong>
+                    <button class="btn-close" id="traffic-popup-closer"><span></span></button>
+                    <div class="info-box" id="traffic-popup-content">
+                        <!-- popup content -->
+                    </div>
+                </div>
+                <!-- 소통정보 모바일용 팝업 -->
+                <div class="layer traffic-info" id="POPUP_MO_TRAFFIC">
+                    <strong class="layer-title" id="mo-traffic-popup-title"></strong>
+                    <button class="btn-close" id="mo-traffic-popup-closer"><span></span></button>
+                    <div class="info-box" id="mo-traffic-popup-content">
+                        <!-- popup content -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="poi" data-icon-wrap="outbreak">
+                <!-- 돌발정보 레이어 -->
+                <div class="layer outBreak-info" id="POPUP_OUTBREAK">
+                    <strong class="layer-title" id="ob-popup-title"></strong>
+                    <button class="btn-close" id="ob-popup-closer"><span></span></button>
+                    <div class="info-box" id="ob-popup-content">
+                        <!-- popup content -->
+                    </div>
+                </div>
+
+                <!-- 돌발 모바일용 팝업 -->
+                <div class="layer outBreak-info" id="POPUP_MO_OUTBREAK">
+                    <strong class="layer-title" id="mo-ob-popup-title"></strong>
+                    <button class="btn-close" id="mo-ob-popup-closer"><span></span></button>
+                    <div class="info-box" id="mo-ob-popup-content">
+                        <!-- popup content -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="poi" data-icon-wrap="vms">
+                <!-- S: VVMS 레이어 -->
+
+                <!-- PC용 -->
+                <div class="layer vms-info" id="POPUP_VMS_PC_CONTAINER">
+                    <strong class="layer-title">상무역사거리서측</strong>
+                    <button class="btn-close"><span></span></button>
+                </div>
+
+                <!-- 모바일용 -->
+                <div class="layer vms-info" id="POPUP_VMS_MOBILE_CONTAINER">
+                    <strong class="layer-title">상무역사거리서측</strong>
+                    <button class="btn-close"><span></span>
+                    </button>
+                </div>
+
+                <div class="layer vms-info" id="POPUP_VMS_TEXT_DOUBLE">
+                    <strong class="layer-title">상무역사거리서측</strong>
+                    <button class="btn-close"><span></span></button>
+                    <div class="vms-container vms-text-type">
+                        <div class="roads">
+                            <p class="left-road">컨벤션센터사거리</p>
+                            <p class="right-road">(상무대로)</p>
+                        </div>
+                        <div class="vms-road-status">
+                            <p class="left-status bad">차량다중추돌사고<br>발생</p>
+                            <p class="right-status good">소통원활</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="layer vms-info" id="POPUP_VMS_TEXT_CENTER">
+                    <strong class="layer-title">상무역사거리서측</strong>
+                    <button class="btn-close"><span></span></button>
+                    <div class="vms-container vms-text-type">
+                        <p class="direction">000역 사거리 방향</p>
+                        <p class="time-with-status">약 <span class="good">30</span>분 소통원활</p>
+                    </div>
+                </div>
+
+                <div class="layer vms-info" data-layer="vms-no-message" id="POPUP_VMS_NO_MESSAGE">
+                    <strong class="layer-title">상무역사거리서측</strong>
+                    <button class="btn-close"><span></span></button>
+                    <div class="vms-container vms-no-message">
+                        <p class="no-message-text">VMS 메세지가 없습니다.</p>
+                    </div>
+                </div>
+                <!-- E: VVMS 레이어 -->
+            </div>
+
+            <div class="poi" data-icon-wrap="parking">
+                <div class="layer parking-info" id="POPUP_PARKING">
+                    <strong class="layer-title">치평동공영주차장</strong>
+                    <button class="btn-close" id="parking-popup-closer"><span></span></button>
+
+                    <div class="parking-possible">
+<!--                        <dl>-->
+<!--                            <dt>주차가능</dt>-->
+<!--                            <dd id="ableCnt">32<span>대</span></dd>-->
+<!--                        </dl>-->
+                        <dl>
+                            <dt>총 주차대수</dt>
+                            <dd id="totalCnt">120대</dd>
+                        </dl>
+                    </div>
+
+                    <div class="parking-etc-info">
+                        <ul>
+                            <li>
+                                <strong>구분</strong>
+                                <p id="parkingInfo"></p>
+                            </li>
+                            <li>
+                                <strong>주소</strong>
+                                <p id="addressInfo"></p>
+                            </li>
+                            <li>
+                                <strong>요금정보</strong>
+                                <p id="parkingType"></p>
+                            </li>
+                            <li>
+                                <strong>관리기관</strong>
+                                <p id="manageName"></p>
+                            </li>
+                        </ul>
+                    </div>
+
+<!--                    <div class="arrow-area">-->
+<!--                        <button class="btn-prev"><span></span></button>-->
+<!--                        <button class="btn-next" disabled><span></span></button>-->
+<!--                    </div>-->
+                </div>
+                <div class="layer parking-info" id="POPUP_MO_PARKING">
+                    <strong class="layer-title">치평동공영주차장</strong>
+                    <button class="btn-close" id="mo-parking-popup-closer"><span></span></button>
+
+                    <div class="parking-possible">
+<!--                        <dl>-->
+<!--                            <dt>주차가능</dt>-->
+<!--                            <dd id="mo_ableCnt">32<span>대</span></dd>-->
+<!--                        </dl>-->
+                        <dl>
+                            <dt>총 주차대수</dt>
+                            <dd id="mo_totalCnt">120대</dd>
+                        </dl>
+                    </div>
+
+                    <div class="parking-etc-info">
+                        <ul>
+                            <li>
+                                <strong>구분</strong>
+                                <p id="mo_parkingInfo"></p>
+                            </li>
+                            <li>
+                                <strong>주소</strong>
+                                <p id="mo_addressInfo"></p>
+                            </li>
+                            <li>
+                                <strong>요금정보</strong>
+                                <p id="mo_parkingType"></p>
+                            </li>
+                            <li>
+                                <strong>관리기관</strong>
+                                <p id="mo_manageName"></p>
+                            </li>
+                        </ul>
+                    </div>
+
+<!--                    <div class="arrow-area">-->
+<!--                        <button class="btn-prev"><span></span></button>-->
+<!--                        <button class="btn-next" disabled><span></span></button>-->
+<!--                    </div>-->
+                </div>
+
+                <!-- 주차장 name 팝업 -->
+                <div id="parking-name-popup" style="background-color: black;
+                                               height: 20px;
+                                               width: auto;
+                                               text-align: center;
+                                               color: white;">
+                </div>
+            </div>
+        </div>
+
+        <!-- 맵 타입 -->
+        <div class="map-type">
+            <input type="radio" name="mapType" checked id="mapView" value="map">
+            <label for="mapView">지도</label>
+            <input type="radio" name="mapType" id="skyView" value="sky">
+            <label for="skyView">스카이뷰</label>
+        </div>
+
+        <!-- 맵관련 툴버튼 -->
+        <div class="map-tool">
+            <button class="btn-current-map" id="currentMapBtn"><span></span></button>
+            <button class="btn-zoom-in-map" id="zoomInBtn" style="display: block; margin-bottom: 2px"><span></span>
+            </button>
+            <button class="btn-zoom-out-map" id="zoomOutBtn" style="display: block; margin-bottom: 10px"><span></span>
+            </button>
+            <button class="btn-layer-map" id="layerMapBtn" data-button-toggle="active"
+                    data-target-element="[data-layer=mapStatus]"
+                    data-use-mask="true"><span></span>
+            </button>
+        </div>
+
+        <div class="mask" data-container="dim"></div>
+
+        <!-- 범례 레이어팝업 -->
+        <div class="layer-map" data-layer="mapStatus">
+            <button class="btn-close" data-button-toggle="active" data-target-element="[data-layer=mapStatus]"
+                    data-use-mask="true"><span></span></button>
+            <ul class="poi-select-list">
+                <!-- 2021.05 수정 및 span tag => a tag 변경 -->
+                <li>
+                    <a data-poi="TRAFFIC" data-button-toggle="active"
+                       class="ic-traffic"></a>
+                    <p>소통</p>
+                </li>
+                <li>
+                    <a data-poi="CCTV" data-button-toggle="active"
+                       class="ic-cctv active"></a>
+                    <p>CCTV</p>
+                </li>
+                <li>
+                    <a data-poi="OUTBREAK" data-button-toggle="active"
+                       class="ic-outbreak"></a>
+                    <p>돌발</p>
+                </li>
+                <li>
+                    <a data-poi="VMS" data-button-toggle="active" class="ic-vms"></a>
+                    <p>VMS</p>
+                </li>
+                <li>
+                    <a data-poi="PARKING" data-button-toggle="active" class="ic-parking"></a>
+                    <p>주차장</p>
+                </li>
+            </ul>
+            <div class="status-bar">
+                <div class="color">
+                    <span class="good"></span>
+                    <span class="delay"></span>
+                    <span class="bad"></span>
+                    <span class="none"></span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/js/map/gjtic.map.js"></script>
+    <script src="/js/trafficInfo/gjtic.cctv.js"></script>
+    <script src="/js/trafficInfo/cctv.js"></script>
+    <script src="/js/trafficInfo/gjtic.traffic.js"></script>
+    <script src="/js/trafficInfo/gjtic.outbreak.js"></script>
+    <script src="/js/trafficInfo/gjtic.vms.js"></script>
+    <script src="/js/trafficInfo/gjtic.parking.js"></script>
+    <style type="text/css">
+        .highlight {
+            background-color: #d2e4f6;
+        }
+    </style>
+
+</div>
+    <!-- footer fragment 사용 -->
+    <footer class="short">
+    <div class="inner">
+        <p>사고신고 062-363-9988 | <a href="http://www.gjtic.go.kr/images/common/streaminginfo.pdf" target="_blank">영상정보처리
+            운영방침</a></p>
+        <p class="center">광주광역시교통정보센터</p>
+    </div>
+</footer>
+</div>
+<div class="mobile-search" data-layer="mobileSearch">
+    <div class="search">
+        <label for="mobileInputSearch" style="display: none;"> 검색어 </label>
+        <input type="text" placeholder="도로명을 입력하세요" id="mobileInputSearch">
+        <button class="btn-delete" data-button="delete"><span><em class="sr-only">삭제</em></span></button>
+        <button class="btn-search"><span><em class="sr-only">검색</em></span></button>
+    </div>
+    <div class="autocomplete" id="mobileAuto">
+    </div>
+    <button class="btn-back" data-button-toggle="active" data-target-element="[data-layer=mobileSearch]"><span
+            class="hidden">닫기</span></button>
+</div>
+</body>
+</html>
