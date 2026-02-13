@@ -622,9 +622,20 @@ function createVideoElement(cctv, sourceIndex = 0) {
         url = cctv.directUrl || cctv.url;
         type = 'main';
 
-        // TrendWorld (Jeju) is HTTP-only, so we must proxy it to avoid Mixed Content
-        if (cctv.source === 'TRENDWORLD') {
-            url = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(url)}`;
+        // Regional Proxy logic: Handle HTTP, CORS, and SSL issues for specific sources
+        // Already proxied in data might happen, so we check first
+        if (!url.includes('158.179.194.163.sslip.io')) {
+            if (cctv.source === 'TRENDWORLD' || cctv.source === 'NOWJEJU' ||
+                cctv.source === 'JEJU' || cctv.source === 'HRFCO') {
+
+                if (cctv.source === 'JEJU') {
+                    // Use the specific /jeju2 endpoint for Jeju ITS streams
+                    url = `https://158.179.194.163.sslip.io/jeju2?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
+                } else {
+                    // Use general proxy for others (NOWJEJU, HRFCO, etc.)
+                    url = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(url)}`;
+                }
+            }
         }
     } else {
         const backup = cctv.backup_urls && cctv.backup_urls[sourceIndex - 1];
@@ -700,7 +711,8 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
-        const jejuUrl = url.replace(/https:\/\/[^\/]+\/jeju/, 'https://calibration-lying-asp-expires.trycloudflare.com/jeju2') + `&_t=${Date.now()}`;
+        // URL is already prepared at the beginning of the function
+        const jejuUrl = url;
 
         if (Hls.isSupported()) {
             const hls = new Hls({
@@ -729,7 +741,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const isHls = url.includes('.m3u8');
     const isMp4 = url.includes('.mp4');
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
-    const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html');
+    const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html') || url.includes('hrfco.go.kr');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
     const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev');
     const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
