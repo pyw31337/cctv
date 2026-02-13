@@ -723,7 +723,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 enableWorker: true,
                 lowLatencyMode: true,
                 capLevelToPlayerSize: true,
-                maxBufferLength: 5,
+                maxBufferLength: 30,
+                maxMaxBufferLength: 60,
+                fragLoadingTimeOut: 30000,
+                manifestLoadingTimeOut: 15000,
             });
             hls.loadSource(jejuUrl);
             hls.attachMedia(video);
@@ -817,7 +820,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
             enableWorker: true,
             lowLatencyMode: true,
             capLevelToPlayerSize: true,
-            maxBufferLength: 5,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            fragLoadingTimeOut: 30000,
+            manifestLoadingTimeOut: 15000,
             maxBufferSize: 3 * 1000 * 1000,
         });
 
