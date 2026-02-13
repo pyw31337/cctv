@@ -75,10 +75,11 @@ def check_daejeon_stream(cctv):
     return False
 
 def check_jeju_stream(cctv):
+    # Test through the official proxy
+    proxy_url = f"https://158.179.194.163.sslip.io/jeju2?id={cctv.get('id')}"
     try:
-        url = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
-        resp = requests.head(url, timeout=10, verify=False)
-        if resp.status_code < 500:
+        resp = requests.head(proxy_url, timeout=10, verify=False)
+        if resp.status_code == 200:
             return True
     except:
         pass
@@ -90,7 +91,9 @@ def check_paju_stream(cctv):
     if not url: return False
     
     try:
-        resp = requests.head(url, timeout=10, verify=False)
+        # Use GET as some servers don't support HEAD correctly
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, timeout=10, verify=False, headers=headers, stream=True)
         # 200 OK or 302 Redirect is good for Paju
         if resp.status_code in [200, 302]:
             log(f"[OK] Paju {cctv.get('id')} is UP")
@@ -105,10 +108,21 @@ def check_generic_stream(cctv):
     url = cctv.get('directUrl') or cctv.get('url')
     if not url: return False
     
+    # Handle local player pages
+    if url.startswith('gangneung_player.html') or 'popup' in url:
+        return True # Assume OK if source is configured
+        
+    source = cctv.get('source', '')
+    if source in ['NOWJEJU', 'TRENDWORLD']:
+        url = f"https://158.179.194.163.sslip.io/proxy?url={requests.utils.quote(url)}"
+
     try:
-        # Standard HEAD check for any other region
-        resp = requests.head(url, timeout=10, verify=False)
-        if resp.status_code < 400: # Any success or redirect
+        # Standard check: use GET with stream=True to be safe against non-HEAD servers
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, timeout=10, verify=False, headers=headers, stream=True)
+        # Some servers (like ICITS) return 404 on status but provide body content. 
+        # Check if it's a success OR if it's an M3U8 content type despite 404.
+        if resp.status_code < 400 or (resp.status_code == 404 and 'mpegurl' in resp.headers.get('Content-Type', '').lower()):
             log(f"[OK] {cctv.get('id')} is UP")
             return True
         else:

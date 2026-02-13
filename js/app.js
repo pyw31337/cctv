@@ -650,6 +650,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
     const is43 = cctv.aspectRatio === '4:3';
 
+    // Default to 'cover' to fill the screen (premium look), 
+    // but UTIC/4:3 sources can be toggled or handled specifically
+    const defaultObjectFit = is43 ? 'contain' : 'cover';
+
     // Helper to trigger failover
     const triggerFailover = (wrapper) => {
         console.log(`[Failover] Stream failed for ${cctv.name} (Index ${sourceIndex}). Trying next...`);
