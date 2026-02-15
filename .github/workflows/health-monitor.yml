@@ -66,10 +66,9 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const files = fs.readdirSync('.').filter(f => f.startsWith('health_report_'));
             let report = 'No report found';
-            if (files.length > 0) {
-              report = fs.readFileSync(files[0], 'utf8');
+            if (fs.existsSync('latest_health_report.txt')) {
+              report = fs.readFileSync('latest_health_report.txt', 'utf8');
             }
             
             await github.rest.issues.create({
