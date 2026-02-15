@@ -9,6 +9,7 @@ import requests
 import os
 import sys
 import argparse
+import re
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -83,8 +84,15 @@ def categorize_streams(data):
 
 def generate_daejeon_url(item):
     """Regenerate Daejeon URL with current timestamp candidates (KST)"""
-    # Extract ID and apply padding logic
+    url = item.get("url", "")
     stream_id = item.get("id", "").replace("DAEJEON_", "")
+    
+    # Extract ID from existing URL path if possible (e.g. .../media/CTV0012/...)
+    url_match = re.search(r'/media/([^/]+)/', url)
+    if url_match:
+        stream_id = url_match.group(1)
+    
+    # Generic padding logic
     if stream_id.startswith("CCTV"):
         num = stream_id[4:]
         stream_id = f"CTV{num.zfill(4)}"
@@ -116,7 +124,8 @@ def check_hls_stream(item):
     urls_to_try = [url]
     
     # Special handling for Daejeon dynamic URLs (Fallback)
-    if source == "DAEJEON_ITS" and not url.endswith(".m3u8"):
+    is_daejeon_url = "tportal.daejeon.go.kr" in url
+    if (source == "DAEJEON_ITS" or is_daejeon_url) and not url.endswith(".m3u8"):
         urls_to_try = generate_daejeon_url(item)
     elif url:
         # For non-Daejeon, use directUrl as backup if available
@@ -174,7 +183,7 @@ def check_utic_api(item):
                  # This is an IP block
                  return {**base_res, "status": "BLOCKED", "code": 200, "type": "soft"}
             if len(html) < 500 and "null" in html.lower():
-                 return {**base_res, "status": "NULL_RESPONSE", "code": 200, "type": "hard"}
+                 return {**base_res, "status": "NULL_RESPONSE", "code": 200, "type": "soft"}
             
             return {**base_res, "status": "OK", "code": 200, "type": "hard"}
         else:
