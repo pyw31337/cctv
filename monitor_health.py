@@ -8,10 +8,7 @@ import json
 import requests
 import os
 import sys
-import json
-import requests
-import os
-import sys
+import argparse
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,9 +24,22 @@ TIMEOUT = 10
 FAILURE_THRESHOLD = 0.15  # Alert if more than 15% of streams fail (Stricter)
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Referer": "https://www.utic.go.kr/"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
+
+def get_headers(item):
+    """Generate source-specific headers"""
+    headers = HEADERS.copy()
+    source = item.get("source", "")
+    
+    if source == "GITS":
+        headers["Referer"] = "https://gits.gg.go.kr/web/map/webMap.do?opt=3"
+    elif source == "DAEJEON_ITS":
+        headers["Referer"] = "https://traffic.daejeon.go.kr/traffic/cctv"
+    else:
+        headers["Referer"] = "https://www.utic.go.kr/"
+        
+    return headers
 
 # Stream type patterns for testing
 STREAM_PATTERNS = {
@@ -72,36 +82,27 @@ def categorize_streams(data):
     return categories
 
 def generate_daejeon_url(item):
-    """Regenerate Daejeon URL with current timestamp"""
-    cctv_id = item.get("original_id")
-    if not cctv_id: return item.get("url")
-    
-    # Logic from collectors/daejeon.py
-    # Try to find a valid URL by checking recent timestamps
-    stream_id = cctv_id
-    if cctv_id.startswith("CCTV"):
-        num = cctv_id[4:] 
+    """Regenerate Daejeon URL with current timestamp candidates (KST)"""
+    # Extract ID and apply padding logic
+    stream_id = item.get("id", "").replace("DAEJEON_", "")
+    if stream_id.startswith("CCTV"):
+        num = stream_id[4:]
         stream_id = f"CTV{num.zfill(4)}"
         
     base_url = f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id}/{stream_id}_"
     
-    # Try offsets: 1, 2, 3, 4 minutes ago
-    # Daejeon updates every 2 minutes.
-    now = datetime.now()
-    
-    # We will try a few likely timestamps.
-    # If we are in health check mode, we can try HEAD requests to find the valid one.
-    # But to follow `check_hls_stream` pattern, we might want to return a list or just one likely.
-    # Let's try to match the odd/even minute pattern if possible.
-    # Actually, simplest is to try -2 min and -3 min. One should work.
+    # Use KST (UTC + 9) for GitHub Actions environment
+    now_utc = datetime.utcnow()
+    now_kst = now_utc + timedelta(hours=9)
     
     candidates = []
-    for m in range(1, 5):
-        t = now - timedelta(minutes=m)
+    # Try 1 to 5 mins ago
+    for m in range(1, 6):
+        t = now_kst - timedelta(minutes=m)
         ts = t.strftime("%Y%m%d.%H%M00")
         candidates.append(f"{base_url}{ts}.000.mp4")
-        
-    return candidates # Return list of candidates
+    return candidates
+ # Return list of candidates
 
 def check_hls_stream(item):
     """Check if HLS/MP4 stream is accessible"""
@@ -109,23 +110,30 @@ def check_hls_stream(item):
     url = item.get("directUrl") or item.get("url", "")
     name = item.get("name", "Unknown")
     cctv_id = item.get("id", "Unknown")
-    url_type = item.get("urlType", "")
+    source = item.get("source", "")
     
     base_res = {"name": name, "id": cctv_id}
-    
     urls_to_try = [url]
-    if url_type == "daejeon_mp4_dynamic":
-        candidates = generate_daejeon_url(item)
-        if candidates:
-            urls_to_try = candidates # Override with fresh candidates
+    
+    # Special handling for Daejeon dynamic URLs (Fallback)
+    if source == "DAEJEON_ITS" and not url.endswith(".m3u8"):
+        urls_to_try = generate_daejeon_url(item)
+    elif url:
+        # For non-Daejeon, use directUrl as backup if available
+        direct_url = item.get("directUrl")
+        if direct_url and direct_url != url:
+            urls_to_try.append(direct_url)
             
     last_status = None
     last_code = None
     
+    headers = get_headers(item)
+    
     for try_url in urls_to_try:
         try:
-            # Use GET with stream=True for better compatibility with some HLS servers
-            response = requests.get(try_url, headers=HEADERS, timeout=TIMEOUT, stream=True, verify=False)
+            # Use HEAD for efficiency if we are trying multiple candidates
+            # but use GET with stream=True
+            response = requests.get(try_url, headers=headers, timeout=TIMEOUT, stream=True, verify=False)
             if response.status_code == 200:
                 return {**base_res, "status": "OK", "code": 200, "type": "hard"}
             else:
@@ -154,15 +162,16 @@ def check_utic_api(item):
     
     base_res = {"name": name, "id": cctv_id}
     
+    headers = get_headers(item)
+    
     try:
-        response = requests.get(url, headers=HEADERS, timeout=TIMEOUT, verify=False)
+        response = requests.get(url, headers=headers, timeout=TIMEOUT, verify=False)
         
         if response.status_code == 200:
             # Check for common error indicators in HTML
             html = response.text
             if "비정상적인 접근" in html or "접속이 원활하지 않습니다" in html:
-                 # This is an IP block, which is usually a 'soft' failure for the stream quality check
-                 # but a failure for the checker itself.
+                 # This is an IP block
                  return {**base_res, "status": "BLOCKED", "code": 200, "type": "soft"}
             if len(html) < 500 and "null" in html.lower():
                  return {**base_res, "status": "NULL_RESPONSE", "code": 200, "type": "hard"}
@@ -170,6 +179,9 @@ def check_utic_api(item):
             return {**base_res, "status": "OK", "code": 200, "type": "hard"}
         else:
             fail_type = "hard" if response.status_code in [404, 500] else "soft"
+            # Log failure for debugging
+            if response.status_code == 403:
+                print(f"  [DEBUG] UTIC 403 for {name} ({cctv_id})")
             return {**base_res, "status": "FAIL", "code": response.status_code, "type": fail_type}
             
     except requests.Timeout:
@@ -179,7 +191,7 @@ def check_utic_api(item):
     except Exception as e:
         return {**base_res, "status": "ERROR", "code": str(e)[:50], "type": "soft"}
 
-def run_health_check():
+def run_health_check(target_sample_size=SAMPLE_SIZE, target_category=None):
     """Run health check on sample of streams"""
     print(f"Loading CCTV data from {CCTV_DATA_FILE}...")
     data = load_cctv_data()
@@ -198,8 +210,14 @@ def run_health_check():
         if not streams:
             continue
             
+        if target_category and category != target_category:
+            continue
+
         # Sample streams for testing
-        sample_size_per_cat = min(SAMPLE_SIZE // 4, len(streams))
+        sample_size_per_cat = min(target_sample_size // 4, len(streams))
+        if target_category:
+             sample_size_per_cat = min(target_sample_size, len(streams))
+             
         sample = random.sample(streams, sample_size_per_cat)
         
         print(f"\nChecking {category}: {len(sample)} samples out of {len(streams)} total")
@@ -212,10 +230,17 @@ def run_health_check():
             "Other": check_hls_stream
         }.get(category, check_hls_stream)
         
+        # Override for Daejeon HLS in MP4 category
+        def smart_check(s):
+            u = s.get("url", "")
+            if "chunklist.m3u8" in u:
+                return check_hls_stream(s)
+            return check_func(s)
+            
         # Run checks in parallel
         category_results = []
         with ThreadPoolExecutor(max_workers=15) as executor:
-            futures = {executor.submit(check_func, s): s for s in sample}
+            futures = {executor.submit(smart_check, s): s for s in sample}
             for future in as_completed(futures):
                 result = future.result()
                 category_results.append(result)
@@ -300,8 +325,13 @@ def generate_report(results):
 
 def main():
     """Main entry point"""
+    parser = argparse.ArgumentParser(description="CCTV Stream Health Monitor")
+    parser.add_argument("--sample", type=int, default=SAMPLE_SIZE, help="Total sample size")
+    parser.add_argument("--category", type=str, choices=["HLS", "MP4", "UTIC_API", "Other"], help="Only check specific category")
+    args = parser.parse_args()
+
     print("Starting CCTV Stream Health Check (Improved Logic)...")
-    results = run_health_check()
+    results = run_health_check(target_sample_size=args.sample, target_category=args.category)
     report = generate_report(results)
     
     print("\n" + report)

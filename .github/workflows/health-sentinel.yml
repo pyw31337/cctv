@@ -30,10 +30,15 @@ jobs:
           python scripts/sentinel.py
           
       - name: Commit and Push Status
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "AUTO: Update Regional Health Status"
-          file_pattern: 'data/status.json'
-          commit_user_name: "Sentinel Bot"
-          commit_user_email: "actions@github.com"
-          commit_author: "Sentinel Bot <actions@github.com>"
+        run: |
+          git config --global user.name 'Sentinel Bot'
+          git config --global user.email 'actions@github.com'
+          # Check if data/status.json was modified
+          if [[ -n $(git status -s data/status.json) ]]; then
+            git add data/status.json
+            git commit -m "AUTO: Update Regional Health Status"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No changes in health status."
+          fi

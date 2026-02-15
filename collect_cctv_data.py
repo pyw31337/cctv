@@ -756,8 +756,8 @@ def main():
     # With merge_cctv_item, this should be mostly clean, but let's run a sanity sort
     print("Running final sorting...")
     
-    # Sort to prioritize sources based on priority dict
-    final_merged.sort(key=lambda x: PRIORITY.get(x.get('source'), 99))
+    # Sort to prioritize sources based on priority dict (Stable sort: Priority then ID)
+    final_merged.sort(key=lambda x: (PRIORITY.get(x.get('source'), 99), x.get('id', '')))
     
     # We don't want to remove duplicates based on simple ID if they were meant to be separate
     # But let's check for exact ID duplicates just in case
@@ -879,7 +879,7 @@ def main():
     # 5. Save
     try:
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-            json.dump(final_merged, f, indent=2, ensure_ascii=False)
+            json.dump(final_merged, f, indent=2, ensure_ascii=False, sort_keys=True)
         print(f"Successfully saved updated data to {OUTPUT_FILE}")
     except Exception as e:
         print(f"Error saving data: {e}")
