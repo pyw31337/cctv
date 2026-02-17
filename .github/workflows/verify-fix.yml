@@ -1,0 +1,28 @@
+name: Verify Health Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-fix.yml'
+      - 'monitor_health.py'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install requests
+      
+      - name: Run health check (Sampled)
+        run: python monitor_health.py --sample 5
+      
+      - name: Check Report File
+        run: ls -l latest_health_report.txt
