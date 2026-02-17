@@ -285,6 +285,7 @@ def run_health_check(target_sample_size=SAMPLE_SIZE, target_category=None):
     
     results["hard_failure_rate"] = total_hard_failed / total_sampled if total_sampled else 0
     results["soft_failure_rate"] = total_soft_failed / total_sampled if total_sampled else 0
+    results["overall_failure_rate"] = (total_hard_failed + total_soft_failed) / total_sampled if total_sampled else 0
     
     # We only fail CI on HARD failures (404, 500, NULL)
     results["is_healthy"] = results["hard_failure_rate"] < FAILURE_THRESHOLD
@@ -345,11 +346,16 @@ def main():
     
     print("\n" + report)
     
-    report_file = f"health_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    report_file = f"health_report_{timestamp}.txt"
     with open(report_file, "w", encoding="utf-8") as f:
         f.write(report)
     
     print(f"\nReport saved to: {report_file}")
+    
+    # Also save as latest_health_report.txt for GitHub Actions to find easily
+    with open("latest_health_report.txt", "w", encoding="utf-8") as f:
+        f.write(report)
     
     # Save failed streams for auto-renewal
     failed_json = "failed_streams.json"
