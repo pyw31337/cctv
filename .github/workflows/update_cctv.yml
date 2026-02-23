@@ -58,11 +58,23 @@ jobs:
           # Retry loop for push to handle concurrent updates from other workflows (e.g. Sentinel)
           for i in {1..5}; do
             echo "Push attempt $i..."
-            if git pull --rebase origin main && git push; then
-              echo "Successfully pushed changes."
-              exit 0
+            if git pull --rebase origin main; then
+              if git push; then
+                echo "Successfully pushed changes."
+                exit 0
+              fi
+            else
+              echo "Rebase conflict! Using our generated cctv_data.json"
+              git checkout --theirs cctv_data.json
+              git add cctv_data.json
+              GIT_EDITOR=true git rebase --continue
+              if git push; then
+                echo "Successfully pushed after resolving conflict."
+                exit 0
+              fi
             fi
-            echo "Push failed, retrying in 10 seconds..."
+            echo "Push failed, aborting rebase and retrying in 10 seconds..."
+            git rebase --abort || true
             sleep 10
           done
           echo "Failed to push after 5 attempts."
