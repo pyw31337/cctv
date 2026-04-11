@@ -429,16 +429,6 @@ function updateNearestCctvs() {
     const { lat, lng } = state.center;
 
     state.nearestCctvs = state.cctvData
-        .filter(cctv => {
-            const url = cctv.url || '';
-            // Filter out broken CCTVs:
-            // - kind=EE: Gyeonggi local (UTIC bug + API blocked)
-            // - kind=K: Jeju local (Server load error pages)
-            if (url.includes('kind=EE') || url.includes('kind=K')) {
-                return false;
-            }
-            return true;
-        })
         .map(cctv => ({
             ...cctv,
             distance: getDistance(lat, lng, cctv.lat, cctv.lng)
@@ -582,6 +572,24 @@ function initPanelControls() {
             return;
         }
 
+        // Refresh button click
+        const refreshBtn = e.target.closest('.panel-refresh-btn');
+        if (refreshBtn) {
+            e.stopPropagation();
+            const panel = refreshBtn.closest('.video-panel');
+            const cctvIndex = parseInt(panel.dataset.cctvIndex);
+            const cctv = state.nearestCctvs[cctvIndex];
+            if (cctv) {
+                // Flash the refresh button
+                refreshBtn.style.color = 'var(--accent)';
+                setTimeout(() => refreshBtn.style.color = '', 500);
+                
+                // Re-attach stream (this will use a fresh timestamp/auth via proxy)
+                attachStreamToPanel(panel, cctv, cctvIndex);
+            }
+            return;
+        }
+
         // Floating close button click (collapse expanded panel)
         const floatingClose = e.target.closest('.panel-floating-close');
         if (floatingClose) {
@@ -670,14 +678,17 @@ function createVideoElement(cctv, sourceIndex = 0) {
         // Already proxied in data might happen, so we check first
         if (!url.includes('158.179.194.163.sslip.io')) {
             if (cctv.source === 'TRENDWORLD' || cctv.source === 'NOWJEJU' ||
-                cctv.source === 'JEJU' || cctv.source === 'HRFCO') {
+                cctv.source === 'JEJU' || cctv.source === 'HRFCO' || cctv.source === 'GITS') {
 
                 if (cctv.source === 'JEJU') {
-                    // Use the specific /jeju2 endpoint for Jeju ITS streams
-                    url = `https://158.179.194.163.sslip.io/jeju2?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
+                    // Use the standardized /jeju endpoint
+                    url = `https://158.179.194.163.sslip.io/jeju?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
+                } else if (cctv.source === 'GITS') {
+                    // Proxy GITS with specific Referer to bypass access restrictions
+                    url = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(url)}&referer=https://gits.gg.go.kr/&_t=${Date.now()}`;
                 } else {
                     // Use general proxy for others (NOWJEJU, HRFCO, etc.)
-                    url = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(url)}`;
+                    url = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
                 }
             }
         }
@@ -922,16 +933,32 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
             wrapper.appendChild(newVideo);
         }, 500); // Small delay to visualize switch
     } else {
-        // No more backups
-        wrapper.appendChild(createErrorPlaceholder('Unavailable'));
+        // No more backups - Show improved error placeholder with retry
+        const errPh = createErrorPlaceholder('Unavailable', () => {
+            handleStreamFailover(wrapper, cctv, 0); // Reset and retry from index 0
+        });
+        wrapper.appendChild(errPh);
     }
 }
 
-function createErrorPlaceholder(msg) {
+function createErrorPlaceholder(msg, retryFn) {
     const ph = document.createElement('div');
     ph.className = 'video-placeholder error';
-    ph.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;background:#222;color:#888;font-size:12px;';
-    ph.innerHTML = `<span>⚠️ ${msg}</span>`;
+    ph.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; background:#1a1a1a; color:#888; font-size:12px; gap:8px;';
+    
+    let html = `<span>⚠️ ${msg}</span>`;
+    if (retryFn) {
+        html += `<button class="retry-btn" style="background:#333; color:white; border:none; padding:4px 10px; border-radius:4px; font-size:10px; cursor:pointer;">인증키 갱신 및 재시도</button>`;
+    }
+    ph.innerHTML = html;
+
+    if (retryFn) {
+        const btn = ph.querySelector('.retry-btn');
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            retryFn();
+        };
+    }
     return ph;
 }
 
