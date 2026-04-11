@@ -245,6 +245,7 @@ def proxy_daejeon():
 
 # === Jeju Proxy Logic ===
 @app.route('/jeju')
+@app.route('/jeju2')
 def proxy_jeju():
     cctv_id = request.args.get('id')
     if not cctv_id:
@@ -287,30 +288,38 @@ def proxy_jeju():
 
     # 1. Fetch fresh Auth Key using UUID (target_id)
     try:
+        # Research results: Use POST to streamUrl.do with DEVICE_ID
         target_api = "https://www.jejuits.go.kr/jido/streamUrl.do"
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://www.jejuits.go.kr/jido/mainView.do?DEVICE_KIND=CCTV",
+            "Referer": "https://www.jejuits.go.kr/jido/mainView.do",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest"
         }
-        payload = {"DEVICE_ID": target_id}
         
-        resp = requests.post(target_api, data=payload, headers=headers, timeout=5, verify=False)
+        # Ensure we have a payload that matches what the browser sent
+        payload = f"DEVICE_ID={target_id}"
+        
+        logger.info(f"Jeju: Fetching token for {target_id}...")
+        resp = requests.post(target_api, data=payload, headers=headers, timeout=10, verify=False)
+        
         if resp.status_code != 200:
             return f"Jeju API Error: {resp.status_code}", 502
             
         real_url = resp.text.strip().strip('"')
         
-        if not real_url.startswith("http"):
-             return f"Invalid URL from Jeju API for {target_id}: {real_url}", 502
+        # The API returns the full m3u8 URL with auth tokens
+        if not real_url or not real_url.startswith("http"):
+             logger.error(f"Invalid resp from Jeju API: {real_url}")
+             return f"Invalid URL from Jeju API for {target_id}", 502
 
         # 2. Redirect to the local CORS-safe proxy instead of raw URL
-        logger.info(f"Jeju {cctv_id} -> Redirecting to CORS proxy for {real_url}")
+        # Manifest rewriting handles relative segments automatically
+        logger.info(f"Jeju {cctv_id} Success -> Proxying: {real_url[:60]}...")
         return flask.redirect(f"/proxy?url={quote(real_url)}")
 
     except Exception as e:
-        logger.error(f"Jeju Proxy Failed: {e}")
+        logger.error(f"Jeju Proxy Final Failed: {e}")
         return f"Server Error: {str(e)}", 500
 
 # === UTIC/NTIC Proxy Logic ===
