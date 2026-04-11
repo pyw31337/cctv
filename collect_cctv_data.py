@@ -149,50 +149,45 @@ def process_utic_item(item):
     # Filter out None values
     query_string = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
     
-    # BASE URL - default to UTIC JSP
-    url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
+    # BASE URL - Use the new /utic proxy for real-time token resolution
+    # This solves the 30-min token expiration issue.
+    proxy_params = {k: v for k, v in params.items() if v is not None}
+    proxy_query = urllib.parse.urlencode(proxy_params)
+    url = f"https://158.179.194.163.sslip.io/utic?{proxy_query}"
+    
     cctvip = str(item.get("CCTVIP", ""))
 
     # Special handling for River Flood Control Offices
     cctv_id_str = item.get("CCTVID", "")
     obscd = item.get('ID')
-    cctv_passwd = item.get("PASSWD")
     
     PROXY_SSLIP = "https://158.179.194.163.sslip.io/proxy?url="
     
+    # Priority 1: River Flood Control (Known stable HLS)
     if "E60" in cctv_id_str:
-        # Han River
         hls_url = f"https://cctvlo.hrfco.go.kr/live/cctv{obscd}/hls.m3u8"
         url = f"{PROXY_SSLIP}{hls_url}"
     elif "E61" in cctv_id_str:
-        # Nakdong River
         hls_url = f"https://cctvlo.nakdongriver.go.kr/live/cctv{obscd}/hls.m3u8"
         url = f"{PROXY_SSLIP}{hls_url}"
     elif "E62" in cctv_id_str:
-        # Geum River
         hls_url = f"https://cctvlo.geumriver.go.kr/live/cctv{obscd}/hls.m3u8"
         url = f"{PROXY_SSLIP}{hls_url}"
     elif "E63" in cctv_id_str:
-        # Yeongsan River
         hls_url = f"https://cctvlo.yeongsanriver.go.kr/live/cctv{obscd}/hls.m3u8"
         url = f"{PROXY_SSLIP}{hls_url}"
     
-    # DIRECT HLS FOR KNOWN SERVERS - url 자체를 직통 HLS로 설정 (iframe 제거)
-    # Pattern 1: Namyangju/Changhyeon Server (211.57.45.101)
-    # IMPORTANT: Use ID_PARAM (item.ID), NOT CCTVID!
-    # Supports: L-prefixed IDs (L180111) and _video2 IDs (3024_video2)
+    # Priority 2: Direct HLS Patterns (No proxy resolution needed)
     elif cctvip == "211.57.45.101":
-        stream_id = item.get("ID")  # ID_PARAM field, not CCTVID
+        stream_id = item.get("ID")
         if stream_id and (stream_id.startswith("L") or "_video" in stream_id):
             url = f"https://211.57.45.101/media/{stream_id}/chunklist.m3u8"
     
-    # Pattern 1.5: Paju ITS Server (L12 prefix)
     elif cctv_id_str.startswith("L12"):
         stream_id = item.get("ID")
         if stream_id and stream_id.startswith("cctv_"):
             url = f"https://trafficcctv.paju.go.kr/live/{stream_id}.stream/playlist.m3u8"
     
-    # Pattern 2: Incheon/Gyeonggi Servers
     elif cctvip in ["210.95.12.126", "211.114.87.164"]:
         stream_id = item.get("ID")
         if stream_id:

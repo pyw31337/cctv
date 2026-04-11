@@ -313,6 +313,79 @@ def proxy_jeju():
         logger.error(f"Jeju Proxy Failed: {e}")
         return f"Server Error: {str(e)}", 500
 
+# === UTIC/NTIC Proxy Logic ===
+@app.route('/utic')
+def proxy_utic():
+    """Resolves a fresh token for UTIC/NTIC (Highway) CCTV on request"""
+    cctv_id = request.args.get('cctvid')
+    if not cctv_id:
+        return "Missing CCTVID", 400
+        
+    # Reconstruct the original JSP URL parameters
+    # The collector will now provide these as params to this endpoint
+    params = {
+        "key": os.environ.get('UTIC_KEY', 'yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI'),
+        "cctvid": cctv_id,
+        "cctvName": request.args.get('cctvName', ''),
+        "kind": request.args.get('kind', ''),
+        "cctvip": request.args.get('cctvip', ''),
+        "cctvch": request.args.get('cctvch', ''),
+        "id": request.args.get('id', ''),
+        "cctvpasswd": request.args.get('cctvpasswd', ''),
+        "cctvport": request.args.get('cctvport', '')
+    }
+    
+    from urllib.parse import urlencode
+    query_string = urlencode({k: v for k, v in params.items() if v})
+    jsp_url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
+    
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do"
+        }
+        # Step 1: Get the JSP page content
+        resp = requests.get(jsp_url, headers=headers, timeout=10, verify=False)
+        if resp.status_code != 200:
+             return f"UTIC JSP Error: {resp.status_code}", 502
+             
+        # Step 2: Extract the m3u8 URL
+        import re
+        html = resp.text
+        patterns = [
+            r'src="([^"]+\.m3u8[^"]*)"',
+            r'source\s+src="([^"]+)"\s+type="application/x-mpegURL"',
+            r'var\s+[lh]url\s*=\s*"([^"]+)"'
+        ]
+        
+        real_url = None
+        for pat in patterns:
+            match = re.search(pat, html)
+            if match:
+                real_url = match.group(1)
+                break
+        
+        if not real_url:
+            # Fallback for Seoul region which uses a different wrapper sometimes
+            if 'remark5' in html: # Just a guess based on TOPIS, but let's be safe
+                 pass
+            return f"Failed to extract stream for {cctv_id}", 404
+            
+        # Step 3: Check if it's already absolute
+        if not real_url.startswith("http"):
+            # Resolve relative to UTIC or common direct server
+            if real_url.startswith("/"):
+                real_url = f"https://www.utic.go.kr{real_url}"
+                
+        logger.info(f"Resolved UTIC {cctv_id} -> {real_url[:60]}...")
+        
+        # Step 4: Redirect to our proxy to handle CORS/SSL
+        return flask.redirect(f"/proxy?url={quote(real_url)}")
+
+    except Exception as e:
+        logger.error(f"UTIC Proxy Failed: {e}")
+        return f"Server Error: {str(e)}", 500
+
 if __name__ == '__main__':
     # Ensure HLS dir exists
     shutil.rmtree(HLS_DIR, ignore_errors=True)
