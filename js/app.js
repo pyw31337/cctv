@@ -107,6 +107,9 @@ function setupEventListeners() {
         if (e.target.id === 'video-layer') closeVideoLayer();
     });
 
+    // Location Button
+    $('#location-btn').addEventListener('click', handleCurrentLocation);
+
     // Search Results Click (Delegation for items, bookmark, delete)
     $('#search-results').addEventListener('click', (e) => {
         const item = e.target.closest('.search-result-item');
@@ -378,6 +381,47 @@ function selectPlace(lat, lng, name, address) {
 
     // Update Search Marker (Red Pin)
     updateSearchMarker(lat, lng);
+}
+
+// === Geolocation ===
+async function handleCurrentLocation() {
+    const btn = $('#location-btn');
+    if (!navigator.geolocation) {
+        alert('이 브라우저는 위치 정보를 지원하지 않습니다.');
+        return;
+    }
+
+    btn.classList.add('loading');
+
+    navigator.geolocation.getCurrentPosition(async (position) => {
+        const { latitude, longitude } = position.coords;
+
+        // Use Geocoder to get address name
+        const geocoder = new kakao.maps.services.Geocoder();
+        geocoder.coord2Address(longitude, latitude, (result, status) => {
+            btn.classList.remove('loading');
+            if (status === kakao.maps.services.Status.OK) {
+                const addr = result[0].address;
+                const addressName = addr.address_name;
+                // Prefer a slightly more descriptive name if possible
+                const name = addr.region_3depth_name || addr.region_2depth_name || '현재 위치';
+
+                selectPlace(latitude, longitude, name, addressName);
+            } else {
+                // Fallback if Geocoder fails
+                selectPlace(latitude, longitude, '현재 위치', '');
+            }
+        });
+    }, (error) => {
+        btn.classList.remove('loading');
+        console.error('Geolocation error:', error);
+        const msg = error.code === 1 ? '위치 정보 권한이 거부되었습니다.' : '위치 정보를 가져오는데 실패했습니다.';
+        alert(msg);
+    }, {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0
+    });
 }
 
 // === CCTV Logic ===
