@@ -575,16 +575,13 @@ function initPanelControls() {
         // Refresh button click
         const refreshBtn = e.target.closest('.panel-refresh-btn');
         if (refreshBtn) {
+            // This button is removed from HTML but let's keep the handler for backward compatibility 
+            // or if we use it in other layers.
             e.stopPropagation();
             const panel = refreshBtn.closest('.video-panel');
             const cctvIndex = parseInt(panel.dataset.cctvIndex);
             const cctv = state.nearestCctvs[cctvIndex];
             if (cctv) {
-                // Flash the refresh button
-                refreshBtn.style.color = 'var(--accent)';
-                setTimeout(() => refreshBtn.style.color = '', 500);
-                
-                // Re-attach stream (this will use a fresh timestamp/auth via proxy)
                 attachStreamToPanel(panel, cctv, cctvIndex);
             }
             return;
@@ -944,11 +941,11 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
 function createErrorPlaceholder(msg, retryFn) {
     const ph = document.createElement('div');
     ph.className = 'video-placeholder error';
-    ph.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; background:#1a1a1a; color:#888; font-size:12px; gap:8px;';
+    ph.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; background:#0f172a; color:#94a3b8; font-size:14px; gap:16px;';
     
-    let html = `<span>⚠️ ${msg}</span>`;
+    let html = `<span style="font-weight:500;">⚠️ ${msg}</span>`;
     if (retryFn) {
-        html += `<button class="retry-btn" style="background:#333; color:white; border:none; padding:4px 10px; border-radius:4px; font-size:10px; cursor:pointer;">인증키 갱신 및 재시도</button>`;
+        html += `<button class="retry-btn" style="background:var(--accent); color:var(--bg-primary); border:none; padding:12px 24px; border-radius:var(--radius-md); font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 4px 15px rgba(34, 197, 94, 0.3); transition: transform 0.2s;">재시도</button>`;
     }
     ph.innerHTML = html;
 
@@ -956,7 +953,11 @@ function createErrorPlaceholder(msg, retryFn) {
         const btn = ph.querySelector('.retry-btn');
         btn.onclick = (e) => {
             e.stopPropagation();
-            retryFn();
+            btn.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                btn.style.transform = '';
+                retryFn();
+            }, 100);
         };
     }
     return ph;
