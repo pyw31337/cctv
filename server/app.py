@@ -27,62 +27,35 @@ logger = logging.getLogger(__name__)
 streams = {}  # { stream_id: { 'process': Popen, 'last_access': time, 'url': url } }
 lock = threading.Lock()
 
-# === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
+# === Z3 Stream Cache (its.go.kr CCTV appUrl map, stored in GitHub) ===
 _z3_cache = {
     'data': None,       # dict: cctvip (str) -> appUrl (str)
     'fetched': None,    # datetime of last successful fetch
     'lock': threading.Lock()
 }
-Z3_CACHE_TTL_MINUTES = 90  # appUrl tokens valid for 120 min; refresh 30 min early
+Z3_CACHE_TTL_MINUTES = 50
+Z3_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/pyw31337/cctv/main/data/z3_cache.json'
 
 def _refresh_z3_cache():
-    """Fetch CCTV appUrl map from its.go.kr. Caller must hold _z3_cache['lock']."""
+    """Fetch Z3 appUrl map from GitHub raw content. Caller must hold _z3_cache['lock']."""
     try:
-        s = requests.Session()
-        s.verify = False
-        r = s.get('https://its.go.kr/', timeout=10,
-                  headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        xsrf = s.cookies.get('XSRF-TOKEN', '')
-        if not xsrf:
-            logger.warning("Z3: No XSRF-TOKEN from its.go.kr")
+        resp = requests.get(Z3_GITHUB_RAW_URL, timeout=30,
+                            headers={'User-Agent': 'CCTV-Proxy/1.0',
+                                     'Cache-Control': 'no-cache'})
+        if resp.status_code != 200:
+            logger.error(f"Z3: GitHub raw fetch failed: {resp.status_code}")
             return
-
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Referer': 'https://its.go.kr/',
-            'Content-Type': 'application/json',
-            'X-XSRF-TOKEN': xsrf,
-            'Accept': 'application/json',
-        }
-        r2 = s.post('https://its.go.kr/map/getMarkers',
-                    data=json.dumps({'body': {'data': {'type': 'CCTV'}}}),
-                    headers=headers, timeout=60)
-        if r2.status_code != 200:
-            logger.error(f"Z3: getMarkers returned {r2.status_code}")
-            return
-
-        features = r2.json().get('features', [])
-        cctvip_map = {}
-        for f in features:
-            props = f.get('properties', {})
-            info_str = props.get('INFO', '{}')
-            info = json.loads(info_str) if isinstance(info_str, str) else info_str
-            app_url = info.get('appUrl', '')
-            # appUrl format: http://cctvsec.ktict.co.kr/{cctvip}/{token}
-            if app_url and 'cctvsec.ktict.co.kr' in app_url:
-                parts = app_url.split('/')
-                if len(parts) >= 4:
-                    cctvip = parts[3]
-                    cctvip_map[cctvip] = app_url
-
+        cache_data = resp.json()
+        cctvip_map = cache_data.get('data', {})
+        fetched_str = cache_data.get('fetched', 'unknown')
         _z3_cache['data'] = cctvip_map
         _z3_cache['fetched'] = datetime.now()
-        logger.info(f"Z3 cache refreshed: {len(cctvip_map)} entries")
+        logger.info(f"Z3 cache loaded: {len(cctvip_map)} entries (data from {fetched_str})")
     except Exception as e:
         logger.error(f"Z3 cache refresh failed: {e}")
 
 def get_z3_app_url(cctvip):
-    """Return a fresh appUrl for the given cctvip, refreshing cache if needed."""
+    """Return appUrl for given cctvip, refreshing cache if needed."""
     with _z3_cache['lock']:
         now = datetime.now()
         needs_refresh = (
@@ -93,6 +66,10 @@ def get_z3_app_url(cctvip):
         if needs_refresh:
             _refresh_z3_cache()
     return (_z3_cache['data'] or {}).get(str(cctvip))
+
+# Pre-warm Z3 cache on startup
+threading.Thread(target=lambda: _z3_cache['lock'].acquire() or _refresh_z3_cache() or _z3_cache['lock'].release(), daemon=True).start()
+
 
 def get_stream_id(url):
     return hashlib.md5(url.encode()).hexdigest()
@@ -216,7 +193,7 @@ def proxy_stream():
         return "Missing URL", 400
         
     try:
-        # Some servers (UTIC) need Headers
+        # Some servers need specific Headers
         headers = {}
         if 'utic.go.kr' in target_url:
              headers["Referer"] = "https://www.utic.go.kr/guide/cctvOpenData.do?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
@@ -224,6 +201,9 @@ def proxy_stream():
         elif 'jejuits.go.kr' in target_url:
              headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
              headers["Referer"] = "https://www.jejuits.go.kr/jido/mainView.do"
+        elif 'cctvsec.ktict.co.kr' in target_url:
+             headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+             headers["Referer"] = "https://its.go.kr/"
 
         # Fetch the target URL
         resp = requests.get(target_url, stream=True, timeout=15, verify=False, headers=headers, allow_redirects=True)
@@ -483,6 +463,7 @@ def proxy_utic():
     except Exception as e:
         logger.error(f"UTIC Proxy Failed: {e}")
         return f"Server Error: {str(e)}", 500
+
 
 if __name__ == '__main__':
     # Ensure HLS dir exists

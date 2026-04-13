@@ -1,0 +1,109 @@
+name: Z3 Cache Refresh
+
+on:
+  schedule:
+    # Run every hour
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch Z3 cache from its.go.kr
+        id: fetch
+        run: |
+          python3 - <<'EOF'
+          import requests, json, os, sys
+          from datetime import datetime
+
+          s = requests.Session()
+          s.verify = False
+
+          # Get XSRF token
+          print("Getting XSRF token...")
+          try:
+              r = s.get('https://its.go.kr/', timeout=15,
+                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+              xsrf = s.cookies.get('XSRF-TOKEN', '')
+              print(f"XSRF: {xsrf[:20] if xsrf else 'NOT FOUND'}")
+              if not xsrf:
+                  print("ERROR: No XSRF token - its.go.kr may be blocked from this runner")
+                  sys.exit(1)
+          except Exception as e:
+              print(f"ERROR: Cannot reach its.go.kr: {e}")
+              sys.exit(1)
+
+          # Fetch all CCTV markers
+          print("Fetching CCTV markers...")
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              'Referer': 'https://its.go.kr/',
+              'Content-Type': 'application/json',
+              'X-XSRF-TOKEN': xsrf,
+              'Accept': 'application/json',
+          }
+          r2 = s.post('https://its.go.kr/map/getMarkers',
+                      data=json.dumps({'body': {'data': {'type': 'CCTV'}}}),
+                      headers=headers, timeout=120)
+
+          print(f"Status: {r2.status_code}, Size: {len(r2.content)/1024/1024:.1f}MB")
+          if r2.status_code != 200:
+              print(f"ERROR: {r2.text[:200]}")
+              sys.exit(1)
+
+          features = r2.json().get('features', [])
+          print(f"Features: {len(features)}")
+
+          cctvip_map = {}
+          for f in features:
+              props = f.get('properties', {})
+              info_str = props.get('INFO', '{}')
+              try:
+                  info = json.loads(info_str) if isinstance(info_str, str) else info_str
+              except:
+                  continue
+              app_url = info.get('appUrl', '')
+              if app_url and 'cctvsec.ktict.co.kr' in app_url:
+                  parts = app_url.split('/')
+                  if len(parts) >= 4:
+                      cctvip_map[parts[3]] = app_url
+
+          print(f"cctvip map entries: {len(cctvip_map)}")
+
+          os.makedirs('data', exist_ok=True)
+          cache = {
+              'fetched': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'entries': len(cctvip_map),
+              'data': cctvip_map
+          }
+          with open('data/z3_cache.json', 'w') as f:
+              json.dump(cache, f, ensure_ascii=False, separators=(',', ':'))
+
+          size = os.path.getsize('data/z3_cache.json')
+          print(f"Saved data/z3_cache.json: {size/1024:.1f}KB with {len(cctvip_map)} entries")
+          EOF
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/z3_cache.json
+          if git diff --staged --quiet; then
+            echo "No changes to z3_cache.json"
+          else
+            git commit -m "AUTO: Refresh Z3 appUrl cache [skip ci]"
+            git push
+          fi

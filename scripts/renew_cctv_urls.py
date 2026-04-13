@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 import re
 import os
+import sys
 
 # Configuration
 CCTV_DATA_FILE = "cctv_data.json"
@@ -82,6 +83,21 @@ def construct_url(cctv_id, details):
         "cctvport": details.get("PORT") if details.get("PORT") else "null"
     }
     
+    # SPECIAL: Optimization for Known Direct Servers (Incheon/Gyeonggi/Namyangju)
+    # Mirroring logic from collect_cctv_data.py
+    if cctv_ip in ["210.95.12.126", "211.114.87.164"]:
+         stream_id = details.get("ID")
+         if stream_id:
+             return f"http://{cctv_ip}/media/{stream_id}/chunklist.m3u8"
+             
+    if cctv_ip == "211.57.45.101":
+        stream_id = details.get("ID")
+        if stream_id and (stream_id.startswith("L") or "_video" in stream_id):
+            return f"https://211.57.45.101/media/{stream_id}/chunklist.m3u8"
+            
+    if str(cctv_id).startswith("L12") and details.get("ID", "").startswith("cctv_"):
+         return f"https://trafficcctv.paju.go.kr/live/{details.get('ID')}.stream/playlist.m3u8"
+
     query_string = "&".join([f"{k}={v}" for k, v in params.items()])
     return f"{base_url}?{query_string}"
 
@@ -99,12 +115,22 @@ def main():
     # Create a map for fast lookup
     data_map = {item['id']: item for item in existing_data}
     
+    # Initialize GITS Collector
+    try:
+        sys.path.append(os.getcwd())
+        from collectors.gits import GitsCollector
+        gits_collector = GitsCollector()
+        print("Initialized GITS Collector.")
+    except ImportError:
+        print("Could not import GitsCollector. GITS streams will be skipped.")
+        gits_collector = None
+    
     # Identify candidates for renewal
     # Focus on utic_null, http_404, and http_other
     candidates = []
     failed_groups = failed_streams.get("failures", {})
     
-    for category in ["utic_null", "http_404", "http_other"]:
+    for category in ["utic_null", "http_404", "http_other", "connection_error", "timeout"]:
         if category in failed_groups:
             for item in failed_groups[category]:
                 if item.get("id"):
@@ -125,6 +151,42 @@ def main():
             
         print(f"Renewing {cctv_id}...", end=" ")
         
+        # Specific Logic for GITS
+        if cctv_id.startswith("GITS_"):
+            if not gits_collector:
+                print("❌ Skipped (GITS Collector not available)")
+                failed_count += 1
+                continue
+                
+            try:
+                # Extract original ID (remove GITS_ prefix)
+                original_id = cctv_id.replace("GITS_", "")
+                # Create a minimal object for the collector
+                dummy_cctv = {"original_id": original_id, "id": cctv_id}
+                
+                new_url = gits_collector.fetch_stream_url(dummy_cctv)
+                
+                if new_url:
+                    old_url = data_map[cctv_id].get("url", "")
+                    if new_url != old_url:
+                        data_map[cctv_id]["url"] = new_url
+                        data_map[cctv_id]["lastRenewed"] = datetime.now().isoformat()
+                        data_map[cctv_id]["status"] = "active"
+                        print(f"✅ UPDATED (GITS)")
+                        renewed_count += 1
+                    else:
+                        print("⏭️ No change")
+                        skips += 1
+                else:
+                    print("❌ Failed to fetch GITS URL")
+                    failed_count += 1
+            except Exception as e:
+                print(f"❌ Error renewing GITS: {e}")
+                failed_count += 1
+            
+            continue
+
+        # Standard Logic for UTIC/Rivers
         # 1. Fetch fresh details
         details = fetch_cctv_details(cctv_id)
         if not details:
