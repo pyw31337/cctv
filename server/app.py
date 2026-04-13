@@ -6,7 +6,10 @@ import shutil
 import logging
 import threading
 import hashlib
-from urllib.parse import quote
+import json
+import re
+from datetime import datetime, timedelta
+from urllib.parse import quote, urlencode
 import flask
 from flask import Flask, request, Response, send_from_directory, abort
 import requests
@@ -23,6 +26,73 @@ logger = logging.getLogger(__name__)
 # Global state
 streams = {}  # { stream_id: { 'process': Popen, 'last_access': time, 'url': url } }
 lock = threading.Lock()
+
+# === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
+_z3_cache = {
+    'data': None,       # dict: cctvip (str) -> appUrl (str)
+    'fetched': None,    # datetime of last successful fetch
+    'lock': threading.Lock()
+}
+Z3_CACHE_TTL_MINUTES = 90  # appUrl tokens valid for 120 min; refresh 30 min early
+
+def _refresh_z3_cache():
+    """Fetch CCTV appUrl map from its.go.kr. Caller must hold _z3_cache['lock']."""
+    try:
+        s = requests.Session()
+        s.verify = False
+        r = s.get('https://its.go.kr/', timeout=10,
+                  headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        xsrf = s.cookies.get('XSRF-TOKEN', '')
+        if not xsrf:
+            logger.warning("Z3: No XSRF-TOKEN from its.go.kr")
+            return
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://its.go.kr/',
+            'Content-Type': 'application/json',
+            'X-XSRF-TOKEN': xsrf,
+            'Accept': 'application/json',
+        }
+        r2 = s.post('https://its.go.kr/map/getMarkers',
+                    data=json.dumps({'body': {'data': {'type': 'CCTV'}}}),
+                    headers=headers, timeout=60)
+        if r2.status_code != 200:
+            logger.error(f"Z3: getMarkers returned {r2.status_code}")
+            return
+
+        features = r2.json().get('features', [])
+        cctvip_map = {}
+        for f in features:
+            props = f.get('properties', {})
+            info_str = props.get('INFO', '{}')
+            info = json.loads(info_str) if isinstance(info_str, str) else info_str
+            app_url = info.get('appUrl', '')
+            # appUrl format: http://cctvsec.ktict.co.kr/{cctvip}/{token}
+            if app_url and 'cctvsec.ktict.co.kr' in app_url:
+                parts = app_url.split('/')
+                if len(parts) >= 4:
+                    cctvip = parts[3]
+                    cctvip_map[cctvip] = app_url
+
+        _z3_cache['data'] = cctvip_map
+        _z3_cache['fetched'] = datetime.now()
+        logger.info(f"Z3 cache refreshed: {len(cctvip_map)} entries")
+    except Exception as e:
+        logger.error(f"Z3 cache refresh failed: {e}")
+
+def get_z3_app_url(cctvip):
+    """Return a fresh appUrl for the given cctvip, refreshing cache if needed."""
+    with _z3_cache['lock']:
+        now = datetime.now()
+        needs_refresh = (
+            _z3_cache['data'] is None or
+            _z3_cache['fetched'] is None or
+            now - _z3_cache['fetched'] > timedelta(minutes=Z3_CACHE_TTL_MINUTES)
+        )
+        if needs_refresh:
+            _refresh_z3_cache()
+    return (_z3_cache['data'] or {}).get(str(cctvip))
 
 def get_stream_id(url):
     return hashlib.md5(url.encode()).hexdigest()
@@ -231,12 +301,10 @@ def proxy_daejeon():
         stream_id = f"CTV{num.zfill(4)}"
 
     # Generate Timestamp (current - 2 mins to be safe)
-    from datetime import datetime, timedelta
     now = datetime.now()
     target_time = now - timedelta(minutes=2)
     timestamp = target_time.strftime("%Y%m%d.%H%M00")
 
-    # Construct URL
     # https://tportal.daejeon.go.kr:37084/01/media/CTV0008/CTV0008_20260211.140500.000.mp4
     real_url = f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
     
@@ -329,66 +397,87 @@ def proxy_utic():
     cctv_id = request.args.get('cctvid')
     if not cctv_id:
         return "Missing CCTVID", 400
-        
-    # Reconstruct the original JSP URL parameters
-    # The collector will now provide these as params to this endpoint
+
+    kind   = request.args.get('kind', '')
+    cctvip = request.args.get('cctvip', '')
+
+    # === Z3 kind: 국가교통정보센터(국도) ===
+    # UTIC JSP does not support kind=Z3. Stream via its.go.kr + cctvsec.ktict.co.kr.
+    if kind == 'Z3' and cctvip:
+        try:
+            app_url = get_z3_app_url(cctvip)
+            if not app_url:
+                logger.error(f"Z3: No appUrl found for cctvip={cctvip} ({cctv_id})")
+                return f"Z3 stream not found for cctvip {cctvip}", 404
+
+            # cctvsec.ktict.co.kr returns the signed m3u8 URL in the response body
+            hls_resp = requests.get(
+                app_url + '!hls', timeout=10, verify=False,
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                         'Referer': 'https://its.go.kr/'})
+            if hls_resp.status_code != 200:
+                logger.error(f"Z3 !hls error {hls_resp.status_code} for {cctvip}")
+                return f"Z3 HLS fetch failed: {hls_resp.status_code}", 502
+
+            m3u8_url = hls_resp.text.strip()
+            if not m3u8_url.startswith('http'):
+                logger.error(f"Z3 unexpected body for {cctvip}: {m3u8_url[:80]}")
+                return "Invalid Z3 stream URL", 502
+
+            logger.info(f"Z3 {cctv_id} (cctvip={cctvip}) -> {m3u8_url[:70]}...")
+            return flask.redirect(f"/proxy?url={quote(m3u8_url)}")
+
+        except Exception as e:
+            logger.error(f"Z3 Proxy Failed ({cctv_id}): {e}")
+            return f"Server Error: {str(e)}", 500
+
+    # === General UTIC: scrape the JSP page for an m3u8 URL ===
     params = {
         "key": os.environ.get('UTIC_KEY', 'yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI'),
         "cctvid": cctv_id,
         "cctvName": request.args.get('cctvName', ''),
-        "kind": request.args.get('kind', ''),
-        "cctvip": request.args.get('cctvip', ''),
+        "kind": kind,
+        "cctvip": cctvip,
         "cctvch": request.args.get('cctvch', ''),
         "id": request.args.get('id', ''),
         "cctvpasswd": request.args.get('cctvpasswd', ''),
         "cctvport": request.args.get('cctvport', '')
     }
-    
-    from urllib.parse import urlencode
+
     query_string = urlencode({k: v for k, v in params.items() if v})
     jsp_url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?{query_string}"
-    
+
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do"
         }
-        # Step 1: Get the JSP page content
         resp = requests.get(jsp_url, headers=headers, timeout=10, verify=False)
         if resp.status_code != 200:
-             return f"UTIC JSP Error: {resp.status_code}", 502
-             
-        # Step 2: Extract the m3u8 URL
-        import re
+            return f"UTIC JSP Error: {resp.status_code}", 502
+
         html = resp.text
         patterns = [
             r'src="([^"]+\.m3u8[^"]*)"',
             r'source\s+src="([^"]+)"\s+type="application/x-mpegURL"',
             r'var\s+[lh]url\s*=\s*"([^"]+)"'
         ]
-        
+
         real_url = None
         for pat in patterns:
             match = re.search(pat, html)
             if match:
                 real_url = match.group(1)
                 break
-        
+
         if not real_url:
-            # Fallback for Seoul region which uses a different wrapper sometimes
-            if 'remark5' in html: # Just a guess based on TOPIS, but let's be safe
-                 pass
             return f"Failed to extract stream for {cctv_id}", 404
-            
-        # Step 3: Check if it's already absolute
+
         if not real_url.startswith("http"):
-            # Resolve relative to UTIC or common direct server
             if real_url.startswith("/"):
                 real_url = f"https://www.utic.go.kr{real_url}"
-                
+
         logger.info(f"Resolved UTIC {cctv_id} -> {real_url[:60]}...")
-        
-        # Step 4: Redirect to our proxy to handle CORS/SSL
         return flask.redirect(f"/proxy?url={quote(real_url)}")
 
     except Exception as e:
