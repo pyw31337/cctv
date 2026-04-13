@@ -474,6 +474,91 @@ def proxy_utic():
         return f"Server Error: {str(e)}", 500
 
 
+# === KB / Loomex (경기도·부산 CCTV via kbsapi.loomex.net) Proxy Logic ===
+@app.route('/kb')
+def proxy_kb():
+    """Fetches a fresh Loomex (kbsapi) stream URL for a given cctvip via utic.go.kr."""
+    cctvip = request.args.get('cctvip')
+    if not cctvip:
+        return "Missing cctvip", 400
+
+    utic_api_url = f"https://www.utic.go.kr/map/getGyeonggiCctvUrl.do?cctvIp={cctvip}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do"
+    }
+
+    try:
+        resp = requests.get(utic_api_url, headers=headers, timeout=10, verify=False)
+        if resp.status_code != 200:
+            return f"UTIC KB API error: {resp.status_code}", 502
+
+        kbs_url = resp.text.strip()
+        if not kbs_url or kbs_url == 'null':
+            return f"No stream URL for cctvip {cctvip}", 404
+
+        if kbs_url.startswith("//"):
+            kbs_url = "https:" + kbs_url
+
+        if not kbs_url.startswith("http"):
+            return f"Unexpected URL format: {kbs_url[:50]}", 502
+
+        logger.info(f"KB {cctvip} -> {kbs_url[:70]}...")
+        return flask.redirect(f"/proxy?url={quote(kbs_url)}")
+
+    except Exception as e:
+        logger.error(f"KB Proxy Failed ({cctvip}): {e}")
+        return f"Server Error: {str(e)}", 500
+
+
+# === GiTS (경기도 교통정보서비스) Proxy Logic ===
+@app.route('/gits')
+def proxy_gits():
+    """Fetches a fresh GiTS stream URL on-demand for a given cctvip (GiTS cctvId)."""
+    cctvip = request.args.get('cctvip')
+    if not cctvip:
+        return "Missing cctvip", 400
+
+    popup_url = f"https://gits.gg.go.kr/web/popup/webCctvPopup.do?cctvId={cctvip}"
+    gits_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://gits.gg.go.kr/web/map/webMap.do?opt=3"
+    }
+
+    try:
+        resp = requests.get(popup_url, headers=gits_headers, timeout=10)
+        if resp.status_code != 200:
+            return f"GiTS popup error: {resp.status_code}", 502
+
+        html = resp.text
+
+        # Extract the !hls token URL (preferred - returns signed m3u8)
+        match_hls = re.search(r'\$\.get\("([^"]+!hls)"', html)
+        if match_hls:
+            hls_token_url = match_hls.group(1)
+            if hls_token_url.startswith("//"):
+                hls_token_url = "https:" + hls_token_url
+            hls_resp = requests.get(hls_token_url, headers=gits_headers, timeout=10)
+            if hls_resp.status_code == 200:
+                m3u8_url = hls_resp.text.strip()
+                if m3u8_url.startswith("http"):
+                    logger.info(f"GiTS {cctvip} -> {m3u8_url[:70]}...")
+                    return flask.redirect(f"/proxy?url={quote(m3u8_url)}")
+
+        # Fallback: videoUrl (direct stream, no token resolution needed)
+        match_video = re.search(r'var videoUrl = "(http[^"]+)"', html)
+        if match_video:
+            video_url = match_video.group(1).replace("http://", "https://")
+            logger.info(f"GiTS {cctvip} (videoUrl fallback) -> {video_url[:70]}...")
+            return flask.redirect(f"/proxy?url={quote(video_url)}")
+
+        return f"GiTS: stream not found for cctvip {cctvip}", 404
+
+    except Exception as e:
+        logger.error(f"GiTS Proxy Failed ({cctvip}): {e}")
+        return f"Server Error: {str(e)}", 500
+
+
 if __name__ == '__main__':
     # Ensure HLS dir exists
     shutil.rmtree(HLS_DIR, ignore_errors=True)
