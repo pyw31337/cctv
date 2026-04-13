@@ -113,6 +113,12 @@ threading.Thread(target=cleanup_loop, daemon=True).start()
 
 app = Flask(__name__, static_folder='../', static_url_path='')
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    return response
+
 @app.route('/')
 def serve_index():
     return send_from_directory(app.static_folder, 'index.html')
