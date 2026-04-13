@@ -68,7 +68,10 @@ def get_z3_app_url(cctvip):
     return (_z3_cache['data'] or {}).get(str(cctvip))
 
 # Pre-warm Z3 cache on startup
-threading.Thread(target=lambda: _z3_cache['lock'].acquire() or _refresh_z3_cache() or _z3_cache['lock'].release(), daemon=True).start()
+def _prewarm_z3():
+    with _z3_cache['lock']:
+        _refresh_z3_cache()
+threading.Thread(target=_prewarm_z3, daemon=True).start()
 
 
 def get_stream_id(url):
