@@ -944,9 +944,17 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
             try {
                 if (isZ3 && z3CctvIp) {
-                    // Z3: use hourly-refreshed z3_cache.json for stream URL
-                    streamUrl = await getZ3StreamUrl(z3CctvIp);
-                    if (!streamUrl) throw new Error('Z3 cctvip not in cache: ' + z3CctvIp);
+                    // Z3: UTIC URL의 id 파라미터 = cctvsec 토큰 경로
+                    // https://cctvsec.ktict.co.kr/{id} → 302 → cctvsec:8082 master m3u8
+                    // 브라우저가 직접 접근 → 브라우저 IP로 nimblesessionid 생성 (CORS: *)
+                    const idParam = new URL(url).searchParams.get('id');
+                    if (idParam) {
+                        streamUrl = `https://cctvsec.ktict.co.kr/${idParam}`;
+                    } else {
+                        // fallback: z3_cache
+                        streamUrl = await getZ3StreamUrl(z3CctvIp);
+                        if (!streamUrl) throw new Error('Z3 stream URL not found: ' + z3CctvIp);
+                    }
                 } else {
                     // Non-Z3 UTIC: fetch from JSP via CF Worker /utic
                     let uticSearch = '';
