@@ -33,18 +33,20 @@ jobs:
           s.verify = False
 
           # Get XSRF token
-          print("Getting XSRF token...")
+          print("Getting XSRF token from its.go.kr...")
           try:
               r = s.get('https://its.go.kr/', timeout=15,
                         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
               xsrf = s.cookies.get('XSRF-TOKEN', '')
               print(f"XSRF: {xsrf[:20] if xsrf else 'NOT FOUND'}")
               if not xsrf:
-                  print("ERROR: No XSRF token - its.go.kr may be blocked from this runner")
-                  sys.exit(1)
+                  print("WARNING: its.go.kr did not return XSRF token.")
+                  print("This runner IP may be blocked. Exiting gracefully to preserve existing cache.")
+                  sys.exit(0)
           except Exception as e:
-              print(f"ERROR: Cannot reach its.go.kr: {e}")
-              sys.exit(1)
+              print(f"WARNING: Cannot reach its.go.kr: {e}")
+              print("Exiting gracefully to preserve existing cache.")
+              sys.exit(0)
 
           # Fetch all CCTV markers
           print("Fetching CCTV markers...")
@@ -55,13 +57,18 @@ jobs:
               'X-XSRF-TOKEN': xsrf,
               'Accept': 'application/json',
           }
-          r2 = s.post('https://its.go.kr/map/getMarkers',
-                      data=json.dumps({'body': {'data': {'type': 'CCTV'}}}),
-                      headers=headers, timeout=120)
+          try:
+              r2 = s.post('https://its.go.kr/map/getMarkers',
+                          data=json.dumps({'body': {'data': {'type': 'CCTV'}}}),
+                          headers=headers, timeout=120)
+          except Exception as e:
+              print(f"WARNING: getMarkers request failed: {e}")
+              print("Exiting gracefully to preserve existing cache.")
+              sys.exit(0)
 
           print(f"Status: {r2.status_code}, Size: {len(r2.content)/1024/1024:.1f}MB")
           if r2.status_code != 200:
-              print(f"ERROR: {r2.text[:200]}")
+              print(f"ERROR: Unexpected status {r2.status_code}: {r2.text[:200]}")
               sys.exit(1)
 
           features = r2.json().get('features', [])
@@ -82,6 +89,9 @@ jobs:
                       cctvip_map[parts[3]] = app_url
 
           print(f"cctvip map entries: {len(cctvip_map)}")
+          if not cctvip_map:
+              print("ERROR: No entries extracted from markers response.")
+              sys.exit(1)
 
           os.makedirs('data', exist_ok=True)
           cache = {
