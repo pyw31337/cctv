@@ -3,20 +3,28 @@
  * Clean Rewrite: State-Driven, Event Delegation
  */
 
-// === Z3 Cache (its.go.kr hourly snapshot) ===
+// === Z3 Cache (its.go.kr 30min snapshot) ===
 let z3CacheData = null;
 let z3CachePromise = null;
+let z3CacheAgeMs = Infinity; // 캐시가 fetch된 이후 경과 시간 (ms)
+const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 가능성 높음
+
 async function loadZ3Cache() {
     if (z3CacheData) return z3CacheData;
     if (z3CachePromise) return z3CachePromise;
-    // Cache-bust by hour so we always get the freshest hourly snapshot
-    z3CachePromise = fetch(`data/z3_cache.json?t=${Math.floor(Date.now() / 3600000)}`)
+    // 30분마다 cache-bust (워크플로 30분 주기와 동기화)
+    z3CachePromise = fetch(`data/z3_cache.json?t=${Math.floor(Date.now() / 1800000)}`)
         .then(r => r.json())
         .then(json => {
             z3CacheData = json.data || json;
-            const fetched = json.fetched || 'unknown';
+            const fetched = json.fetched || null;
+            z3CacheAgeMs = fetched ? Date.now() - new Date(fetched).getTime() : Infinity;
             const count = Object.keys(z3CacheData).length;
-            console.log(`[Z3] Cache loaded: ${count} entries (fetched: ${fetched})`);
+            const ageMin = Math.round(z3CacheAgeMs / 60000);
+            console.log(`[Z3] Cache loaded: ${count} entries (fetched: ${fetched}, age: ${ageMin}min)`);
+            if (z3CacheAgeMs > Z3_CACHE_STALE_MS) {
+                console.warn(`[Z3] Cache is ${ageMin}min old — tokens likely expired, will skip to strategy3`);
+            }
             return z3CacheData;
         })
         .catch(e => {
@@ -28,10 +36,11 @@ async function loadZ3Cache() {
 }
 async function getZ3StreamUrl(cctvip) {
     const cache = await loadZ3Cache();
+    // 캐시가 너무 오래됐으면 만료된 토큰 사용 안 함
+    if (z3CacheAgeMs > Z3_CACHE_STALE_MS) return null;
     const rawUrl = cache[String(cctvip)];
     if (!rawUrl) return null;
     // 토큰 URL 원형 유지 (http:// 그대로) — /z3가 redirect 체인 해결 후 master m3u8 반환
-    // 한국 브라우저가 secondary(cctvsec:8082) + TS 세그먼트를 직접 로드
     let tokenUrl = rawUrl.startsWith('//') ? 'http:' + rawUrl : rawUrl;
     return `https://cctv-proxy.pyw213.workers.dev/z3?url=${encodeURIComponent(tokenUrl)}`;
 }
