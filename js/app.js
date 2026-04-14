@@ -944,17 +944,19 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
             try {
                 if (isZ3 && z3CctvIp) {
-                    // Z3: UTIC URL의 id 파라미터 = cctvsec 토큰 경로
-                    // https://cctvsec.ktict.co.kr/{id} → 302 → cctvsec:8082 master m3u8
-                    // 브라우저가 직접 접근 → 브라우저 IP로 nimblesessionid 생성 (CORS: *)
+                    // Z3: CF Worker /z3 → 토큰 URL redirect만 읽고 port 8082 URL 반환
+                    // CF Worker가 redirect를 follow하지 않아 nimblesessionid를 CF Worker IP로 생성 안 함
+                    // 브라우저가 반환된 port 8082 URL 직접 fetch → 브라우저 IP로 nimblesessionid 생성
                     const idParam = new URL(url).searchParams.get('id');
-                    if (idParam) {
-                        streamUrl = `https://cctvsec.ktict.co.kr/${idParam}`;
-                    } else {
-                        // fallback: z3_cache
-                        streamUrl = await getZ3StreamUrl(z3CctvIp);
-                        if (!streamUrl) throw new Error('Z3 stream URL not found: ' + z3CctvIp);
-                    }
+                    if (!idParam) throw new Error('No id param in Z3 URL');
+                    const tokenUrl = `https://cctvsec.ktict.co.kr/${idParam}`;
+                    const z3Resp = await fetch(
+                        `https://cctv-proxy.pyw213.workers.dev/z3?url=${encodeURIComponent(tokenUrl)}`,
+                        { cache: 'no-store' }
+                    );
+                    if (!z3Resp.ok) throw new Error('z3 endpoint failed: ' + z3Resp.status);
+                    streamUrl = (await z3Resp.text()).trim();
+                    if (!streamUrl || !streamUrl.startsWith('http')) throw new Error('z3 bad url: ' + streamUrl);
                 } else {
                     // Non-Z3 UTIC: fetch from JSP via CF Worker /utic
                     let uticSearch = '';
