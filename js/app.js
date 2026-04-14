@@ -673,19 +673,19 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         // Regional Proxy logic: Handle HTTP, CORS, and SSL issues for specific sources
         // Already proxied in data might happen, so we check first
-        if (!url.includes('49.50.139.222.sslip.io')) {
+        if (!url.includes('cctv-proxy.pyw213.workers.dev')) {
             if (cctv.source === 'TRENDWORLD' || cctv.source === 'NOWJEJU' ||
                 cctv.source === 'JEJU' || cctv.source === 'HRFCO' || cctv.source === 'GITS') {
 
                 if (cctv.source === 'JEJU') {
                     // Use the standardized /jeju endpoint
-                    url = `https://49.50.139.222.sslip.io/jeju?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
+                    url = `https://cctv-proxy.pyw213.workers.dev/jeju?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
                 } else if (cctv.source === 'GITS') {
                     // Proxy GITS with specific Referer to bypass access restrictions
-                    url = `https://49.50.139.222.sslip.io/proxy?url=${encodeURIComponent(url)}&referer=https://gits.gg.go.kr/&_t=${Date.now()}`;
+                    url = `https://cctv-proxy.pyw213.workers.dev/proxy?url=${encodeURIComponent(url)}&referer=https://gits.gg.go.kr/&_t=${Date.now()}`;
                 } else {
                     // Use general proxy for others (NOWJEJU, HRFCO, etc.)
-                    url = `https://49.50.139.222.sslip.io/proxy?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
+                    url = `https://cctv-proxy.pyw213.workers.dev/proxy?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
                 }
             }
         }
@@ -804,7 +804,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         if (!url.includes('/kb?cctvip=')) {
             const cctvipMatch = url.match(/[?&]cctvip=(\d+)/);
             if (cctvipMatch) {
-                kbUrl = `https://49.50.139.222.sslip.io/kb?cctvip=${cctvipMatch[1]}`;
+                kbUrl = `https://cctv-proxy.pyw213.workers.dev/kb?cctvip=${cctvipMatch[1]}`;
             }
         }
         if (!kbUrl.includes('_t=')) kbUrl += `&_t=${Date.now()}`;
@@ -825,7 +825,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
     const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html') || url.includes('hrfco.go.kr');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
-    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev') || url.includes('49.50.139.222.sslip.io');
+    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev') || url.includes('cctv-proxy.pyw213.workers.dev');
     const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
     const isGits = url.includes('gitsview.gg.go.kr');
 
@@ -864,16 +864,68 @@ function createVideoElement(cctv, sourceIndex = 0) {
         return video;
     }
 
-    // UTIC Portal / ITS Popup URLs - iframe
-    // iframe error handling is limited (cannot detect 404 inside iframe easily).
-    // We assume if it's UTIC JSP it "works" or shows an error image.
-    // But if we have backups, we might want to skip UTIC? 
-    // For now, keep as is.
-    if (isUtic || isItsEmbed) {
+    // UTIC Portal - extract real m3u8 URL via CF Worker, play natively
+    if (isUtic) {
+        const video = document.createElement('video');
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        if (is43) video.dataset.aspectRatio = '4:3';
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+
+        (async () => {
+            try {
+                let uticSearch = '';
+                try { uticSearch = new URL(url).search.substring(1); } catch(e) {}
+                const workerUrl = `https://cctv-proxy.pyw213.workers.dev/utic?${uticSearch}&_t=${Date.now()}`;
+                const resp = await fetch(workerUrl);
+                if (!resp.ok) throw new Error('utic ' + resp.status);
+                const streamUrl = (await resp.text()).trim();
+                if (!streamUrl || !streamUrl.startsWith('http')) throw new Error('bad url');
+
+                if (!video.parentElement) return; // panel was cleaned up before fetch finished
+
+                if (Hls.isSupported()) {
+                    const hls = new Hls({
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                        capLevelToPlayerSize: true,
+                        maxBufferLength: 30,
+                        maxMaxBufferLength: 60,
+                        fragLoadingTimeOut: 30000,
+                        manifestLoadingTimeOut: 15000,
+                    });
+                    hls.loadSource(streamUrl);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.ERROR, function(ev, data) {
+                        if (data.fatal) {
+                            hls.destroy();
+                            if (video.parentElement) triggerFailover(video.parentElement);
+                        }
+                    });
+                    video.hls = hls;
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = streamUrl;
+                    video.onerror = () => { if (video.parentElement) triggerFailover(video.parentElement); };
+                } else {
+                    if (video.parentElement) triggerFailover(video.parentElement);
+                }
+            } catch(e) {
+                console.error('[UTIC] Stream resolve failed:', e);
+                if (video.parentElement) triggerFailover(video.parentElement);
+            }
+        })();
+
+        return video;
+    }
+
+    // ITS Popup embeds (gangneung, hrfco etc.) - keep as iframe
+    if (isItsEmbed) {
         const iframe = document.createElement('iframe');
         iframe.src = url;
         iframe.className = 'utic-iframe';
-        iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
+        iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
         iframe.allow = 'autoplay; fullscreen';
         iframe.scrolling = 'no';
         iframe.setAttribute('allowfullscreen', '');
