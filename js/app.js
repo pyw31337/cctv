@@ -673,19 +673,19 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         // Regional Proxy logic: Handle HTTP, CORS, and SSL issues for specific sources
         // Already proxied in data might happen, so we check first
-        if (!url.includes('158.179.194.163.sslip.io')) {
+        if (!url.includes('49.50.139.222.sslip.io')) {
             if (cctv.source === 'TRENDWORLD' || cctv.source === 'NOWJEJU' ||
                 cctv.source === 'JEJU' || cctv.source === 'HRFCO' || cctv.source === 'GITS') {
 
                 if (cctv.source === 'JEJU') {
                     // Use the standardized /jeju endpoint
-                    url = `https://158.179.194.163.sslip.io/jeju?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
+                    url = `https://49.50.139.222.sslip.io/jeju?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
                 } else if (cctv.source === 'GITS') {
                     // Proxy GITS with specific Referer to bypass access restrictions
-                    url = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(url)}&referer=https://gits.gg.go.kr/&_t=${Date.now()}`;
+                    url = `https://49.50.139.222.sslip.io/proxy?url=${encodeURIComponent(url)}&referer=https://gits.gg.go.kr/&_t=${Date.now()}`;
                 } else {
                     // Use general proxy for others (NOWJEJU, HRFCO, etc.)
-                    url = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
+                    url = `https://49.50.139.222.sslip.io/proxy?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
                 }
             }
         }
@@ -802,7 +802,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
     const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html') || url.includes('hrfco.go.kr');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
-    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev');
+    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev') || url.includes('49.50.139.222.sslip.io');
     const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
     const isGits = url.includes('gitsview.gg.go.kr');
 
