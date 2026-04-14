@@ -27,32 +27,122 @@ logger = logging.getLogger(__name__)
 streams = {}  # { stream_id: { 'process': Popen, 'last_access': time, 'url': url } }
 lock = threading.Lock()
 
-# === Z3 Stream Cache (its.go.kr CCTV appUrl map, stored in GitHub) ===
+# === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
 _z3_cache = {
     'data': None,       # dict: cctvip (str) -> appUrl (str)
     'fetched': None,    # datetime of last successful fetch
+    'source': None,     # 'github' or 'its.go.kr'
     'lock': threading.Lock()
 }
 Z3_CACHE_TTL_MINUTES = 50
+Z3_CACHE_STALE_HOURS = 2   # If GitHub data is older than this, try its.go.kr directly
 Z3_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/pyw31337/cctv/main/data/z3_cache.json'
 
+
+def _refresh_z3_from_its():
+    """Fetch Z3 appUrl map directly from its.go.kr.
+    Works when the server is in a region with access to Korean government sites (e.g. Tokyo).
+    Caller must hold _z3_cache['lock']. Returns True if successful."""
+    try:
+        s = requests.Session()
+        s.verify = False
+        logger.info("Z3: Attempting direct its.go.kr refresh...")
+
+        r = s.get('https://its.go.kr/', timeout=15,
+                  headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        xsrf = s.cookies.get('XSRF-TOKEN', '')
+        if not xsrf:
+            logger.warning("Z3: No XSRF token from its.go.kr - server IP may be geo-blocked")
+            return False
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://its.go.kr/',
+            'Content-Type': 'application/json',
+            'X-XSRF-TOKEN': xsrf,
+            'Accept': 'application/json',
+        }
+        r2 = s.post('https://its.go.kr/map/getMarkers',
+                    data=json.dumps({'body': {'data': {'type': 'CCTV'}}}),
+                    headers=headers, timeout=120)
+
+        if r2.status_code != 200:
+            logger.error(f"Z3: its.go.kr getMarkers returned {r2.status_code}")
+            return False
+
+        features = r2.json().get('features', [])
+        cctvip_map = {}
+        for f in features:
+            props = f.get('properties', {})
+            info_str = props.get('INFO', '{}')
+            try:
+                info = json.loads(info_str) if isinstance(info_str, str) else info_str
+            except Exception:
+                continue
+            app_url = info.get('appUrl', '')
+            if app_url and 'cctvsec.ktict.co.kr' in app_url:
+                parts = app_url.split('/')
+                if len(parts) >= 4:
+                    cctvip_map[parts[3]] = app_url
+
+        if not cctvip_map:
+            logger.error("Z3: No entries extracted from its.go.kr getMarkers")
+            return False
+
+        _z3_cache['data'] = cctvip_map
+        _z3_cache['fetched'] = datetime.now()
+        _z3_cache['source'] = 'its.go.kr'
+        logger.info(f"Z3 cache refreshed from its.go.kr: {len(cctvip_map)} entries")
+        return True
+    except Exception as e:
+        logger.error(f"Z3: Direct its.go.kr refresh failed: {e}")
+        return False
+
+
 def _refresh_z3_cache():
-    """Fetch Z3 appUrl map from GitHub raw content. Caller must hold _z3_cache['lock']."""
+    """Fetch Z3 appUrl map. Tries GitHub cached file first; if stale, falls back to
+    direct its.go.kr fetch. Caller must hold _z3_cache['lock']."""
+    # Step 1: Try GitHub raw URL (fast, always accessible)
     try:
         resp = requests.get(Z3_GITHUB_RAW_URL, timeout=30,
                             headers={'User-Agent': 'CCTV-Proxy/1.0',
                                      'Cache-Control': 'no-cache'})
-        if resp.status_code != 200:
+        if resp.status_code == 200:
+            cache_data = resp.json()
+            cctvip_map = cache_data.get('data', {})
+            fetched_str = cache_data.get('fetched', '')
+
+            # Determine age of GitHub cache
+            cache_age_hours = None
+            try:
+                fetched_dt = datetime.strptime(fetched_str, '%Y-%m-%dT%H:%M:%SZ')
+                cache_age_hours = (datetime.utcnow() - fetched_dt).total_seconds() / 3600
+            except Exception:
+                pass
+
+            if cctvip_map and (cache_age_hours is None or cache_age_hours < Z3_CACHE_STALE_HOURS):
+                _z3_cache['data'] = cctvip_map
+                _z3_cache['fetched'] = datetime.now()
+                _z3_cache['source'] = 'github'
+                age_str = f"{cache_age_hours:.1f}h" if cache_age_hours is not None else "unknown age"
+                logger.info(f"Z3 cache from GitHub: {len(cctvip_map)} entries (data age: {age_str})")
+                return
+            else:
+                age_str = f"{cache_age_hours:.1f}h" if cache_age_hours is not None else "unknown"
+                logger.warning(f"Z3: GitHub cache is stale ({age_str} old) — trying its.go.kr directly")
+                # Use stale data as temporary fallback while we try to refresh
+                if cctvip_map and _z3_cache['data'] is None:
+                    _z3_cache['data'] = cctvip_map
+                    _z3_cache['source'] = 'github-stale'
+        else:
             logger.error(f"Z3: GitHub raw fetch failed: {resp.status_code}")
-            return
-        cache_data = resp.json()
-        cctvip_map = cache_data.get('data', {})
-        fetched_str = cache_data.get('fetched', 'unknown')
-        _z3_cache['data'] = cctvip_map
-        _z3_cache['fetched'] = datetime.now()
-        logger.info(f"Z3 cache loaded: {len(cctvip_map)} entries (data from {fetched_str})")
     except Exception as e:
-        logger.error(f"Z3 cache refresh failed: {e}")
+        logger.warning(f"Z3: GitHub cache fetch failed: {e}")
+
+    # Step 2: Try direct its.go.kr (works if server IP is not geo-blocked)
+    if not _refresh_z3_from_its():
+        logger.error("Z3: All refresh sources failed — using existing cached data if available")
+
 
 def get_z3_app_url(cctvip):
     """Return appUrl for given cctvip, refreshing cache if needed."""
@@ -404,6 +494,23 @@ def proxy_utic():
                 app_url + '!hls', timeout=10, verify=False,
                 headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                          'Referer': 'https://its.go.kr/'})
+
+            # If token is expired, attempt a direct its.go.kr refresh and retry once
+            if hls_resp.status_code in (401, 403):
+                logger.warning(f"Z3: Token expired for cctvip={cctvip} (HTTP {hls_resp.status_code}) — refreshing from its.go.kr")
+                with _z3_cache['lock']:
+                    refreshed = _refresh_z3_from_its()
+                if refreshed:
+                    fresh_url = (_z3_cache['data'] or {}).get(str(cctvip))
+                    if fresh_url:
+                        app_url = fresh_url
+                        hls_resp = requests.get(
+                            app_url + '!hls', timeout=10, verify=False,
+                            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                     'Referer': 'https://its.go.kr/'})
+                    else:
+                        logger.error(f"Z3: cctvip={cctvip} not found after its.go.kr refresh")
+
             if hls_resp.status_code != 200:
                 logger.error(f"Z3 !hls error {hls_resp.status_code} for {cctvip}")
                 return f"Z3 HLS fetch failed: {hls_resp.status_code}", 502
