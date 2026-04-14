@@ -949,7 +949,9 @@ function createVideoElement(cctv, sourceIndex = 0) {
                     // 브라우저가 반환된 port 8082 URL 직접 fetch → 브라우저 IP로 nimblesessionid 생성
                     const idParam = new URL(url).searchParams.get('id');
                     if (!idParam) throw new Error('No id param in Z3 URL');
-                    const tokenUrl = `https://cctvsec.ktict.co.kr/${idParam}`;
+                    // URLSearchParams는 literal +를 space로 디코딩함
+                    // base64 토큰의 +는 공백이 아니므로 복원
+                    const tokenUrl = `https://cctvsec.ktict.co.kr/${idParam.replace(/ /g, '+')}`;
                     const z3Resp = await fetch(
                         `https://cctv-proxy.pyw213.workers.dev/z3?url=${encodeURIComponent(tokenUrl)}`,
                         { cache: 'no-store' }
