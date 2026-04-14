@@ -3,6 +3,38 @@
  * Clean Rewrite: State-Driven, Event Delegation
  */
 
+// === Z3 Cache (its.go.kr hourly snapshot) ===
+let z3CacheData = null;
+let z3CachePromise = null;
+async function loadZ3Cache() {
+    if (z3CacheData) return z3CacheData;
+    if (z3CachePromise) return z3CachePromise;
+    // Cache-bust by hour so we always get the freshest hourly snapshot
+    z3CachePromise = fetch(`data/z3_cache.json?t=${Math.floor(Date.now() / 3600000)}`)
+        .then(r => r.json())
+        .then(json => {
+            z3CacheData = json.data || json;
+            const fetched = json.fetched || 'unknown';
+            const count = Object.keys(z3CacheData).length;
+            console.log(`[Z3] Cache loaded: ${count} entries (fetched: ${fetched})`);
+            return z3CacheData;
+        })
+        .catch(e => {
+            console.warn('[Z3] Cache load failed:', e);
+            z3CachePromise = null; // allow retry
+            return {};
+        });
+    return z3CachePromise;
+}
+async function getZ3StreamUrl(cctvip) {
+    const cache = await loadZ3Cache();
+    const rawUrl = cache[String(cctvip)];
+    if (!rawUrl) return null;
+    let cleanUrl = rawUrl.startsWith('//') ? 'https:' + rawUrl : rawUrl;
+    if (cleanUrl.startsWith('http://')) cleanUrl = 'https://' + cleanUrl.slice(7);
+    return `https://cctv-proxy.pyw213.workers.dev/proxy?url=${encodeURIComponent(cleanUrl)}`;
+}
+
 // === State ===
 const state = {
     mode: 'video', // 'video' | 'map'
@@ -673,16 +705,14 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         // Regional Proxy logic: Handle HTTP, CORS, and SSL issues for specific sources
         // Already proxied in data might happen, so we check first
+        // Note: GITS is handled separately below with async token refresh via /gits endpoint
         if (!url.includes('cctv-proxy.pyw213.workers.dev')) {
             if (cctv.source === 'TRENDWORLD' || cctv.source === 'NOWJEJU' ||
-                cctv.source === 'JEJU' || cctv.source === 'HRFCO' || cctv.source === 'GITS') {
+                cctv.source === 'JEJU' || cctv.source === 'HRFCO') {
 
                 if (cctv.source === 'JEJU') {
                     // Use the standardized /jeju endpoint
                     url = `https://cctv-proxy.pyw213.workers.dev/jeju?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
-                } else if (cctv.source === 'GITS') {
-                    // Proxy GITS with specific Referer to bypass access restrictions
-                    url = `https://cctv-proxy.pyw213.workers.dev/proxy?url=${encodeURIComponent(url)}&referer=https://gits.gg.go.kr/&_t=${Date.now()}`;
                 } else {
                     // Use general proxy for others (NOWJEJU, HRFCO, etc.)
                     url = `https://cctv-proxy.pyw213.workers.dev/proxy?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
@@ -827,7 +857,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
     const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev') || url.includes('cctv-proxy.pyw213.workers.dev');
     const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
-    const isGits = url.includes('gitsview.gg.go.kr');
+    const isGits = cctv.source === 'GITS' && sourceIndex === 0;
 
     // YouTube Handling
     if (isYouTube) {
@@ -849,8 +879,36 @@ function createVideoElement(cctv, sourceIndex = 0) {
         }
     }
 
-    // GITS / MP4 / Native
-    if (isGits || isMp4) {
+    // GITS: async real-time token fetch via CF Worker /gits endpoint
+    if (isGits && cctv.original_id) {
+        const video = document.createElement('video');
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        if (is43) video.dataset.aspectRatio = '4:3';
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+
+        (async () => {
+            try {
+                const resp = await fetch(`https://cctv-proxy.pyw213.workers.dev/gits?id=${cctv.original_id}&_t=${Date.now()}`);
+                if (!resp.ok) throw new Error('gits ' + resp.status);
+                const streamUrl = (await resp.text()).trim();
+                if (!streamUrl.startsWith('http')) throw new Error('bad url: ' + streamUrl.slice(0, 50));
+                if (!video.parentElement) return;
+                video.src = streamUrl;
+                video.onerror = () => { if (video.parentElement) triggerFailover(video.parentElement); };
+            } catch(e) {
+                console.error('[GITS] Token fetch failed:', e);
+                if (video.parentElement) triggerFailover(video.parentElement);
+            }
+        })();
+
+        return video;
+    }
+
+    // MP4 / Native (non-GITS)
+    if (isMp4) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
         if (is43) video.dataset.aspectRatio = '4:3';
@@ -864,7 +922,9 @@ function createVideoElement(cctv, sourceIndex = 0) {
         return video;
     }
 
-    // UTIC Portal - extract real m3u8 URL via CF Worker, play natively
+    // UTIC Portal - play natively via CF Worker
+    // Z3 kind: look up fresh stream URL from z3_cache.json (updated hourly by GitHub Actions)
+    // Other kinds: extract real m3u8 URL via /utic endpoint, fall back to iframe
     if (isUtic) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
@@ -874,20 +934,31 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
-        (async () => {
-            try {
-                let uticSearch = '';
-                try { uticSearch = new URL(url).search.substring(1); } catch(e) {}
-                const workerUrl = `https://cctv-proxy.pyw213.workers.dev/utic?${uticSearch}&_t=${Date.now()}`;
-                const resp = await fetch(workerUrl, { redirect: 'follow' });
-                if (!resp.ok) throw new Error('utic ' + resp.status);
-                const body = (await resp.text()).trim();
-                // 신버전 Worker: body가 proxy URL 텍스트
-                // 구버전 Worker: /proxy로 리다이렉트되어 body는 m3u8 내용, resp.url이 proxy URL
-                const streamUrl = body.startsWith('http') ? body : resp.url;
-                if (!streamUrl || !streamUrl.startsWith('http')) throw new Error('bad url');
+        const isZ3 = url.includes('kind=Z3');
+        const cctvipMatch = url.match(/[?&]cctvip=(\d+)/);
+        const z3CctvIp = isZ3 && cctvipMatch ? cctvipMatch[1] : null;
 
-                if (!video.parentElement) return; // panel was cleaned up before fetch finished
+        (async () => {
+            let streamUrl = null;
+
+            try {
+                if (isZ3 && z3CctvIp) {
+                    // Z3: use hourly-refreshed z3_cache.json for stream URL
+                    streamUrl = await getZ3StreamUrl(z3CctvIp);
+                    if (!streamUrl) throw new Error('Z3 cctvip not in cache: ' + z3CctvIp);
+                } else {
+                    // Non-Z3 UTIC: fetch from JSP via CF Worker /utic
+                    let uticSearch = '';
+                    try { uticSearch = new URL(url).search.substring(1); } catch(e) {}
+                    const workerUrl = `https://cctv-proxy.pyw213.workers.dev/utic?${uticSearch}&_t=${Date.now()}`;
+                    const resp = await fetch(workerUrl, { redirect: 'follow' });
+                    if (!resp.ok) throw new Error('utic ' + resp.status);
+                    const body = (await resp.text()).trim();
+                    streamUrl = body.startsWith('http') ? body : resp.url;
+                    if (!streamUrl || !streamUrl.startsWith('http')) throw new Error('bad url');
+                }
+
+                if (!video.parentElement) return;
 
                 if (Hls.isSupported()) {
                     const hls = new Hls({
