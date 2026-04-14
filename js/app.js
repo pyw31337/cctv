@@ -797,6 +797,25 @@ function createVideoElement(cctv, sourceIndex = 0) {
         return video;
     }
 
+    // EE kind cameras: use Korean proxy /kb endpoint for full-size video
+    // instead of embedding the UTIC JSP iframe (which is fixed 320x220)
+    if (url.includes('kind=EE') && url.includes('cctvip=')) {
+        const cctvipMatch = url.match(/[?&]cctvip=(\d+)/);
+        if (cctvipMatch) {
+            const kbUrl = `https://49.50.139.222.sslip.io/kb?cctvip=${cctvipMatch[1]}&_t=${Date.now()}`;
+            const video = document.createElement('video');
+            video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+            if (is43) video.dataset.aspectRatio = '4:3';
+            video.src = kbUrl;
+            video.muted = true;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.setAttribute('playsinline', '');
+            video.onerror = () => triggerFailover(video.parentElement);
+            return video;
+        }
+    }
+
     const isHls = url.includes('.m3u8');
     const isMp4 = url.includes('.mp4');
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
