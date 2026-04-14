@@ -30,9 +30,10 @@ async function getZ3StreamUrl(cctvip) {
     const cache = await loadZ3Cache();
     const rawUrl = cache[String(cctvip)];
     if (!rawUrl) return null;
-    let cleanUrl = rawUrl.startsWith('//') ? 'https:' + rawUrl : rawUrl;
-    if (cleanUrl.startsWith('http://')) cleanUrl = 'https://' + cleanUrl.slice(7);
-    return `https://cctv-proxy.pyw213.workers.dev/proxy?url=${encodeURIComponent(cleanUrl)}`;
+    // 토큰 URL 원형 유지 (http:// 그대로) — /z3가 redirect 체인 해결 후 master m3u8 반환
+    // 한국 브라우저가 secondary(cctvsec:8082) + TS 세그먼트를 직접 로드
+    let tokenUrl = rawUrl.startsWith('//') ? 'http:' + rawUrl : rawUrl;
+    return `https://cctv-proxy.pyw213.workers.dev/z3?url=${encodeURIComponent(tokenUrl)}`;
 }
 
 // === State ===
