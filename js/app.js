@@ -879,9 +879,12 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 let uticSearch = '';
                 try { uticSearch = new URL(url).search.substring(1); } catch(e) {}
                 const workerUrl = `https://cctv-proxy.pyw213.workers.dev/utic?${uticSearch}&_t=${Date.now()}`;
-                const resp = await fetch(workerUrl);
+                const resp = await fetch(workerUrl, { redirect: 'follow' });
                 if (!resp.ok) throw new Error('utic ' + resp.status);
-                const streamUrl = (await resp.text()).trim();
+                const body = (await resp.text()).trim();
+                // 신버전 Worker: body가 proxy URL 텍스트
+                // 구버전 Worker: /proxy로 리다이렉트되어 body는 m3u8 내용, resp.url이 proxy URL
+                const streamUrl = body.startsWith('http') ? body : resp.url;
                 if (!streamUrl || !streamUrl.startsWith('http')) throw new Error('bad url');
 
                 if (!video.parentElement) return; // panel was cleaned up before fetch finished
@@ -901,19 +904,31 @@ function createVideoElement(cctv, sourceIndex = 0) {
                     hls.on(Hls.Events.ERROR, function(ev, data) {
                         if (data.fatal) {
                             hls.destroy();
-                            if (video.parentElement) triggerFailover(video.parentElement);
+                            if (video.parentElement) fallbackToIframe(video.parentElement);
                         }
                     });
                     video.hls = hls;
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                     video.src = streamUrl;
-                    video.onerror = () => { if (video.parentElement) triggerFailover(video.parentElement); };
+                    video.onerror = () => { if (video.parentElement) fallbackToIframe(video.parentElement); };
                 } else {
-                    if (video.parentElement) triggerFailover(video.parentElement);
+                    if (video.parentElement) fallbackToIframe(video.parentElement);
                 }
             } catch(e) {
                 console.error('[UTIC] Stream resolve failed:', e);
-                if (video.parentElement) triggerFailover(video.parentElement);
+                if (video.parentElement) fallbackToIframe(video.parentElement);
+            }
+
+            function fallbackToIframe(wrapper) {
+                wrapper.innerHTML = '';
+                const iframe = document.createElement('iframe');
+                iframe.src = url;
+                iframe.className = 'utic-iframe';
+                iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+                iframe.allow = 'autoplay; fullscreen';
+                iframe.scrolling = 'no';
+                iframe.setAttribute('allowfullscreen', '');
+                wrapper.appendChild(iframe);
             }
         })();
 
