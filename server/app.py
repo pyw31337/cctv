@@ -14,6 +14,8 @@ import flask
 from flask import Flask, request, Response, send_from_directory, abort
 import requests
 
+TRANSIENT_UPSTREAM_STATUSES = {502, 503, 504}
+
 # Configuration
 HLS_DIR = os.environ.get('HLS_DIR', '/tmp/hls')
 IDLE_TIMEOUT = 30  # Seconds to keep stream alive without viewers
@@ -217,6 +219,29 @@ def serve_index():
 def serve_static(path):
     return send_from_directory(app.static_folder, path)
 
+def fetch_upstream(url, headers, attempts=3):
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = requests.get(
+                url,
+                timeout=(5, 20),
+                verify=False,
+                headers=headers,
+                allow_redirects=True,
+            )
+            if resp.status_code in TRANSIENT_UPSTREAM_STATUSES and attempt < attempts:
+                time.sleep(0.25 * attempt)
+                continue
+            return resp
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(0.25 * attempt)
+                continue
+            raise
+    raise last_error
+
 @app.route('/stream')
 def stream_video():
     url = request.args.get('url')
@@ -300,12 +325,14 @@ def proxy_stream():
         elif 'jejuits.go.kr' in target_url:
              headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
              headers["Referer"] = "https://www.jejuits.go.kr/jido/mainView.do"
+             headers["Accept"] = "*/*"
+             headers["Connection"] = "close"
         elif 'cctvsec.ktict.co.kr' in target_url:
              headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
              headers["Referer"] = "https://its.go.kr/"
 
-        # Fetch the target URL
-        resp = requests.get(target_url, stream=True, timeout=15, verify=False, headers=headers, allow_redirects=True)
+        # Fetch fully before responding so transient upstream resets can be retried.
+        resp = fetch_upstream(target_url, headers)
         
         # Use stream=False for manifest rewriting if it's a small text file
         # But for video segments (TS), we want streaming.
@@ -341,11 +368,6 @@ def proxy_stream():
             
             return Response(rewritten_content, resp.status_code, resp_headers)
         
-        # Binary/Streaming for TS segments
-        def generate():
-            for chunk in resp.iter_content(chunk_size=8192):
-                yield chunk
-
         excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'access-control-allow-origin']
         resp_headers = [(name, value) for (name, value) in resp.raw.headers.items()
                    if name.lower() not in excluded_headers]
@@ -354,7 +376,7 @@ def proxy_stream():
         resp_headers.append(('Access-Control-Allow-Origin', '*'))
         resp_headers.append(('Cache-Control', 'no-store, max-age=0'))
         
-        return Response(generate(), resp.status_code, resp_headers)
+        return Response(resp.content, resp.status_code, resp_headers)
     except Exception as e:
         logger.error(f"Proxy error for {target_url}: {e}")
         return f"Proxy error: {str(e)}", 502

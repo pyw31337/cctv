@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260513-jeju2';
+const APP_BUILD_VERSION = '20260514-jeju3';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -761,7 +761,7 @@ function getCameraHealthMeta(cctv) {
         return {
             regionKey,
             status: 'UNKNOWN',
-            shortLabel: '확인 전',
+            shortLabel: '상태 미확인',
             longLabel: `${getRegionLabel(regionKey)} 상태 정보 없음`,
             tone: 'unknown',
             penalty: 1.5,
@@ -922,7 +922,7 @@ function renderPanelHealthBadge(panel, cctv) {
     const health = cctv._health || getCameraHealthMeta(cctv);
     badge.className = `panel-health-badge tone-${health.tone}`;
     badge.innerHTML = `
-        <span>${formatDistance(cctv.distance)}</span>
+        <span>거리 ${formatDistance(cctv.distance)}</span>
         <span class="panel-health-sep">·</span>
         <span>${health.shortLabel}</span>
     `;
@@ -1409,6 +1409,15 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 maxMaxBufferLength: 60,
                 fragLoadingTimeOut: 30000,
                 manifestLoadingTimeOut: 15000,
+                manifestLoadingMaxRetry: 8,
+                manifestLoadingRetryDelay: 700,
+                manifestLoadingMaxRetryTimeout: 8000,
+                levelLoadingMaxRetry: 8,
+                levelLoadingRetryDelay: 700,
+                levelLoadingMaxRetryTimeout: 8000,
+                fragLoadingMaxRetry: 8,
+                fragLoadingRetryDelay: 700,
+                fragLoadingMaxRetryTimeout: 8000,
             });
             hls.loadSource(jejuUrl);
             hls.attachMedia(video);
@@ -1416,10 +1425,24 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 video.play().catch(() => {});
             });
 
+            let recoveryAttempts = 0;
             hls.on(Hls.Events.ERROR, function (event, data) {
-                if (data.fatal) {
-                    triggerFailover(video.parentElement);
+                if (!data.fatal) return;
+
+                const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
+                const isMediaError = data.type === Hls.ErrorTypes.MEDIA_ERROR;
+                if ((isNetworkError || isMediaError) && recoveryAttempts < 12) {
+                    recoveryAttempts += 1;
+                    setTimeout(() => {
+                        if (!video.parentElement) return;
+                        if (isMediaError && typeof hls.recoverMediaError === 'function') {
+                            hls.recoverMediaError();
+                        }
+                        hls.startLoad(-1);
+                    }, Math.min(1000 * recoveryAttempts, 6000));
+                    return;
                 }
+                triggerFailover(video.parentElement);
             });
 
             video.hls = hls;
@@ -1688,6 +1711,15 @@ function createVideoElement(cctv, sourceIndex = 0) {
             maxMaxBufferLength: 60,
             fragLoadingTimeOut: 30000,
             manifestLoadingTimeOut: 15000,
+            manifestLoadingMaxRetry: 8,
+            manifestLoadingRetryDelay: 700,
+            manifestLoadingMaxRetryTimeout: 8000,
+            levelLoadingMaxRetry: 8,
+            levelLoadingRetryDelay: 700,
+            levelLoadingMaxRetryTimeout: 8000,
+            fragLoadingMaxRetry: 8,
+            fragLoadingRetryDelay: 700,
+            fragLoadingMaxRetryTimeout: 8000,
             maxBufferSize: 30 * 1000 * 1000,
         });
 
@@ -1699,6 +1731,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         let hlsFailoverTriggered = false;
         let hlsStartupTimer = null;
+        let recoveryAttempts = 0;
         const failoverFromHls = () => {
             if (hlsFailoverTriggered) return;
             hlsFailoverTriggered = true;
@@ -1728,6 +1761,20 @@ function createVideoElement(cctv, sourceIndex = 0) {
         hls.on(Hls.Events.ERROR, function (event, data) {
             const statusCode = Number(data && data.response && (data.response.code || data.response.status));
             const shouldFailFast = selectedSource === 'NOWJEJU' && statusCode >= 400;
+            const isJejuHls = selectedSource === 'JEJU';
+            const isRecoverable = data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR;
+
+            if (isJejuHls && data.fatal && isRecoverable && recoveryAttempts < 12) {
+                recoveryAttempts += 1;
+                setTimeout(() => {
+                    if (!video.parentElement) return;
+                    if (data.type === Hls.ErrorTypes.MEDIA_ERROR && typeof hls.recoverMediaError === 'function') {
+                        hls.recoverMediaError();
+                    }
+                    hls.startLoad(-1);
+                }, Math.min(1000 * recoveryAttempts, 6000));
+                return;
+            }
 
             if (data.fatal || shouldFailFast) {
                 // NOWJEJU sometimes publishes stale variant playlists. Do not make users wait through HLS retries.
