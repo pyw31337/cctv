@@ -8,6 +8,91 @@ let z3CacheData = null;
 let z3CachePromise = null;
 let z3CacheAgeMs = Infinity; // 캐시가 fetch된 이후 경과 시간 (ms)
 const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 가능성 높음
+const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
+const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
+const HEALTH_STALE_MS = 12 * 60 * 60 * 1000;
+const APP_BUILD_VERSION = '20260513-jeju';
+const NEAREST_RESULT_LIMIT = 100;
+const MAP_MARKER_LIMIT = 50;
+const PANEL_OPTION_LIMIT = 20;
+const SEARCH_RESULT_LIMIT = 15;
+const GEO_CELL_SIZE = 0.08;
+const GEO_SEARCH_RING_LIMIT = 8;
+const GEO_CANDIDATE_TARGET = 220;
+const JEJU_PROXY_BASE = 'https://158.179.194.163.sslip.io/jeju';
+
+const REGION_LABELS = {
+    BUSAN: '부산',
+    CCTVWORLD: 'CCTV월드',
+    CHUNGJU: '충주',
+    DAEGU: '대구',
+    DAEJEON: '대전',
+    FITIC: 'FITIC',
+    GANGWON: '강원',
+    GGEX: 'GGEX',
+    GIGAEYES: '기가아이즈',
+    GITS: '경기 ITS',
+    GOYANG: '고양',
+    GWANGJU: '광주',
+    ICITS: '인천도시공사',
+    INCHEON: '인천',
+    JEJU: '제주',
+    KBS: 'Loomex',
+    KNPS: '국립공원',
+    NOWJEJU: '나우제주',
+    NTIC: '고속도로',
+    PAJU: '파주',
+    SEJONG: '세종',
+    SPATIC: '서울교통정보',
+    TOPIS: 'TOPIS',
+    TRENDWORLD: '트렌드월드',
+    ULLEUNG: '울릉',
+    ULSAN: '울산',
+    UTIC: 'UTIC',
+    YT: 'YouTube'
+};
+
+const REGION_ALIASES = {
+    BUSAN_ITS: 'BUSAN',
+    DAEGU: 'DAEGU',
+    GANGWON: 'GANGWON',
+    GIGAEYES: 'GIGAEYES',
+    GITS: 'GITS',
+    GOYANG: 'GOYANG',
+    GWANGJU: 'GWANGJU',
+    ICITS: 'ICITS',
+    INCHEON_ITS: 'INCHEON',
+    JEJU: 'JEJU',
+    KBS: 'KBS',
+    KNPS: 'KNPS',
+    NOWJEJU: 'NOWJEJU',
+    NTIC: 'NTIC',
+    SEJONG: 'SEJONG',
+    SPATIC: 'SPATIC',
+    TOPIS: 'TOPIS',
+    TRENDWORLD: 'TRENDWORLD',
+    ULLEUNG: 'ULLEUNG',
+    ULSAN: 'ULSAN',
+    YOUTUBE: 'YT',
+    YT_CUSTOM: 'YT'
+};
+
+const SOURCE_QUALITY_SCORES = {
+    TOPIS: 0.92,
+    BUSAN_ITS: 0.9,
+    DAEGU: 0.89,
+    SPATIC: 0.89,
+    GITS: 0.87,
+    INCHEON_ITS: 0.86,
+    GANGWON: 0.83,
+    KBS: 0.82,
+    NOWJEJU: 0.8,
+    JEJU: 0.91,
+    NTIC: 0.78,
+    UTIC: 0.7,
+    YOUTUBE: 0.96,
+    YT_CUSTOM: 0.96
+};
 
 async function loadZ3Cache() {
     if (z3CacheData) return z3CacheData;
@@ -51,10 +136,16 @@ const state = {
     center: { lat: 37.5559, lng: 126.9723 }, // Seoul Station
     keyword: '서울역',
     cctvData: [],
+    cctvById: new Map(),
     nearestCctvs: [],
+    regionHealth: {},
+    healthSnapshot: null,
+    geoIndex: new Map(),
     markers: [], // Array to store Kakao map markers
     mapInitialized: false,
-    searchMarker: null // Reference to the red marker
+    searchMarker: null, // Reference to the red marker
+    initialSelectionId: null,
+    activeCctvId: null
 };
 
 let map = null;
@@ -70,24 +161,25 @@ const $$ = (sel) => document.querySelectorAll(sel);
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('CCTV Viewer 2.0 Initializing...');
 
-    // Load Data
-    await loadCctvData();
-
-    // Restore last searched location from history
-    const history = getSearchHistory();
-    if (history.length > 0 && history[0].lat && history[0].lng) {
-        state.center = { lat: history[0].lat, lng: history[0].lng };
-        state.keyword = history[0].name || '서울역';
-        $('#search-input').value = state.keyword;
-    }
+    await Promise.all([loadCctvData(), loadHealthStatus()]);
+    restoreInitialViewState();
 
     // Setup Event Listeners
     setupEventListeners();
 
     // Initial State
     updateNearestCctvs();
+    renderServiceStatusBanner();
     renderVideoGrid();
-    updateSegmentIndicator();
+    switchMode(state.mode);
+    syncUrlState();
+
+    if (state.initialSelectionId) {
+        const initialCctv = findCctvById(state.initialSelectionId);
+        if (initialCctv) {
+            openVideoLayer(initialCctv);
+        }
+    }
 
     console.log('Initialization Complete.');
 });
@@ -95,13 +187,78 @@ document.addEventListener('DOMContentLoaded', async () => {
 // === Data Loading ===
 async function loadCctvData() {
     try {
-        const response = await fetch('cctv_data.json?t=' + Date.now());
+        const cacheBucket = Math.floor(Date.now() / CCTV_DATA_BUCKET_MS);
+        const response = await fetch(`cctv_data.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
         state.cctvData = await response.json();
+        buildGeoIndex(state.cctvData);
         console.log(`Loaded ${state.cctvData.length} CCTV entries.`);
     } catch (error) {
         console.error('Failed to load CCTV data:', error);
         state.cctvData = [];
+        state.cctvById = new Map();
+        state.geoIndex = new Map();
     }
+}
+
+async function loadHealthStatus() {
+    try {
+        const cacheBucket = Math.floor(Date.now() / HEALTH_STATUS_BUCKET_MS);
+        const response = await fetch(`data/status.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const snapshot = await response.json();
+        if (isStaleHealthTimestamp(snapshot.last_updated)) {
+            console.warn('Ignoring stale health status snapshot:', snapshot.last_updated);
+            state.healthSnapshot = null;
+            state.regionHealth = {};
+            return;
+        }
+        state.healthSnapshot = snapshot;
+        state.regionHealth = state.healthSnapshot.regions || {};
+    } catch (error) {
+        console.warn('Failed to load live health status:', error);
+        state.healthSnapshot = null;
+        state.regionHealth = {};
+    }
+}
+
+function restoreInitialViewState() {
+    const params = new URLSearchParams(window.location.search);
+    const lat = parseFloat(params.get('lat'));
+    const lng = parseFloat(params.get('lng'));
+    const name = params.get('name');
+    const mode = params.get('mode');
+    const cctvId = params.get('cctv');
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        state.center = { lat, lng };
+        state.keyword = name || state.keyword;
+    } else {
+        const history = getSearchHistory();
+        if (history.length > 0 && history[0].lat && history[0].lng) {
+            state.center = { lat: history[0].lat, lng: history[0].lng };
+            state.keyword = history[0].name || state.keyword;
+        }
+    }
+
+    if (mode === 'map' || mode === 'video') {
+        state.mode = mode;
+    }
+
+    if (cctvId) {
+        state.initialSelectionId = cctvId;
+        const selected = findCctvById(cctvId);
+        if (selected && (!Number.isFinite(lat) || !Number.isFinite(lng))) {
+            state.center = { lat: selected.lat, lng: selected.lng };
+            state.keyword = selected.name || state.keyword;
+        }
+    }
+
+    $('#search-input').value = state.keyword;
 }
 
 // === Event Listeners (Delegation) ===
@@ -205,6 +362,8 @@ function switchMode(mode) {
         map.relayout();
         map.setCenter(new kakao.maps.LatLng(state.center.lat, state.center.lng));
     }
+
+    syncUrlState();
 }
 
 function updateSegmentIndicator() {
@@ -372,7 +531,7 @@ function renderSearchResults(data) {
     const resultsEl = $('#search-results');
 
     if (data.length > 0) {
-        resultsEl.innerHTML = data.slice(0, 15).map(place => {
+        resultsEl.innerHTML = data.slice(0, SEARCH_RESULT_LIMIT).map(place => {
             const icon = place.isRegion ? '🏙️' : '📍';
             return `
             <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
@@ -423,6 +582,7 @@ function selectPlace(lat, lng, name, address) {
 
     // Update Search Marker (Red Pin)
     updateSearchMarker(lat, lng);
+    syncUrlState();
 }
 
 // === Geolocation ===
@@ -466,17 +626,419 @@ async function handleCurrentLocation() {
     });
 }
 
+function buildGeoIndex(cctvList) {
+    const index = new Map();
+    const cctvById = new Map();
+
+    cctvList.forEach(cctv => {
+        if (cctv.id) {
+            cctvById.set(cctv.id, cctv);
+        }
+        if (!Number.isFinite(cctv.lat) || !Number.isFinite(cctv.lng)) return;
+
+        const key = getGeoCellKey(cctv.lat, cctv.lng);
+        if (!index.has(key)) {
+            index.set(key, []);
+        }
+        index.get(key).push(cctv);
+    });
+
+    state.geoIndex = index;
+    state.cctvById = cctvById;
+}
+
+function getGeoCellKey(lat, lng) {
+    const latCell = Math.floor(lat / GEO_CELL_SIZE);
+    const lngCell = Math.floor(lng / GEO_CELL_SIZE);
+    return `${latCell}:${lngCell}`;
+}
+
+function getNearbyCandidates(lat, lng, targetCount) {
+    if (!state.geoIndex || state.geoIndex.size === 0) {
+        return state.cctvData;
+    }
+
+    const latCell = Math.floor(lat / GEO_CELL_SIZE);
+    const lngCell = Math.floor(lng / GEO_CELL_SIZE);
+    const candidates = [];
+    const seenKeys = new Set();
+
+    for (let ring = 0; ring <= GEO_SEARCH_RING_LIMIT && candidates.length < targetCount; ring += 1) {
+        for (let latOffset = -ring; latOffset <= ring; latOffset += 1) {
+            for (let lngOffset = -ring; lngOffset <= ring; lngOffset += 1) {
+                if (ring > 0 && Math.max(Math.abs(latOffset), Math.abs(lngOffset)) !== ring) {
+                    continue;
+                }
+
+                const key = `${latCell + latOffset}:${lngCell + lngOffset}`;
+                if (seenKeys.has(key)) continue;
+                seenKeys.add(key);
+
+                const cellItems = state.geoIndex.get(key);
+                if (cellItems && cellItems.length > 0) {
+                    candidates.push(...cellItems);
+                }
+            }
+        }
+    }
+
+    return candidates.length >= targetCount ? candidates : state.cctvData;
+}
+
+function getUrlParam(url, key) {
+    if (!url) return null;
+
+    try {
+        return new URL(url, window.location.origin).searchParams.get(key);
+    } catch (error) {
+        return null;
+    }
+}
+
+function isRawIpStreamUrl(url) {
+    return /^https?:\/\/\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?/i.test(url || '');
+}
+
+function isUnsupportedBrowserStream(cctv) {
+    const url = cctv ? (cctv.directUrl || cctv.url || '') : '';
+    const source = cctv ? (cctv.source || '') : '';
+    const kind = getUrlParam(url, 'kind');
+    return source === 'UTIC' && kind === 'K';
+}
+
+function inferRegionKey(cctv) {
+    if (!cctv) return 'UNKNOWN';
+
+    const id = cctv.id || '';
+    const name = cctv.name || '';
+    const source = cctv.source || '';
+    const prefix = id.includes('_') ? id.split('_')[0] : null;
+    const daejeonInlineId = getUrlParam(cctv.directUrl || cctv.url || '', 'id');
+
+    if (cctv.regionKey) return cctv.regionKey;
+    if (cctv.urlType === 'daejeon_mp4_dynamic' || id.startsWith('DAEJEON_') || source === 'DAEJEON_ITS') {
+        return 'DAEJEON';
+    }
+    if (source === 'UTIC' && daejeonInlineId && daejeonInlineId.startsWith('CCTV')) {
+        return 'DAEJEON';
+    }
+    if (source === 'UTIC' && (id.startsWith('L380') || name.includes('제주'))) {
+        return 'JEJU';
+    }
+    if (source === 'JEJU') return 'JEJU';
+    if (source === 'UTIC' && id.startsWith('L12')) return 'PAJU';
+    if (prefix && REGION_LABELS[prefix]) return prefix;
+    if (REGION_ALIASES[source]) return REGION_ALIASES[source];
+    if (id.includes('_')) return id.split('_')[0];
+    if (source) return source;
+    return 'UNKNOWN';
+}
+
+function getRegionLabel(regionKey) {
+    return REGION_LABELS[regionKey] || regionKey || '미분류';
+}
+
+function getCameraHealthMeta(cctv) {
+    const regionKey = inferRegionKey(cctv);
+    const healthEntry = state.regionHealth[regionKey];
+    const lastUpdated = healthEntry && healthEntry.checked_at
+        ? healthEntry.checked_at
+        : (state.healthSnapshot ? state.healthSnapshot.last_updated : null);
+
+    if (isUnsupportedBrowserStream(cctv)) {
+        return {
+            regionKey,
+            status: 'UNSUPPORTED',
+            shortLabel: '웹 미지원',
+            longLabel: `${getRegionLabel(regionKey)} 원본은 구형 전용 플레이어 기반이라 현재 웹 앱에서 재생할 수 없습니다`,
+            tone: 'danger',
+            penalty: 12,
+            lastUpdated
+        };
+    }
+
+    if (!healthEntry) {
+        return {
+            regionKey,
+            status: 'UNKNOWN',
+            shortLabel: '확인 전',
+            longLabel: `${getRegionLabel(regionKey)} 상태 정보 없음`,
+            tone: 'unknown',
+            penalty: 1.5,
+            lastUpdated
+        };
+    }
+
+    if (healthEntry.status === 'DOWN') {
+        const usingFallback = healthEntry.active_source === 'sub';
+        return {
+            regionKey,
+            status: 'DOWN',
+            shortLabel: usingFallback ? '대체 소스' : '최근 장애',
+            longLabel: usingFallback ? `${getRegionLabel(regionKey)} 대체 소스 사용 중` : `${getRegionLabel(regionKey)} 최근 장애 감지`,
+            tone: usingFallback ? 'warn' : 'danger',
+            penalty: usingFallback ? 4.2 : 8,
+            lastUpdated
+        };
+    }
+
+    if (healthEntry.status === 'DEGRADED') {
+        return {
+            regionKey,
+            status: 'DEGRADED',
+            shortLabel: '불안정',
+            longLabel: `${getRegionLabel(regionKey)} 일부 카메라 불안정`,
+            tone: 'warn',
+            penalty: 3,
+            lastUpdated
+        };
+    }
+
+    const hasFailures = Number(healthEntry.failed || 0) > 0;
+    return {
+        regionKey,
+        status: 'OK',
+        shortLabel: hasFailures ? '대체 가능' : '안정적',
+        longLabel: hasFailures ? `${getRegionLabel(regionKey)} 일부 샘플은 대체 소스로 회복` : `${getRegionLabel(regionKey)} 최근 점검 정상`,
+        tone: hasFailures ? 'ok-soft' : 'ok',
+        penalty: hasFailures ? 0.8 : 0,
+        lastUpdated
+    };
+}
+
+function getStreamQualityScore(cctv) {
+    const url = cctv.directUrl || cctv.url || '';
+    const source = cctv.source || '';
+    let score = SOURCE_QUALITY_SCORES[source] || 0.72;
+
+    if (cctv.backup_urls && cctv.backup_urls.length > 0) {
+        score += 0.04;
+    }
+
+    if (cctv.urlType === 'daejeon_mp4_dynamic') {
+        score += 0.08;
+    }
+    if (url.includes('.m3u8') || url.includes('/kb?cctvip=') || url.includes('workers.dev')) {
+        score += 0.06;
+    }
+    if (source === 'JEJU' || url.includes('158.179.194.163.sslip.io/jeju')) {
+        score += 0.08;
+    }
+    if (url.includes('openDataCctvStream.jsp') || url.includes('utic.go.kr/jsp')) {
+        score -= 0.08;
+    }
+    if (url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html') || url.includes('cctvPopup.do')) {
+        score -= 0.1;
+    }
+
+    return Math.max(0.4, Math.min(0.98, score));
+}
+
+function formatDistance(distanceKm) {
+    if (!Number.isFinite(distanceKm)) return '거리 미확인';
+    if (distanceKm < 1) return `${Math.round(distanceKm * 1000)}m`;
+    return `${distanceKm.toFixed(distanceKm < 10 ? 1 : 0)}km`;
+}
+
+function formatRelativeTime(timestamp) {
+    if (!timestamp) return '업데이트 시각 없음';
+
+    const parsed = parseHealthTimestamp(timestamp);
+
+    if (Number.isNaN(parsed.getTime())) {
+        return timestamp;
+    }
+
+    const diffMs = Date.now() - parsed.getTime();
+    const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
+
+    if (diffMinutes < 1) return '방금 전 점검';
+    if (diffMinutes < 60) return `${diffMinutes}분 전 점검`;
+
+    const diffHours = Math.round(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}시간 전 점검`;
+
+    return parsed.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function parseHealthTimestamp(timestamp) {
+    if (!timestamp) return new Date(NaN);
+    return timestamp.includes('T')
+        ? new Date(timestamp)
+        : new Date(timestamp.replace(' ', 'T'));
+}
+
+function isStaleHealthTimestamp(timestamp) {
+    const parsed = parseHealthTimestamp(timestamp);
+    if (Number.isNaN(parsed.getTime())) return true;
+    return Date.now() - parsed.getTime() > HEALTH_STALE_MS;
+}
+
+function renderServiceStatusBanner() {
+    const banner = $('#service-status-banner');
+    if (!banner) return;
+
+    if (!state.healthSnapshot || !state.healthSnapshot.regions) {
+        banner.classList.add('hidden');
+        banner.innerHTML = '';
+        return;
+    }
+
+    const entries = Object.entries(state.healthSnapshot.regions);
+    const downRegions = entries.filter(([, value]) => value.status === 'DOWN');
+    const degradedRegions = entries.filter(([, value]) => value.status === 'DEGRADED');
+    const lastUpdatedText = formatRelativeTime(state.healthSnapshot.last_updated);
+
+    let tone = 'ok';
+    let title = '운영 안정';
+    let body = '최근 점검 기준 대부분 지역이 정상입니다.';
+
+    if (downRegions.length > 0) {
+        tone = 'danger';
+        title = '일부 지역 장애';
+        body = `${downRegions.slice(0, 3).map(([regionKey]) => getRegionLabel(regionKey)).join(', ')} 연결이 불안정합니다. 대체 소스를 우선 추천합니다.`;
+    } else if (degradedRegions.length > 0) {
+        tone = 'warn';
+        title = '일부 지역 점검 중';
+        body = `${degradedRegions.slice(0, 3).map(([regionKey]) => getRegionLabel(regionKey)).join(', ')} 품질이 일시적으로 흔들릴 수 있습니다.`;
+    }
+
+    banner.className = `service-status-banner tone-${tone}`;
+    banner.innerHTML = `
+        <div class="service-status-title">${title}</div>
+        <div class="service-status-body">${body}</div>
+        <div class="service-status-time">${lastUpdatedText}</div>
+    `;
+}
+
+function renderPanelHealthBadge(panel, cctv) {
+    let badge = panel.querySelector('.panel-health-badge');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'panel-health-badge';
+        panel.appendChild(badge);
+    }
+
+    const health = cctv._health || getCameraHealthMeta(cctv);
+    badge.className = `panel-health-badge tone-${health.tone}`;
+    badge.innerHTML = `
+        <span>${formatDistance(cctv.distance)}</span>
+        <span class="panel-health-sep">·</span>
+        <span>${health.shortLabel}</span>
+    `;
+    badge.title = `${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
+}
+
+function removePanelHealthBadge(panel) {
+    const badge = panel.querySelector('.panel-health-badge');
+    if (badge) badge.remove();
+}
+
+function findCctvById(cctvId) {
+    if (!cctvId) return null;
+    return state.cctvById.get(cctvId) || null;
+}
+
+function buildShareUrl(cctv) {
+    const params = new URLSearchParams();
+    params.set('lat', state.center.lat.toFixed(6));
+    params.set('lng', state.center.lng.toFixed(6));
+    params.set('name', state.keyword);
+    params.set('mode', state.mode);
+    if (cctv && cctv.id) {
+        params.set('cctv', cctv.id);
+    }
+    return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function syncUrlState() {
+    const activeCctv = findCctvById(state.activeCctvId);
+    const nextUrl = buildShareUrl(activeCctv);
+    window.history.replaceState({}, '', nextUrl);
+}
+
+async function shareCurrentView(cctv) {
+    const shareUrl = buildShareUrl(cctv);
+    const shareTitle = cctv ? `${cctv.name} CCTV` : `${state.keyword} 주변 CCTV`;
+    const shareText = cctv ? `${state.keyword} 주변 ${cctv.name} CCTV를 확인해보세요.` : `${state.keyword} 주변 CCTV를 확인해보세요.`;
+
+    try {
+        if (navigator.share) {
+            await navigator.share({
+                title: shareTitle,
+                text: shareText,
+                url: shareUrl
+            });
+            return;
+        }
+
+        await navigator.clipboard.writeText(shareUrl);
+        alert('공유 링크를 복사했습니다.');
+    } catch (error) {
+        console.warn('Share failed:', error);
+    }
+}
+
+function openIssueReporter(cctv) {
+    if (!cctv) return;
+
+    const health = cctv._health || getCameraHealthMeta(cctv);
+    const body = [
+        '## 제보 내용',
+        '',
+        '- 장소: ' + state.keyword,
+        '- CCTV 이름: ' + cctv.name,
+        '- CCTV ID: ' + cctv.id,
+        '- 지역 상태: ' + health.longLabel,
+        '- 최근 점검: ' + formatRelativeTime(health.lastUpdated),
+        '- 공유 링크: ' + buildShareUrl(cctv),
+        '',
+        '## 증상',
+        '',
+        '- [ ] 영상이 재생되지 않음',
+        '- [ ] 재생이 매우 느림',
+        '- [ ] 다른 영상이 보임',
+        '- [ ] 지역 상태 안내와 실제 동작이 다름',
+        '',
+        '## 추가 메모',
+        '',
+        '여기에 관찰한 내용을 적어주세요.'
+    ].join('\n');
+
+    const issueUrl = `https://github.com/pyw31337/cctv/issues/new?title=${encodeURIComponent(`[CCTV] ${cctv.name} 연결 이슈`)}&body=${encodeURIComponent(body)}`;
+    window.open(issueUrl, '_blank', 'noopener');
+}
+
 // === CCTV Logic ===
 function updateNearestCctvs() {
     const { lat, lng } = state.center;
+    const candidates = getNearbyCandidates(lat, lng, GEO_CANDIDATE_TARGET);
 
-    state.nearestCctvs = state.cctvData
-        .map(cctv => ({
-            ...cctv,
-            distance: getDistance(lat, lng, cctv.lat, cctv.lng)
-        }))
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 100);
+    const ranked = candidates
+        .map(cctv => {
+            const distance = getDistance(lat, lng, cctv.lat, cctv.lng);
+            const health = getCameraHealthMeta(cctv);
+            const streamQuality = getStreamQualityScore(cctv);
+            const backupBonus = cctv.backup_urls && cctv.backup_urls.length > 0 ? 0.6 : 0;
+            const priorityScore = distance + health.penalty + ((1 - streamQuality) * 6) - backupBonus;
+
+            return {
+                ...cctv,
+                distance,
+                _health: health,
+                _streamQuality: streamQuality,
+                _priorityScore: priorityScore
+            };
+        })
+        .sort((a, b) => a._priorityScore - b._priorityScore || a.distance - b.distance);
+
+    const supported = ranked.filter(cctv => cctv._health.status !== 'UNSUPPORTED');
+    const unsupported = ranked.filter(cctv => cctv._health.status === 'UNSUPPORTED');
+    const ordered = supported.length >= 4
+        ? supported.concat(unsupported)
+        : ranked;
+
+    state.nearestCctvs = ordered.slice(0, NEAREST_RESULT_LIMIT);
 }
 
 function renderVideoGrid() {
@@ -508,12 +1070,15 @@ function renderVideoGrid() {
 
             panel.dataset.cctvId = cctv.id;
             panel.dataset.slotIndex = index;
+            panel.dataset.cctvIndex = index;
 
             // Update dropdown trigger text
             const trigger = panel.querySelector('.cctv-select-trigger');
             if (trigger) {
                 trigger.textContent = cctv.name || `CCTV ${index + 1}`;
             }
+
+            renderPanelHealthBadge(panel, cctv);
 
             // Populate dropdown options (up to 20 nearby CCTVs)
             populateSelectOptions(panel, index);
@@ -523,6 +1088,7 @@ function renderVideoGrid() {
             ph.className = 'video-placeholder';
             ph.textContent = 'No CCTV';
             wrapper.appendChild(ph);
+            removePanelHealthBadge(panel);
         }
     });
 
@@ -537,13 +1103,15 @@ function populateSelectOptions(panel, currentIndex) {
     // Clear existing options
     optionsContainer.innerHTML = '';
 
-    // Add up to 20 nearest CCTVs as options
-    const cctvList = state.nearestCctvs.slice(0, 20);
+    // Add up to 20 recommended CCTVs as options
+    const cctvList = state.nearestCctvs.slice(0, PANEL_OPTION_LIMIT);
     cctvList.forEach((cctv, i) => {
         const option = document.createElement('div');
         option.className = 'cctv-option' + (i === currentIndex ? ' selected' : '');
-        option.textContent = cctv.name || `CCTV ${i + 1}`;
+        const health = cctv._health || getCameraHealthMeta(cctv);
+        option.textContent = `${cctv.name || `CCTV ${i + 1}`} · ${health.shortLabel}`;
         option.dataset.cctvIndex = i;
+        option.title = health.longLabel;
         optionsContainer.appendChild(option);
     });
 }
@@ -668,6 +1236,7 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
 
     // Update panel data
     panel.dataset.cctvId = cctv.id;
+    panel.dataset.cctvIndex = cctvIndex;
 
     // Update trigger text
     const trigger = panel.querySelector('.cctv-select-trigger');
@@ -680,6 +1249,8 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     options.forEach((opt, i) => {
         opt.classList.toggle('selected', i === cctvIndex);
     });
+
+    renderPanelHealthBadge(panel, cctv);
 }
 
 function togglePanelExpand(panel, btn) {
@@ -705,38 +1276,57 @@ function togglePanelExpand(panel, btn) {
 }
 
 function createVideoElement(cctv, sourceIndex = 0) {
+    if (sourceIndex === 0 && isUnsupportedBrowserStream(cctv)) {
+        return createErrorPlaceholder({
+            message: '이 카메라는 원본 제공처가 구형 전용 플레이어만 지원합니다',
+            detail: '현재 웹 앱에서는 바로 재생할 수 없어, 제주권 대체 카메라를 우선 추천합니다.',
+            cctv
+        });
+    }
+
     // Determine URL based on sourceIndex
     // Index 0 = Main URL, Index 1+ = Backup URLs
-    let url, type;
+    let url, type, selectedSource;
 
     if (sourceIndex === 0) {
         url = cctv.directUrl || cctv.url;
         type = 'main';
+        selectedSource = cctv.source || '';
 
-        // Regional Proxy logic: Handle HTTP, CORS, and SSL issues for specific sources
-        // Already proxied in data might happen, so we check first
-        // Note: GITS is handled separately below with async token refresh via /gits endpoint
-        if (!url.includes('cctv-proxy.pyw213.workers.dev')) {
-            if (cctv.source === 'TRENDWORLD' || cctv.source === 'NOWJEJU' ||
-                cctv.source === 'JEJU' || cctv.source === 'HRFCO') {
-
-                if (cctv.source === 'JEJU') {
-                    // Use the standardized /jeju endpoint
-                    url = `https://cctv-proxy.pyw213.workers.dev/jeju?id=${cctv.original_id || cctv.id}&_t=${Date.now()}`;
-                } else {
-                    // Use general proxy for others (NOWJEJU, HRFCO, etc.)
-                    url = `https://cctv-proxy.pyw213.workers.dev/proxy?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
-                }
-            }
-        }
     } else {
         const backup = cctv.backup_urls && cctv.backup_urls[sourceIndex - 1];
         if (backup) {
             url = backup.url;
             type = `backup-${sourceIndex}`;
+            selectedSource = backup.source || cctv.source || '';
         } else {
             console.warn(`No backup source found at index ${sourceIndex}`);
-            return createErrorPlaceholder('All Sources Failed');
+            return createErrorPlaceholder({
+                message: '대체 소스를 찾지 못했습니다',
+                detail: '대체 스트림 정보를 불러오지 못했습니다.',
+                cctv
+            });
+        }
+    }
+
+    const shouldProxy = url && !url.includes('cctv-proxy.pyw213.workers.dev');
+    const sourceFallbackId = cctv.original_id || ((cctv.id || '').includes('_') ? cctv.id.split('_').pop() : cctv.id);
+    const selectedCctvIp = getUrlParam(url, 'cctvip') || sourceFallbackId;
+    const selectedKind = getUrlParam(url, 'kind');
+    const genericProxyBase = isRawIpStreamUrl(url)
+        ? 'https://158.179.194.163.sslip.io/proxy'
+        : 'https://cctv-proxy.pyw213.workers.dev/proxy';
+
+    if (selectedSource === 'KBS' && selectedCctvIp) {
+        url = `https://cctv-proxy.pyw213.workers.dev/kb?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
+    } else if (shouldProxy) {
+        if (selectedSource === 'TRENDWORLD' || selectedSource === 'NOWJEJU' || selectedSource === 'HRFCO') {
+            url = `${genericProxyBase}?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
+        } else if (selectedSource === 'JEJU') {
+            const jejuStreamId = cctv.original_id || getUrlParam(url, 'id') || sourceFallbackId;
+            url = `${JEJU_PROXY_BASE}?id=${encodeURIComponent(jejuStreamId)}&_t=${Date.now()}`;
+        } else if (selectedSource === 'UTIC' && selectedCctvIp && ['EE', 'EEE', 'KB'].includes(selectedKind)) {
+            url = `https://cctv-proxy.pyw213.workers.dev/kb?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
         }
     }
 
@@ -1127,41 +1717,70 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
 function handleStreamFailover(wrapper, cctv, nextIndex) {
     if (!wrapper) return;
+    const backupCount = Array.isArray(cctv.backup_urls) ? cctv.backup_urls.length : 0;
+    const isRetryingPrimary = nextIndex === 0;
 
     // Cleanup existing content
     cleanupVideo(wrapper);
 
-    // Check if we have backups
-    if (cctv.backup_urls && nextIndex <= cctv.backup_urls.length) {
-        // Show lightweight loading/switching indicator
+    if (isRetryingPrimary || nextIndex <= backupCount) {
         const indicator = document.createElement('div');
         indicator.className = 'video-loading-indicator';
-        indicator.textContent = `Switching to backup source (${nextIndex}/${cctv.backup_urls.length})...`;
-        indicator.style.cssText = 'position:absolute;top:0;left:0;width:100%;background:rgba(0,0,0,0.5);color:white;font-size:12px;padding:5px;z-index:10;';
+        indicator.innerHTML = isRetryingPrimary
+            ? '<strong>영상을 다시 불러오는 중...</strong><span>잠시만 기다려 주세요.</span>'
+            : `<strong>대체 영상으로 전환 중...</strong><span>${nextIndex}/${backupCount}번째 보조 소스를 시도합니다.</span>`;
         wrapper.appendChild(indicator);
 
         setTimeout(() => {
-            if (wrapper.contains(indicator)) wrapper.removeChild(indicator);
-            const newVideo = createVideoElement(cctv, nextIndex);
+            if (wrapper.contains(indicator)) {
+                wrapper.removeChild(indicator);
+            }
+            const newVideo = createVideoElement(cctv, isRetryingPrimary ? 0 : nextIndex);
             wrapper.appendChild(newVideo);
-        }, 500); // Small delay to visualize switch
+        }, isRetryingPrimary ? 160 : 180);
     } else {
-        // No more backups - Show improved error placeholder with retry
-        const errPh = createErrorPlaceholder('Unavailable', () => {
-            handleStreamFailover(wrapper, cctv, 0); // Reset and retry from index 0
+        const errPh = createErrorPlaceholder({
+            message: '지금은 연결이 불안정합니다',
+            detail: '잠시 후 다시 시도하거나, 문제가 계속되면 바로 제보할 수 있습니다.',
+            retryLabel: '다시 시도',
+            retryFn: () => {
+                handleStreamFailover(wrapper, cctv, 0);
+            },
+            cctv
         });
         wrapper.appendChild(errPh);
     }
 }
 
-function createErrorPlaceholder(msg, retryFn) {
+function createErrorPlaceholder(options, legacyRetryFn) {
+    const config = typeof options === 'string'
+        ? { message: options, retryFn: legacyRetryFn }
+        : (options || {});
+    const {
+        message = '영상을 불러올 수 없습니다',
+        detail = '',
+        retryFn = null,
+        retryLabel = '재시도',
+        cctv = null
+    } = config;
     const ph = document.createElement('div');
     ph.className = 'video-placeholder error';
-    ph.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; background:#0f172a; color:#94a3b8; font-size:14px; gap:16px;';
-    
-    let html = `<span style="font-weight:500;">⚠️ ${msg}</span>`;
+    let html = `
+        <div class="error-message-block">
+            <span class="error-message-title">연결 상태를 확인 중입니다</span>
+            <span class="error-message-body">${message}</span>
+            ${detail ? `<span class="error-message-meta">${detail}</span>` : ''}
+        </div>
+    `;
+    const actions = [];
     if (retryFn) {
-        html += `<button class="retry-btn" style="background:var(--accent); color:var(--bg-primary); border:none; padding:12px 24px; border-radius:var(--radius-md); font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 4px 15px rgba(34, 197, 94, 0.3); transition: transform 0.2s;">재시도</button>`;
+        actions.push(`<button class="retry-btn">${retryLabel}</button>`);
+    }
+    if (cctv) {
+        actions.push('<button class="report-btn">문제 제보</button>');
+    }
+    if (actions.length > 0) {
+        html += `<div class="error-actions">${actions.join('')}</div>`;
     }
     ph.innerHTML = html;
 
@@ -1169,11 +1788,18 @@ function createErrorPlaceholder(msg, retryFn) {
         const btn = ph.querySelector('.retry-btn');
         btn.onclick = (e) => {
             e.stopPropagation();
-            btn.style.transform = 'scale(0.95)';
+            btn.classList.add('pressed');
             setTimeout(() => {
-                btn.style.transform = '';
+                btn.classList.remove('pressed');
                 retryFn();
             }, 100);
+        };
+    }
+    if (cctv) {
+        const reportBtn = ph.querySelector('.report-btn');
+        reportBtn.onclick = (e) => {
+            e.stopPropagation();
+            openIssueReporter(cctv);
         };
     }
     return ph;
@@ -1217,6 +1843,7 @@ function initMap() {
         renderMapMarkers();
         // Also update video grid so it stays in sync when switching back
         renderVideoGrid();
+        syncUrlState();
     };
 
     kakao.maps.event.addListener(map, 'dragend', handleMapMove);
@@ -1243,10 +1870,11 @@ function renderMapMarkers() {
 
     const placedPositions = []; // To track overlaps: {lat, lng, count}
 
-    // Render new markers (max 50)
-    state.nearestCctvs.slice(0, 50).forEach(cctv => {
+    // Render new markers (bounded for mobile map performance)
+    state.nearestCctvs.slice(0, MAP_MARKER_LIMIT).forEach(cctv => {
         let lat = cctv.lat;
         let lng = cctv.lng;
+        const health = cctv._health || getCameraHealthMeta(cctv);
 
         // Check for overlap and apply offset
         // User Request: "마커 위치도 ... 살짝 옆으로 비껴서 넣어주고"
@@ -1266,7 +1894,7 @@ function renderMapMarkers() {
         const markerOptions = {
             position: new kakao.maps.LatLng(lat, lng),
             map: map,
-            title: cctv.name
+            title: `${cctv.name} · ${health.shortLabel}`
         };
 
         // Custom Icon for YouTube
@@ -1277,6 +1905,11 @@ function renderMapMarkers() {
         }
 
         const marker = new kakao.maps.Marker(markerOptions);
+        if (health.status === 'UNSUPPORTED' || (health.status === 'DOWN' && health.tone === 'danger')) {
+            marker.setOpacity(0.65);
+        } else if (health.status === 'DEGRADED' || health.tone === 'warn') {
+            marker.setOpacity(0.82);
+        }
 
         kakao.maps.event.addListener(marker, 'click', () => {
             openVideoLayer(cctv);
@@ -1341,26 +1974,45 @@ async function fetchWeather() {
 
     try {
         const response = await fetch(
-            `https://api.open-meteo.com/v1/forecast?latitude=${state.center.lat}&longitude=${state.center.lng}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`
+            `https://api.open-meteo.com/v1/forecast?latitude=${state.center.lat}&longitude=${state.center.lng}&current=temperature_2m,precipitation,cloud_cover,visibility&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto`
         );
         const data = await response.json();
 
         const days = ['일', '월', '화', '수', '목', '금', '토'];
+        const current = data.current || {};
+        const visibilityKm = Number.isFinite(current.visibility) ? (current.visibility / 1000).toFixed(1) : null;
+        const visibilityLabel = getVisibilityLabel(current.visibility);
+        const cloudLabel = getCloudLabel(current.cloud_cover);
 
-        list.innerHTML = data.daily.time.slice(0, 7).map((time, i) => {
+        list.innerHTML = `
+            <div class="weather-now">
+                <div class="weather-now-head">
+                    <div class="weather-now-temp">${Math.round(current.temperature_2m || 0)}°</div>
+                    <div class="weather-now-meta">
+                        <div class="weather-now-label">${visibilityLabel}</div>
+                        <div class="weather-now-sub">${cloudLabel}${visibilityKm ? ` · 시야 ${visibilityKm}km` : ''}</div>
+                    </div>
+                </div>
+                <div class="weather-pill-row">
+                    <span class="weather-pill">강수 ${Math.round(current.precipitation || 0)}mm</span>
+                    <span class="weather-pill">구름 ${Math.round(current.cloud_cover || 0)}%</span>
+                </div>
+            </div>
+        ` + data.daily.time.slice(0, 7).map((time, i) => {
             const date = new Date(time);
             const dayName = i === 0 ? '오늘' : days[date.getDay()];
             const dateStr = `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
             const icon = getWeatherIcon(data.daily.weathercode[i]);
             const max = Math.round(data.daily.temperature_2m_max[i]);
             const min = Math.round(data.daily.temperature_2m_min[i]);
+            const precip = Math.round(data.daily.precipitation_probability_max[i] || 0);
 
             return `
                 <div class="weather-item">
                     <div class="weather-day">${dayName} <span class="weather-date">${dateStr}</span></div>
                     <div class="weather-icon">${icon}</div>
                     <div class="weather-temp">${Math.round((max + min) / 2)}°</div>
-                    <div class="weather-range">${min}° / ${max}°</div>
+                    <div class="weather-range">${min}° / ${max}° · 강수 ${precip}%</div>
                 </div>
             `;
         }).join('');
@@ -1382,13 +2034,38 @@ function getWeatherIcon(code) {
     return icons[code] || '☁️';
 }
 
+function getVisibilityLabel(visibilityMeters) {
+    if (!Number.isFinite(visibilityMeters)) return '시야 정보 없음';
+    if (visibilityMeters < 1000) return '시야 낮음';
+    if (visibilityMeters < 5000) return '시야 보통';
+    return '시야 양호';
+}
+
+function getCloudLabel(cloudCover) {
+    if (!Number.isFinite(cloudCover)) return '구름 정보 없음';
+    if (cloudCover < 25) return '맑음';
+    if (cloudCover < 60) return '구름 조금';
+    if (cloudCover < 85) return '구름 많음';
+    return '흐림';
+}
+
 // === Video Layer ===
 function openVideoLayer(cctv) {
     const layer = $('#video-layer');
     const frame = $('#video-frame');
+    const health = cctv._health || getCameraHealthMeta(cctv);
+    const distance = Number.isFinite(cctv.distance)
+        ? cctv.distance
+        : getDistance(state.center.lat, state.center.lng, cctv.lat, cctv.lng);
+    const displayCctv = {
+        ...cctv,
+        distance,
+        _health: health
+    };
 
     // Cleanup previous video
     cleanupVideo(frame);
+    state.activeCctvId = cctv.id;
 
     // Update Title & Controls
     const titleEl = $('#video-layer-title');
@@ -1411,7 +2088,19 @@ function openVideoLayer(cctv) {
         `;
     }
 
-    titleEl.innerHTML = `${navHtml} ${cctv.name}`;
+    titleEl.innerHTML = `
+        ${navHtml}
+        <span class="video-title-block">
+            <span class="video-title-main">${cctv.name}</span>
+            <span class="video-title-sub">
+                <span>${formatDistance(displayCctv.distance)}</span>
+                <span class="panel-health-sep">·</span>
+                <span class="tone-${health.tone}">${health.shortLabel}</span>
+                <span class="panel-health-sep">·</span>
+                <span>${formatRelativeTime(health.lastUpdated)}</span>
+            </span>
+        </span>
+    `;
 
     // Attach Nav Listeners
     if (currentIndex !== -1) {
@@ -1456,6 +2145,28 @@ function openVideoLayer(cctv) {
         if (closeBtn) actionContainer.appendChild(closeBtn);
     }
 
+    let shareBtn = $('#video-layer-share');
+    if (!shareBtn) {
+        shareBtn = document.createElement('button');
+        shareBtn.id = 'video-layer-share';
+        shareBtn.className = 'layer-action-btn';
+        shareBtn.title = '공유';
+        shareBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51 15.42 17.49"/><path d="M15.41 6.51 8.59 10.49"/></svg>`;
+        actionContainer.insertBefore(shareBtn, $('#video-layer-close'));
+    }
+    shareBtn.onclick = () => shareCurrentView(displayCctv);
+
+    let reportBtn = $('#video-layer-report');
+    if (!reportBtn) {
+        reportBtn = document.createElement('button');
+        reportBtn.id = 'video-layer-report';
+        reportBtn.className = 'layer-action-btn';
+        reportBtn.title = '문제 신고';
+        reportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>`;
+        actionContainer.insertBefore(reportBtn, $('#video-layer-close'));
+    }
+    reportBtn.onclick = () => openIssueReporter(displayCctv);
+
     let toggleBtn = $('#video-layer-toggle');
     if (!toggleBtn) {
         toggleBtn = document.createElement('button');
@@ -1482,6 +2193,7 @@ function openVideoLayer(cctv) {
     }
 
     layer.classList.add('active');
+    syncUrlState();
     setTimeout(updateUticLayout, 350); // Initial check
 }
 
@@ -1491,6 +2203,8 @@ function closeVideoLayer() {
 
     cleanupVideo(frame);
     layer.classList.remove('active');
+    state.activeCctvId = null;
+    syncUrlState();
 }
 
 // === Overlays ===

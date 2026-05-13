@@ -1,6 +1,5 @@
 import requests
 import urllib3
-import json
 
 # Suppress SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -45,23 +44,26 @@ class JejuCollector:
 
             normalized_data = []
             for item in items:
-                # Fields: CCTV_NM, DEVICE_ID, X_CRDN, Y_CRDN, FCLT_LCTN
+                # STRM_RTSP_ADDR is the stream UUID used by streamUrl.do.
                 cctv_id = item.get("DEVICE_ID")
+                stream_id = item.get("STRM_RTSP_ADDR")
                 name = item.get("FCLT_LCTN") or item.get("CCTV_NM") or f"Jeju CCTV {cctv_id}"
                 lat = item.get("Y_CRDN")
                 lng = item.get("X_CRDN")
 
-                if not cctv_id:
+                if not cctv_id or not stream_id:
                     continue
 
                 if "시험" in name or "테스트" in name:
                     continue
 
-                # Point to our Oracle Proxy which handles the session token logic
-                url = f"{self.proxy_base}?id={cctv_id}"
+                # Point to the Oracle proxy with the UUID to avoid a second lookup per play.
+                url = f"{self.proxy_base}?id={stream_id}"
 
                 normalized_data.append({
                     "id": f"JEJU_{cctv_id}",
+                    "original_id": stream_id,
+                    "device_id": cctv_id,
                     "name": name.strip(),
                     "lat": float(lat) if lat else 0.0,
                     "lng": float(lng) if lng else 0.0,

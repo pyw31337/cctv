@@ -421,6 +421,7 @@ def main():
         'KBS': 1,       # Best Quality (Direct HLS)
         'ULLEUNG': 1,   # Best Quality (Direct HLS)
         'NOWJEJU': 1,   # Best Quality (Direct HLS)
+        'JEJU': 1,      # Official Jeju ITS HLS via proxy
         'GIGAEYES': 1,  # Best Quality (YouTube)
         'YT_CUSTOM': 1, # Best Quality (YouTube)
         'SPATIC': 1,    # Best Quality (Seoul Police HLS)
@@ -434,7 +435,6 @@ def main():
         'BUSAN_ITS': 3, # Mixed
         'INCHEON_ITS': 3, 
         'DAEJEON_ITS': 3,
-        'JEJU': 3,      # Proxy'd HLS (Clean)
         'GANGWON': 3,   # Proxy'd HLS (Clean)
         'UTIC': 5,      # Fallback (Wrapped JSP, Black bars)
         'NTIC': 6       # Fallback (Wrapped JSP)

@@ -1,256 +1,447 @@
 import json
+import math
+import os
 import random
 import requests
-import os
 import sys
 import traceback
 from datetime import datetime, timedelta
-import time
+from urllib.parse import urlparse, parse_qs
+
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Constants
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_FILE = os.path.join(BASE_DIR, "cctv_data.json")
-CONFIG_FILE = os.path.join(BASE_DIR, "configs", "region_config.json")
-STATUS_FILE = os.path.join(BASE_DIR, "data", "status.json")
-LOG_FILE = os.path.join(BASE_DIR, "sentinel.log")
+DATA_FILE = os.path.join(BASE_DIR, 'cctv_data.json')
+CONFIG_FILE = os.path.join(BASE_DIR, 'configs', 'region_config.json')
+STATUS_FILE = os.path.join(BASE_DIR, 'data', 'status.json')
+LOG_FILE = os.path.join(BASE_DIR, 'sentinel.log')
+REQUEST_TIMEOUT = 15
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+}
 
-# Ensure data dir exists
+KNOWN_REGION_KEYS = {
+    'BUSAN', 'CCTVWORLD', 'CHUNGJU', 'DAEGU', 'DAEJEON', 'FITIC', 'GANGWON',
+    'GGEX', 'GIGAEYES', 'GITS', 'GOYANG', 'GWANGJU', 'ICITS', 'INCHEON',
+    'JEJU', 'KBS', 'KNPS', 'NOWJEJU', 'NTIC', 'PAJU', 'SEJONG', 'SPATIC',
+    'TOPIS', 'TRENDWORLD', 'ULLEUNG', 'ULSAN', 'UTIC', 'YT'
+}
+
+SOURCE_REGION_ALIASES = {
+    'BUSAN_ITS': 'BUSAN',
+    'CCTVWORLD': 'CCTVWORLD',
+    'CHUNGJU': 'CHUNGJU',
+    'DAEGU': 'DAEGU',
+    'DAEJEON_ITS': 'DAEJEON',
+    'FITIC': 'FITIC',
+    'GANGWON': 'GANGWON',
+    'GGEX': 'GGEX',
+    'GIGAEYES': 'GIGAEYES',
+    'GITS': 'GITS',
+    'GOYANG': 'GOYANG',
+    'GWANGJU': 'GWANGJU',
+    'ICITS': 'ICITS',
+    'INCHEON_ITS': 'INCHEON',
+    'JEJU': 'JEJU',
+    'KBS': 'KBS',
+    'KNPS': 'KNPS',
+    'NOWJEJU': 'NOWJEJU',
+    'NTIC': 'NTIC',
+    'SEJONG': 'SEJONG',
+    'SPATIC': 'SPATIC',
+    'TOPIS': 'TOPIS',
+    'TRENDWORLD': 'TRENDWORLD',
+    'ULLEUNG': 'ULLEUNG',
+    'ULSAN': 'ULSAN',
+    'YOUTUBE': 'YT',
+    'YT_CUSTOM': 'YT'
+}
+
 os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
 
+
 def log(message):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_msg = f"[{timestamp}] {message}"
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_msg = f'[{timestamp}] {message}'
     print(log_msg)
-    with open(LOG_FILE, "a") as f:
-        f.write(log_msg + "\n")
+    with open(LOG_FILE, 'a', encoding='utf-8') as handle:
+        handle.write(log_msg + '\n')
+
 
 def load_json(filepath):
     if not os.path.exists(filepath):
         return {}
-    with open(filepath, 'r') as f:
-        return json.load(f)
+    with open(filepath, 'r', encoding='utf-8') as handle:
+        return json.load(handle)
+
 
 def save_json(filepath, data):
-    with open(filepath, 'w') as f:
-        json.dump(data, f, indent=2)
+    with open(filepath, 'w', encoding='utf-8') as handle:
+        json.dump(data, handle, indent=2, ensure_ascii=False)
+        handle.write('\n')
+
+
+def get_url_param(url, key):
+    if not url:
+        return None
+    try:
+        query = urlparse(url).query
+        values = parse_qs(query).get(key)
+        return values[0] if values else None
+    except Exception:
+        return None
+
+
+def is_unsupported_browser_stream(cctv):
+    if not cctv:
+        return False
+    url = cctv.get('directUrl') or cctv.get('url') or ''
+    source = cctv.get('source', '')
+    kind = get_url_param(url, 'kind')
+    return source == 'UTIC' and kind == 'K'
+
+
+def infer_region_name(cctv):
+    if not cctv:
+        return None
+
+    region_key = cctv.get('regionKey')
+    if region_key:
+        return region_key
+
+    cctv_id = cctv.get('id', '')
+    name = cctv.get('name', '')
+    source = cctv.get('source', '')
+    url = cctv.get('directUrl') or cctv.get('url') or ''
+    prefix = cctv_id.split('_')[0] if '_' in cctv_id else None
+    daejeon_inline_id = get_url_param(url, 'id')
+
+    if cctv.get('urlType') == 'daejeon_mp4_dynamic' or cctv_id.startswith('DAEJEON_') or source == 'DAEJEON_ITS':
+        return 'DAEJEON'
+    if source == 'UTIC' and daejeon_inline_id and daejeon_inline_id.startswith('CCTV'):
+        return 'DAEJEON'
+    if source == 'UTIC' and (cctv_id.startswith('L380') or '제주' in name):
+        return 'JEJU'
+    if source == 'JEJU':
+        return 'JEJU'
+    if source == 'UTIC' and cctv_id.startswith('L12'):
+        return 'PAJU'
+    if prefix and prefix in KNOWN_REGION_KEYS:
+        return prefix
+    if source in SOURCE_REGION_ALIASES:
+        return SOURCE_REGION_ALIASES[source]
+    if source in KNOWN_REGION_KEYS:
+        return source
+    return None
+
 
 def get_daejeon_url(stream_id, offset_minutes=2):
-    # Calculate KST time
     now_utc = datetime.utcnow()
     kst_time = now_utc + timedelta(hours=9) - timedelta(minutes=offset_minutes)
-    
-    timestamp = kst_time.strftime("%Y%m%d.%H%M00")
-    
-    # Process ID
+    timestamp = kst_time.strftime('%Y%m%d.%H%M00')
+
     if 'DAEJEON_' in stream_id:
         clean_id = stream_id.replace('DAEJEON_', '')
         if clean_id.startswith('CCTV'):
-             # CCTV08 -> CTV0008
-             num = clean_id[4:]
-             clean_id = f"CTV{num.zfill(4)}"
+            clean_id = f"CTV{clean_id[4:].zfill(4)}"
         stream_id_formatted = clean_id
     else:
         stream_id_formatted = stream_id
 
-    return f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id_formatted}/{stream_id_formatted}_{timestamp}.000.mp4"
+    return f'https://tportal.daejeon.go.kr:37084/01/media/{stream_id_formatted}/{stream_id_formatted}_{timestamp}.000.mp4'
+
 
 def check_daejeon_stream(cctv):
     stream_id = cctv.get('id', '')
-    
-    # Try 1 to 3 minutes ago
     for offset in range(1, 4):
         url = get_daejeon_url(stream_id, offset)
         try:
-            # We use verify=False because of internal server cert issues sometimes, or to be safe
-            # But tportal usually requires valid certs. Let's try with verify=False for robustness checking if server is UP.
-            # Timeout increased to 15s and added User-Agent to mimic browser
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            resp = requests.head(url, timeout=15, verify=False, headers=headers)
+            resp = requests.head(url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS)
             if resp.status_code == 200:
-                log(f"[OK] Daejeon {stream_id} is UP (Offset {offset}m)")
+                log(f'[OK] Daejeon {stream_id} is UP (Offset {offset}m)')
                 return True
-            else:
-                log(f"[FAIL] Daejeon {stream_id} (Offset {offset}m) returned {resp.status_code}")
-        except Exception as e:
-            log(f"[ERR] Daejeon {stream_id} check failed: {e}")
-    
+            log(f'[FAIL] Daejeon {stream_id} (Offset {offset}m) returned {resp.status_code}')
+        except Exception as error:
+            log(f'[ERR] Daejeon {stream_id} check failed: {error}')
     return False
+
 
 def check_jeju_stream(cctv):
-    # Test through the official proxy
-    proxy_url = f"https://158.179.194.163.sslip.io/jeju2?id={cctv.get('id')}"
+    url = cctv.get('directUrl') or cctv.get('url') or ''
+    parsed_id = parse_qs(urlparse(url).query).get('id', [None])[0]
+    stream_id = cctv.get('original_id') or parsed_id or cctv.get('id')
+    proxy_url = f"https://158.179.194.163.sslip.io/jeju?id={stream_id}"
     try:
-        resp = requests.head(proxy_url, timeout=10, verify=False)
-        if resp.status_code == 200:
+        resp = requests.get(proxy_url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, allow_redirects=True, stream=True)
+        content_type = resp.headers.get('Content-Type', '').lower()
+        if resp.status_code == 200 and ('mpegurl' in content_type or resp.raw.read(8, decode_content=True).startswith(b'#EXTM3U')):
+            log(f"[OK] Jeju {cctv.get('id')} is UP")
             return True
-    except:
-        pass
-    return False
+        log(f"[FAIL] Jeju {cctv.get('id')} returned {resp.status_code} {content_type}")
+    except Exception as error:
+        log(f"[ERR] Jeju {cctv.get('id')} check failed: {error}")
+        return False
+
 
 def check_paju_stream(cctv):
-    # Check both directUrl and url
     url = cctv.get('directUrl') or cctv.get('url')
-    if not url: return False
-    
+    if not url:
+        return False
+
     try:
-        # Use GET as some servers don't support HEAD correctly
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, timeout=10, verify=False, headers=headers, stream=True)
-        # 200 OK or 302 Redirect is good for Paju
-        if resp.status_code in [200, 302]:
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, stream=True)
+        if resp.status_code in (200, 302):
             log(f"[OK] Paju {cctv.get('id')} is UP")
             return True
-        else:
-            log(f"[FAIL] Paju {cctv.get('id')} returned {resp.status_code}")
-    except Exception as e:
-        log(f"[ERR] Paju {cctv.get('id')} check failed: {e}")
+        log(f"[FAIL] Paju {cctv.get('id')} returned {resp.status_code}")
+    except Exception as error:
+        log(f"[ERR] Paju {cctv.get('id')} check failed: {error}")
     return False
+
 
 def check_generic_stream(cctv):
     url = cctv.get('directUrl') or cctv.get('url')
-    if not url: return False
-    
-    # Handle local player pages
+    if not url:
+        return False
+
     if url.startswith('gangneung_player.html') or 'popup' in url:
-        return True # Assume OK if source is configured
-        
+        return True
+
     source = cctv.get('source', '')
     if source in ['NOWJEJU', 'TRENDWORLD']:
-        url = f"https://158.179.194.163.sslip.io/proxy?url={requests.utils.quote(url)}"
+        url = f'https://158.179.194.163.sslip.io/proxy?url={requests.utils.quote(url)}'
 
     try:
-        # Standard check: use GET with stream=True to be safe against non-HEAD servers
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, timeout=10, verify=False, headers=headers, stream=True)
-        # Some servers (like ICITS) return 404 on status but provide body content. 
-        # Check if it's a success OR if it's an M3U8 content type despite 404.
-        if resp.status_code < 400 or (resp.status_code == 404 and 'mpegurl' in resp.headers.get('Content-Type', '').lower()):
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, stream=True)
+        content_type = resp.headers.get('Content-Type', '').lower()
+        if resp.status_code < 400 or (resp.status_code == 404 and 'mpegurl' in content_type):
             log(f"[OK] {cctv.get('id')} is UP")
             return True
-        else:
-            log(f"[FAIL] {cctv.get('id')} returned {resp.status_code}")
-    except Exception as e:
-        log(f"[ERR] {cctv.get('id')} check failed: {e}")
+        log(f"[FAIL] {cctv.get('id')} returned {resp.status_code}")
+    except Exception as error:
+        log(f"[ERR] {cctv.get('id')} check failed: {error}")
     return False
+
+
+def check_camera(region_name, cctv):
+    if is_unsupported_browser_stream(cctv):
+        log(f"[UNSUPPORTED] {cctv.get('id')} uses a legacy UTIC browser plugin stream")
+        return False
+    if region_name == 'DAEJEON':
+        return check_daejeon_stream(cctv)
+    if region_name == 'JEJU':
+        return check_jeju_stream(cctv)
+    if region_name == 'PAJU':
+        return check_paju_stream(cctv)
+    return check_generic_stream(cctv)
+
+
+def get_target_sample_size(total_cameras):
+    if total_cameras <= 3:
+        return total_cameras
+    if total_cameras <= 10:
+        return 3
+    if total_cameras <= 50:
+        return 4
+    if total_cameras <= 200:
+        return 5
+    if total_cameras <= 1000:
+        return 6
+    if total_cameras <= 3000:
+        return 7
+    return 8
+
+
+def get_sampling_bucket():
+    now = datetime.utcnow()
+    slot = 0 if now.minute < 30 else 1
+    return now.strftime('%Y%m%d%H') + str(slot)
+
+
+def select_representative_cameras(region_name, cameras, target_size):
+    if not cameras:
+        return [], 0, 0
+
+    ordered = sorted(cameras, key=lambda cam: (cam.get('id', ''), cam.get('name', '')))
+    if len(ordered) <= target_size:
+        return ordered, len(ordered), 0
+
+    stable_target = min(len(ordered), max(2, math.ceil(target_size * 0.5)))
+    stable = []
+    seen_ids = set()
+
+    anchor_indices = [0, len(ordered) // 4, len(ordered) // 2, (len(ordered) * 3) // 4, len(ordered) - 1]
+    for index in anchor_indices:
+        cam = ordered[index]
+        cam_id = cam.get('id')
+        if cam_id in seen_ids:
+            continue
+        stable.append(cam)
+        seen_ids.add(cam_id)
+        if len(stable) >= stable_target:
+            break
+
+    if len(stable) < stable_target:
+        remainder = [cam for cam in ordered if cam.get('id') not in seen_ids]
+        remainder.sort(key=lambda cam: f"{region_name}:{cam.get('id', '')}:{cam.get('name', '')}")
+        for cam in remainder:
+            stable.append(cam)
+            seen_ids.add(cam.get('id'))
+            if len(stable) >= stable_target:
+                break
+
+    exploratory_target = max(0, target_size - len(stable))
+    exploratory = []
+    if exploratory_target > 0:
+        remaining = [cam for cam in ordered if cam.get('id') not in seen_ids]
+        sampler = random.Random(f'{region_name}:{get_sampling_bucket()}')
+        if len(remaining) <= exploratory_target:
+            exploratory = remaining
+        else:
+            exploratory = sampler.sample(remaining, exploratory_target)
+
+    sample = stable + exploratory
+    return sample, len(stable), len(exploratory)
+
+
+def evaluate_region_health(checked, passed):
+    failed = checked - passed
+    failure_ratio = (failed / checked) if checked else 0.0
+
+    if checked == 0:
+        return 'UNKNOWN', failure_ratio
+    if failed == 0:
+        return 'OK', failure_ratio
+    if passed == 0:
+        return 'DOWN', failure_ratio
+    if failed >= max(3, math.ceil(checked * 0.75)) and passed <= 1:
+        return 'DOWN', failure_ratio
+    if failed >= max(2, math.ceil(checked * 0.4)):
+        return 'DEGRADED', failure_ratio
+    return 'OK', failure_ratio
+
 
 def test_region(region_name, cameras):
     if not cameras:
-        return True # No cameras, assume OK
-        
-    # sample 1
-    sample = random.choice(cameras)
-    log(f"Testing {region_name} with sample: {sample.get('id')}")
-    
-    success = False
-    if region_name == "DAEJEON":
-        success = check_daejeon_stream(sample)
-    elif region_name == "JEJU":
-        success = check_jeju_stream(sample)
-    elif region_name == "PAJU":
-        success = check_paju_stream(sample)
-    else:
-        success = check_generic_stream(sample)
-        
-    if success:
-        return True
-        
-    # Retry with 2 others
-    log(f"{region_name} sample failed. Retrying with 2 backups...")
-    backups = random.sample(cameras, min(len(cameras), 2))
-    
-    monitor_results = []
-    for cam in backups:
-        if region_name == "DAEJEON":
-            res = check_daejeon_stream(cam)
-        elif region_name == "JEJU":
-            res = check_jeju_stream(cam)
-        elif region_name == "PAJU":
-            res = check_paju_stream(cam)
+        return {
+            'status': 'UNKNOWN',
+            'checked': 0,
+            'passed': 0,
+            'failed': 0,
+            'failure_ratio': 0.0,
+            'camera_count': 0,
+            'checked_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'sample_ids': [],
+            'failed_ids': [],
+            'sample_strategy': {
+                'stable': 0,
+                'exploratory': 0
+            }
+        }
+
+    target_size = get_target_sample_size(len(cameras))
+    sample, stable_count, exploratory_count = select_representative_cameras(region_name, cameras, target_size)
+    sample_ids = [cam.get('id') for cam in sample if cam.get('id')]
+    failed_ids = []
+    passed = 0
+
+    log(
+        f'Testing {region_name} with {len(sample)} samples '
+        f'(stable={stable_count}, exploratory={exploratory_count}, total_cameras={len(cameras)})'
+    )
+
+    for cam in sample:
+        success = check_camera(region_name, cam)
+        if success:
+            passed += 1
         else:
-            res = check_generic_stream(cam)
-        monitor_results.append(res)
-        
-    if any(monitor_results):
-        log(f"{region_name} backup succeeded. Region is OK.")
-        return True
-    else:
-        log(f"{region_name} ALL checks failed. Region is DOWN.")
-        return False
+            failed_ids.append(cam.get('id'))
+
+    checked = len(sample)
+    status, failure_ratio = evaluate_region_health(checked, passed)
+    failed = checked - passed
+    log(f'{region_name} result: {status} ({passed}/{checked} ok, failure_ratio={failure_ratio:.2f})')
+
+    return {
+        'status': status,
+        'checked': checked,
+        'passed': passed,
+        'failed': failed,
+        'failure_ratio': round(failure_ratio, 3),
+        'camera_count': len(cameras),
+        'checked_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'sample_ids': sample_ids,
+        'failed_ids': failed_ids,
+        'sample_strategy': {
+            'stable': stable_count,
+            'exploratory': exploratory_count
+        }
+    }
+
+
+def build_region_map(cctv_data):
+    region_map = {}
+    items = cctv_data if isinstance(cctv_data, list) else []
+    for cam in items:
+        region_name = infer_region_name(cam)
+        if not region_name:
+            continue
+        region_map.setdefault(region_name, []).append(cam)
+    return region_map
+
+
+def resolve_active_source(region_name, region_status, config):
+    conf = config.get(region_name, {}) if isinstance(config, dict) else {}
+    sub_type = conf.get('sub', {}).get('type')
+    has_sub = sub_type and sub_type != 'none'
+    if region_status == 'DOWN' and has_sub:
+        return 'sub'
+    return 'main'
+
 
 def run_sentinel():
     try:
-        log("--- Sentinel Started ---")
-        
+        log('--- Sentinel Started ---')
+
         cctv_data = load_json(DATA_FILE)
         if not cctv_data:
-            log("No CCTV data loaded. Exiting.")
+            log('No CCTV data loaded. Exiting.')
             return
 
         config = load_json(CONFIG_FILE)
         current_status = load_json(STATUS_FILE)
-        
         if not isinstance(current_status, dict):
-            log("Status file is not a dict. Initializing.")
+            log('Status file is not a dict. Initializing.')
             current_status = {}
 
-        if "regions" not in current_status:
-            current_status["regions"] = {}
+        current_status.setdefault('regions', {})
+        region_map = build_region_map(cctv_data)
 
-        # Group cameras
-        region_map = {}
-        # Ensure cctv_data is a list
-        items = cctv_data if isinstance(cctv_data, list) else []
-        for cam in items:
-            rid = cam.get('id', '')
-            if not rid: continue
-            
-            if '_' in rid:
-                r = rid.split('_')[0]
-                if r not in region_map:
-                    region_map[r] = []
-                region_map[r].append(cam)
-            elif rid.startswith('L12'):
-                if 'PAJU' not in region_map:
-                    region_map['PAJU'] = []
-                region_map['PAJU'].append(cam)
-
-        # Pass 2: Check ALL discovered regions
-        all_regions = set(region_map.keys()) | set(config.keys())
-        
-        log(f"Discovered {len(all_regions)} regions: {sorted(all_regions)}")
+        all_regions = set(region_map.keys()) | set(config.keys()) | set(current_status['regions'].keys())
+        log(f'Discovered {len(all_regions)} regions: {sorted(all_regions)}')
 
         for region_name in sorted(all_regions):
             cameras = region_map.get(region_name, [])
-            if not cameras: 
+            if not cameras:
+                log(f'Skipping {region_name}: no cameras discovered in current dataset.')
                 continue
-            
-            conf = config.get(region_name, {})
-            is_healthy = test_region(region_name, cameras)
-            
-            # Update Status
-            if region_name not in current_status["regions"]:
-                current_status["regions"][region_name] = {}
-            
-            status_entry = current_status["regions"][region_name]
-            
-            if is_healthy:
-                status_entry["status"] = "OK"
-                status_entry["active_source"] = "main"
-            else:
-                status_entry["status"] = "DOWN"
-                # If we have a sub, switch to it. 
-                if conf.get("sub", {}).get("type") and conf.get("sub", {}).get("type") != "none":
-                    status_entry["active_source"] = "sub"
-                else:
-                    status_entry["active_source"] = "main"
 
-        current_status["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            result = test_region(region_name, cameras)
+            status_entry = current_status['regions'].setdefault(region_name, {})
+            status_entry.update(result)
+            status_entry['active_source'] = resolve_active_source(region_name, result['status'], config)
+
+        current_status['last_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         save_json(STATUS_FILE, current_status)
-        log("--- Sentinel Finished ---")
-    except Exception as e:
-        log(f"FATAL ERROR in run_sentinel: {e}")
+        log('--- Sentinel Finished ---')
+    except Exception as error:
+        log(f'FATAL ERROR in run_sentinel: {error}')
         log(traceback.format_exc())
         sys.exit(1)
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     run_sentinel()

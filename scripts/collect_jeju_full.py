@@ -1,11 +1,12 @@
 import requests
 import json
-import time
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Jeju ITS API Enpoints
 LIST_API = "https://www.jejuits.go.kr/jido/getCurFeatures.do"
-INFO_API = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
-PROXY_BASE = "http://158.179.194.163:8080/jeju"
+PROXY_BASE = "https://158.179.194.163.sslip.io/jeju"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -40,28 +41,26 @@ def collect_jeju_cctv():
         
         cctv_list = []
         for item in items:
-            # item keys: DEVICE_ID, DEVICE_KIND, STRM_RTSP_ADDR (UUID), FCLT_LCTN, x_crdn, y_crdn
-            
+            # STRM_RTSP_ADDR is the stream UUID used by streamUrl.do.
             short_id = item.get('DEVICE_ID')
             uuid = item.get('STRM_RTSP_ADDR')
             name = item.get('FCLT_LCTN') or item.get('CCTV_NM') or f"Jeju CCTV {short_id}"
             lat = item.get('Y_CRDN')
             lng = item.get('X_CRDN')
 
-            if not short_id:
+            if not short_id or not uuid:
                 continue
 
             # Skip if name indicates it's not a real CCTV (sometimes they have dummy entries)
             if "시험" in name or "테스트" in name:
                 continue
 
-            # Construct our data format
-            # Use the Oracle HTTPS Proxy with the UUID directly
-            # UUID is the actual 'stremid' needed by streamUrl.do
-            proxy_url = f"https://158.179.194.163.sslip.io/jeju?id={uuid}"
+            proxy_url = f"{PROXY_BASE}?id={uuid}"
 
             cctv_entry = {
                 "id": f"JEJU_{short_id}",
+                "original_id": uuid,
+                "device_id": short_id,
                 "name": name,
                 "lat": float(lat) if lat else 0.0,
                 "lng": float(lng) if lng else 0.0,
@@ -93,8 +92,8 @@ def merge_data(new_data):
     merged = filtered_data + new_data
     print(f"New total: {len(merged)}")
     
-    with open('cctv_data.json', 'w') as f:
-        json.dump(merged, f, indent=4, ensure_ascii=False)
+    with open('cctv_data.json', 'w', encoding='utf-8') as f:
+        json.dump(merged, f, indent=2, ensure_ascii=False, sort_keys=True)
     print("cctv_data.json updated.")
 
 if __name__ == "__main__":
