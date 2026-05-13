@@ -10,8 +10,8 @@ let z3CacheAgeMs = Infinity; // 캐시가 fetch된 이후 경과 시간 (ms)
 const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 가능성 높음
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
-const HEALTH_STALE_MS = 12 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260513-jeju';
+const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
+const APP_BUILD_VERSION = '20260513-jeju2';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -1412,6 +1412,9 @@ function createVideoElement(cctv, sourceIndex = 0) {
             });
             hls.loadSource(jejuUrl);
             hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                video.play().catch(() => {});
+            });
 
             hls.on(Hls.Events.ERROR, function (event, data) {
                 if (data.fatal) {
@@ -1455,7 +1458,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
     const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html') || url.includes('hrfco.go.kr');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
-    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev') || url.includes('cctv-proxy.pyw213.workers.dev');
+    const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev')
+        || url.includes('cctv-proxy.pyw213.workers.dev')
+        || url.includes('158.179.194.163.sslip.io/proxy');
+    const isKnownHlsSource = ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'HRFCO'].includes(selectedSource);
     const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
     const isGits = cctv.source === 'GITS' && sourceIndex === 0;
 
@@ -1665,7 +1671,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     }
 
     // HLS streams (Hls.js)
-    if ((isHls || isSecureStream || isProxy) && Hls.isSupported()) {
+    if ((isHls || isSecureStream || isProxy || isKnownHlsSource) && Hls.isSupported()) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
         if (is43) video.dataset.aspectRatio = '4:3';
@@ -1682,18 +1688,50 @@ function createVideoElement(cctv, sourceIndex = 0) {
             maxMaxBufferLength: 60,
             fragLoadingTimeOut: 30000,
             manifestLoadingTimeOut: 15000,
-            maxBufferSize: 3 * 1000 * 1000,
+            maxBufferSize: 30 * 1000 * 1000,
         });
 
         hls.loadSource(url);
         hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+            video.play().catch(() => {});
+        });
+
+        let hlsFailoverTriggered = false;
+        let hlsStartupTimer = null;
+        const failoverFromHls = () => {
+            if (hlsFailoverTriggered) return;
+            hlsFailoverTriggered = true;
+            const wrapper = video.parentElement;
+            if (hlsStartupTimer) {
+                clearTimeout(hlsStartupTimer);
+                hlsStartupTimer = null;
+            }
+            hls.destroy();
+            triggerFailover(wrapper);
+        };
+
+        if (selectedSource === 'NOWJEJU') {
+            hlsStartupTimer = setTimeout(() => {
+                if (video.readyState < 2) {
+                    failoverFromHls();
+                }
+            }, 7000);
+            video.addEventListener('loadeddata', () => {
+                if (hlsStartupTimer) {
+                    clearTimeout(hlsStartupTimer);
+                    hlsStartupTimer = null;
+                }
+            }, { once: true });
+        }
 
         hls.on(Hls.Events.ERROR, function (event, data) {
-            if (data.fatal) {
-                // If fatal error, try failover
-                // Need to ensure we don't loop infinitely if all fail
-                hls.destroy();
-                triggerFailover(video.parentElement);
+            const statusCode = Number(data && data.response && (data.response.code || data.response.status));
+            const shouldFailFast = selectedSource === 'NOWJEJU' && statusCode >= 400;
+
+            if (data.fatal || shouldFailFast) {
+                // NOWJEJU sometimes publishes stale variant playlists. Do not make users wait through HLS retries.
+                failoverFromHls();
             }
         });
 
@@ -1715,8 +1753,44 @@ function createVideoElement(cctv, sourceIndex = 0) {
     return video;
 }
 
+function ensureDynamicBackups(cctv) {
+    if (!cctv || cctv._dynamicFallbacksAdded) return;
+    if (!['NOWJEJU', 'TRENDWORLD'].includes(cctv.source)) return;
+    if (!Number.isFinite(Number(cctv.lat)) || !Number.isFinite(Number(cctv.lng))) return;
+
+    const backupUrls = Array.isArray(cctv.backup_urls) ? cctv.backup_urls : [];
+    const knownUrls = new Set([cctv.url, ...backupUrls.map(item => item && item.url)].filter(Boolean));
+    const preferredSources = ['JEJU', 'GITS', 'UTIC'];
+
+    const nearbyBackups = state.cctvs
+        .filter(item => item && item.id !== cctv.id && preferredSources.includes(item.source))
+        .map(item => ({
+            item,
+            distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng)
+        }))
+        .filter(({ item, distance }) => Number.isFinite(distance) && distance <= 5 && item.url && !knownUrls.has(item.url))
+        .sort((a, b) => {
+            const sourceDelta = preferredSources.indexOf(a.item.source) - preferredSources.indexOf(b.item.source);
+            return sourceDelta || a.distance - b.distance;
+        })
+        .slice(0, 3)
+        .map(({ item }) => ({
+            source: item.source,
+            url: item.url,
+            name: item.name
+        }));
+
+    if (nearbyBackups.length > 0) {
+        cctv.backup_urls = backupUrls.concat(nearbyBackups);
+    } else {
+        cctv.backup_urls = backupUrls;
+    }
+    cctv._dynamicFallbacksAdded = true;
+}
+
 function handleStreamFailover(wrapper, cctv, nextIndex) {
     if (!wrapper) return;
+    ensureDynamicBackups(cctv);
     const backupCount = Array.isArray(cctv.backup_urls) ? cctv.backup_urls.length : 0;
     const isRetryingPrimary = nextIndex === 0;
 

@@ -9,7 +9,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timedelta
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urljoin
 import flask
 from flask import Flask, request, Response, send_from_directory, abort
 import requests
@@ -309,32 +309,24 @@ def proxy_stream():
         
         # Use stream=False for manifest rewriting if it's a small text file
         # But for video segments (TS), we want streaming.
-        is_manifest = target_url.endswith('.m3u8') or 'application/vnd.apple.mpegurl' in resp.headers.get('Content-Type', '').lower()
+        content_type = resp.headers.get('Content-Type', '').lower()
+        is_manifest = (
+            target_url.endswith('.m3u8')
+            or 'mpegurl' in content_type
+            or 'm3u8' in content_type
+        )
         
         if is_manifest:
             content = resp.text
             # Rewrite relative paths to absolute proxied paths
             # Jeju uses /hls/....ts
-            base_parts = target_url.split('/')
-            base_url = "/".join(base_parts[:3]) # https://host:port
-            
             # Replace lines starting with / or not starting with http
             lines = content.splitlines()
             new_lines = []
             for line in lines:
                 if line.strip() and not line.startswith('#'):
-                    if line.startswith('/'):
-                        # Absolute path within source: /hls/abc.ts -> /proxy?url=base_url/hls/abc.ts
-                        full_segment_url = f"{base_url}{line}"
-                        new_lines.append(f"/proxy?url={quote(full_segment_url)}")
-                    elif not line.startswith('http'):
-                        # Relative path: abc.ts -> /proxy?url=current_dir/abc.ts
-                        current_dir = "/".join(base_parts[:-1])
-                        full_segment_url = f"{current_dir}/{line}"
-                        new_lines.append(f"/proxy?url={quote(full_segment_url)}")
-                    else:
-                        # Already absolute http: -> /proxy?url=...
-                        new_lines.append(f"/proxy?url={quote(line)}")
+                    full_segment_url = urljoin(target_url, line.strip())
+                    new_lines.append(f"/proxy?url={quote(full_segment_url, safe='')}")
                 else:
                     new_lines.append(line)
             
@@ -344,6 +336,7 @@ def proxy_stream():
             resp_headers = [(name, value) for (name, value) in resp.raw.headers.items()
                        if name.lower() not in excluded_headers]
             resp_headers.append(('Access-Control-Allow-Origin', '*'))
+            resp_headers.append(('Cache-Control', 'no-store, max-age=0'))
             resp_headers.append(('Content-Type', 'application/vnd.apple.mpegurl'))
             
             return Response(rewritten_content, resp.status_code, resp_headers)
@@ -359,6 +352,7 @@ def proxy_stream():
         
         # Add CORS (Force single *)
         resp_headers.append(('Access-Control-Allow-Origin', '*'))
+        resp_headers.append(('Cache-Control', 'no-store, max-age=0'))
         
         return Response(generate(), resp.status_code, resp_headers)
     except Exception as e:
