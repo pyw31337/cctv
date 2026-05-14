@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-layout1';
+const APP_BUILD_VERSION = '20260514-stabilize3';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -19,7 +19,11 @@ const SEARCH_RESULT_LIMIT = 15;
 const GEO_CELL_SIZE = 0.08;
 const GEO_SEARCH_RING_LIMIT = 8;
 const GEO_CANDIDATE_TARGET = 220;
+const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
+const ORACLE_PROXY_BASE = `${ORACLE_BASE}/proxy`;
 const JEJU_PROXY_BASE = 'https://158.179.194.163.sslip.io/jeju';
+const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|동부출장소|행정복지|주민센터|사거리|삼거리|교차로|로터리|터미널|역|아파트|시장|학교|초교|초등|중학교|고교|병원|마트|상가|대로변|단지내|시내|중앙|읍내)/;
+const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권제|국도|IC|JC|TG|영업소|터널|램프|휴게소|졸음쉼터|분기점|진입로|외부|하이패스)/i;
 
 const REGION_LABELS = {
     BUSAN: '부산',
@@ -128,6 +132,23 @@ async function getZ3StreamUrl(cctvip) {
     // 토큰 URL 원형 유지 (http:// 그대로) — /z3가 redirect 체인 해결 후 master m3u8 반환
     let tokenUrl = rawUrl.startsWith('//') ? 'http:' + rawUrl : rawUrl;
     return `https://cctv-proxy.pyw213.workers.dev/z3?url=${encodeURIComponent(tokenUrl)}`;
+}
+
+function proxyWithOracle(targetUrl) {
+    return `${ORACLE_PROXY_BASE}?url=${encodeURIComponent(targetUrl)}`;
+}
+
+function normalizeResolvedZ3StreamUrl(streamUrl) {
+    if (!streamUrl) return streamUrl;
+
+    const normalized = streamUrl.trim()
+        .replace(/^https:\/\/cctvsec\.ktict\.co\.kr:8081/i, 'http://cctvsec.ktict.co.kr:8081');
+
+    if (/^http:\/\/cctvsec\.ktict\.co\.kr:8081/i.test(normalized)) {
+        return proxyWithOracle(normalized);
+    }
+
+    return normalized;
 }
 
 // === State ===
@@ -834,6 +855,27 @@ function getStreamQualityScore(cctv) {
     return Math.max(0.4, Math.min(0.98, score));
 }
 
+function getRoadContextPriority(cctv, distanceKm) {
+    const normalizedName = String(cctv.name || '').replace(/\s+/g, '');
+    const source = cctv.source || '';
+    const looksUrban = URBAN_CONTEXT_PATTERN.test(normalizedName);
+    const looksOutskirt = source === 'NTIC' || OUTSKIRT_CONTEXT_PATTERN.test(normalizedName);
+
+    let score = 0;
+
+    if (looksOutskirt) {
+        score += looksUrban ? 2.0 : 4.5;
+    }
+
+    if (looksUrban) {
+        score -= 1.2;
+    } else if (!looksOutskirt && distanceKm < 1.2) {
+        score -= 0.5;
+    }
+
+    return score;
+}
+
 function formatDistance(distanceKm) {
     if (!Number.isFinite(distanceKm)) return '거리 미확인';
     if (distanceKm < 1) return `${Math.round(distanceKm * 1000)}m`;
@@ -935,6 +977,27 @@ function renderPanelHealthBadge(panel, cctv) {
     badge.setAttribute('aria-label', `${health.shortLabel}, ${formatDistance(cctv.distance)}`);
 }
 
+function renderSelectTrigger(panel, cctv, fallbackLabel) {
+    const trigger = panel.querySelector('.cctv-select-trigger');
+    if (!trigger) return;
+
+    const health = cctv?._health || getCameraHealthMeta(cctv);
+    const label = cctv?.name || fallbackLabel || 'CCTV 선택';
+    trigger.innerHTML = '';
+
+    const name = document.createElement('span');
+    name.className = 'cctv-select-name';
+    name.textContent = label;
+
+    const dot = document.createElement('span');
+    dot.className = `panel-health-dot tone-${health.tone}`;
+    dot.setAttribute('aria-hidden', 'true');
+
+    trigger.append(name, dot);
+    trigger.title = `${label} · ${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
+    trigger.setAttribute('aria-label', `${label}, ${health.shortLabel}`);
+}
+
 function removePanelHealthBadge(panel) {
     const badge = panel.querySelector('.panel-health-badge');
     if (badge) badge.remove();
@@ -1026,13 +1089,15 @@ function updateNearestCctvs() {
             const health = getCameraHealthMeta(cctv);
             const streamQuality = getStreamQualityScore(cctv);
             const backupBonus = cctv.backup_urls && cctv.backup_urls.length > 0 ? 0.6 : 0;
-            const priorityScore = distance + health.penalty + ((1 - streamQuality) * 6) - backupBonus;
+            const roadContextPriority = getRoadContextPriority(cctv, distance);
+            const priorityScore = distance + health.penalty + ((1 - streamQuality) * 6) + roadContextPriority - backupBonus;
 
             return {
                 ...cctv,
                 distance,
                 _health: health,
                 _streamQuality: streamQuality,
+                _roadContextPriority: roadContextPriority,
                 _priorityScore: priorityScore
             };
         })
@@ -1078,11 +1143,8 @@ function renderVideoGrid() {
             panel.dataset.slotIndex = index;
             panel.dataset.cctvIndex = index;
 
-            // Update dropdown trigger text
-            const trigger = panel.querySelector('.cctv-select-trigger');
-            if (trigger) {
-                trigger.textContent = cctv.name || `CCTV ${index + 1}`;
-            }
+            // Update dropdown trigger with compact status dot instead of status text.
+            renderSelectTrigger(panel, cctv, `CCTV ${index + 1}`);
 
             renderPanelHealthBadge(panel, cctv);
 
@@ -1115,9 +1177,16 @@ function populateSelectOptions(panel, currentIndex) {
         const option = document.createElement('div');
         option.className = 'cctv-option' + (i === currentIndex ? ' selected' : '');
         const health = cctv._health || getCameraHealthMeta(cctv);
-        option.textContent = `${cctv.name || `CCTV ${i + 1}`} · ${health.shortLabel}`;
+        const name = document.createElement('span');
+        name.className = 'cctv-option-name';
+        name.textContent = cctv.name || `CCTV ${i + 1}`;
+        const dot = document.createElement('span');
+        dot.className = `panel-health-dot tone-${health.tone}`;
+        dot.setAttribute('aria-hidden', 'true');
+        option.append(name, dot);
         option.dataset.cctvIndex = i;
-        option.title = health.longLabel;
+        option.title = `${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
+        option.setAttribute('aria-label', `${name.textContent}, ${health.shortLabel}`);
         optionsContainer.appendChild(option);
     });
 }
@@ -1244,11 +1313,8 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     panel.dataset.cctvId = cctv.id;
     panel.dataset.cctvIndex = cctvIndex;
 
-    // Update trigger text
-    const trigger = panel.querySelector('.cctv-select-trigger');
-    if (trigger) {
-        trigger.textContent = cctv.name || `CCTV ${cctvIndex + 1}`;
-    }
+    // Update trigger with compact status dot instead of status text.
+    renderSelectTrigger(panel, cctv, `CCTV ${cctvIndex + 1}`);
 
     // Update selected option
     const options = panel.querySelectorAll('.cctv-option');
@@ -1347,7 +1413,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // Handle Daejeon dynamic MP4 URLs (client-side generation to bypass oracle block)
     if (cctv.urlType === 'daejeon_mp4_dynamic' && sourceIndex === 0) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
 
         const getDaejeonUrl = (offsetMins) => {
@@ -1392,7 +1458,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // Handle Jeju streams explicitly
     if (cctv.source === 'JEJU' && sourceIndex === 0) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.muted = true;
         video.autoplay = true;
@@ -1467,7 +1533,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         }
         if (!kbUrl.includes('_t=')) kbUrl += `&_t=${Date.now()}`;
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.src = kbUrl;
         video.muted = true;
@@ -1503,7 +1569,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             const iframe = document.createElement('iframe');
             iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&controls=0`;
             iframe.className = 'youtube-iframe';
-            iframe.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;border:none;display:block;';
+            iframe.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;border:none;display:block;';
             iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
             iframe.allowFullscreen = true;
             return iframe;
@@ -1513,7 +1579,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // GITS: async real-time token fetch via CF Worker /gits endpoint
     if (isGits && cctv.original_id) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.muted = true;
         video.autoplay = true;
@@ -1541,7 +1607,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // MP4 / Native (non-GITS)
     if (isMp4) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.src = url;
         video.muted = true;
@@ -1558,7 +1624,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // Other kinds: extract real m3u8 URL via /utic endpoint, fall back to iframe
     if (isUtic) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.muted = true;
         video.autoplay = true;
@@ -1605,23 +1671,17 @@ function createVideoElement(cctv, sourceIndex = 0) {
                         } catch(e2) { console.warn('[Z3] 전략2 실패:', e2); }
                     }
 
-                    // Z3 전략 3: /utic 엔드포인트로 JSP 페이지에서 스트림 URL 직접 추출 (토큰 만료 대비)
+                    // Z3 전략 3: Oracle /utic가 GitHub 최신 캐시를 읽고 /proxy로 리다이렉트한다.
                     if (!streamUrl) {
                         try {
                             let uticSearch = '';
                             try { uticSearch = new URL(url).search.substring(1); } catch(e3) {}
-                            const uticResp = await fetch(
-                                `https://cctv-proxy.pyw213.workers.dev/utic?${uticSearch}&_t=${Date.now()}`,
-                                { redirect: 'follow' }
-                            );
-                            if (uticResp.ok) {
-                                const body = (await uticResp.text()).trim();
-                                if (body && body.startsWith('http')) streamUrl = body;
-                            }
+                            if (uticSearch) streamUrl = `${ORACLE_BASE}/utic?${uticSearch}&_t=${Date.now()}`;
                         } catch(e2) { console.warn('[Z3] 전략3 실패:', e2); }
                     }
 
                     if (!streamUrl) throw new Error('z3 all strategies failed');
+                    streamUrl = normalizeResolvedZ3StreamUrl(streamUrl);
                 } else {
                     // Non-Z3 UTIC: fetch from JSP via CF Worker /utic
                     let uticSearch = '';
@@ -1667,6 +1727,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
             }
 
             function fallbackToIframe(wrapper) {
+                if (isZ3) {
+                    triggerFailover(wrapper);
+                    return;
+                }
                 wrapper.innerHTML = '';
                 const iframe = document.createElement('iframe');
                 iframe.src = url;
@@ -1698,7 +1762,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // HLS streams (Hls.js)
     if ((isHls || isSecureStream || isProxy || isKnownHlsSource) && Hls.isSupported()) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.muted = true;
         video.autoplay = true;
@@ -1790,7 +1854,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
     // Native HLS (Safari)
     const video = document.createElement('video');
-    video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
+    video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
     if (is43) video.dataset.aspectRatio = '4:3';
     video.src = url;
     video.muted = true;
