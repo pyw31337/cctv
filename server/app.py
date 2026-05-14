@@ -40,7 +40,7 @@ Z3_CACHE_TTL_MINUTES = 50
 Z3_CACHE_STALE_HOURS = 2   # If GitHub data is older than this, try its.go.kr directly
 Z3_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/pyw31337/cctv/main/data/z3_cache.json'
 
-JEJU_STREAM_CACHE_TTL_SECONDS = 45
+JEJU_STREAM_CACHE_TTL_SECONDS = 120
 jeju_session = requests.Session()
 jeju_session.verify = False
 jeju_lock = threading.Lock()
@@ -57,13 +57,15 @@ def get_jeju_headers():
 
 
 def redirect_cached_jeju_stream(target_id):
-    cached = jeju_stream_cache.get(target_id)
+    with jeju_lock:
+        cached = jeju_stream_cache.get(target_id)
     if not cached:
         return None
 
     age = time.time() - cached.get('created_at', 0)
     if age > JEJU_STREAM_CACHE_TTL_SECONDS:
-        jeju_stream_cache.pop(target_id, None)
+        with jeju_lock:
+            jeju_stream_cache.pop(target_id, None)
         return None
 
     return flask.redirect(f"/proxy?url={quote(cached['url'])}")
@@ -451,87 +453,65 @@ def proxy_jeju():
 
     headers = get_jeju_headers()
 
-    with jeju_lock:
-        cached_response = redirect_cached_jeju_stream(target_id)
-        if cached_response:
-            return cached_response
-
-        try:
-            if not jeju_session.cookies:
+    try:
+        if not jeju_session.cookies:
+            try:
                 jeju_session.get(
                     "https://www.jejuits.go.kr/jido/mainView.do",
                     headers=headers,
-                    timeout=(3, 5),
+                    timeout=(2, 4),
                 )
+            except requests.RequestException:
+                pass
 
-            # Short IDs such as C75/W83 need a UUID lookup. Most generated records
-            # already carry UUIDs, so this slow path is avoided for normal playback.
-            if len(short_id) < 20:
-                info_url = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
-                payload = {
-                    "DEVICE_KIND": "CCTV",
-                    "DEVICE_ID": short_id,
-                    "maplevel": "14",
+        # Short IDs such as C75/W83 need a UUID lookup. Most generated records
+        # already carry UUIDs, so this slow path is avoided for normal playback.
+        if len(short_id) < 20:
+            info_url = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
+            payload = {
+                "DEVICE_KIND": "CCTV",
+                "DEVICE_ID": short_id,
+                "maplevel": "14",
+            }
+            logger.info(f"Jeju: Resolving UUID for {short_id}...")
+            resp = jeju_session.post(info_url, data=payload, headers=headers, timeout=(2, 4))
+            if resp.status_code == 200:
+                data = resp.json()
+                if 'stremid' in data:
+                    target_id = data['stremid']
+                    logger.info(f"Jeju: Resolved {short_id} -> {target_id}")
+
+            cached_response = redirect_cached_jeju_stream(target_id)
+            if cached_response:
+                return cached_response
+
+        target_api = "https://www.jejuits.go.kr/jido/streamUrl.do"
+        payload = {"DEVICE_ID": target_id}
+
+        logger.info(f"Jeju: Fetching token for {target_id}...")
+        resp = jeju_session.post(target_api, data=payload, headers=headers, timeout=(2, 6))
+        if resp.status_code != 200:
+            return f"Jeju API Error: {resp.status_code}", 502
+
+        real_url = resp.text.strip().strip('"')
+        if real_url.startswith("http"):
+            with jeju_lock:
+                jeju_stream_cache[target_id] = {
+                    'url': real_url,
+                    'created_at': time.time(),
                 }
-                logger.info(f"Jeju: Resolving UUID for {short_id}...")
-                resp = jeju_session.post(info_url, data=payload, headers=headers, timeout=(3, 6))
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if 'stremid' in data:
-                        target_id = data['stremid']
-                        logger.info(f"Jeju: Resolved {short_id} -> {target_id}")
+            logger.info(f"Jeju {cctv_id} Success -> Proxying: {real_url[:60]}...")
+            return flask.redirect(f"/proxy?url={quote(real_url)}")
 
-                cached_response = redirect_cached_jeju_stream(target_id)
-                if cached_response:
-                    return cached_response
+        logger.error(f"Invalid resp from Jeju API: {real_url}")
+        return f"Invalid URL from Jeju API for {target_id}", 502
 
-            target_api = "https://www.jejuits.go.kr/jido/streamUrl.do"
-            payload = {"DEVICE_ID": target_id}
-            last_error = None
-
-            for attempt in range(2):
-                try:
-                    logger.info(f"Jeju: Fetching token for {target_id} (attempt {attempt + 1})...")
-                    resp = jeju_session.post(target_api, data=payload, headers=headers, timeout=(3, 7))
-                    if resp.status_code != 200:
-                        last_error = f"Jeju API Error: {resp.status_code}"
-                        continue
-
-                    real_url = resp.text.strip().strip('"')
-                    if real_url.startswith("http"):
-                        jeju_stream_cache[target_id] = {
-                            'url': real_url,
-                            'created_at': time.time(),
-                        }
-                        logger.info(f"Jeju {cctv_id} Success -> Proxying: {real_url[:60]}...")
-                        return flask.redirect(f"/proxy?url={quote(real_url)}")
-
-                    last_error = f"Invalid URL from Jeju API: {real_url[:80]}"
-                    if "error" in real_url.lower():
-                        jeju_session.get(
-                            "https://www.jejuits.go.kr/jido/mainView.do",
-                            headers=headers,
-                            timeout=(3, 5),
-                        )
-                except requests.RequestException as exc:
-                    last_error = str(exc)
-                    # Refresh cookies once before the second attempt.
-                    if attempt == 0:
-                        try:
-                            jeju_session.get(
-                                "https://www.jejuits.go.kr/jido/mainView.do",
-                                headers=headers,
-                                timeout=(3, 5),
-                            )
-                        except requests.RequestException:
-                            pass
-
-            logger.error(f"Jeju Proxy Failed for {target_id}: {last_error}")
-            return f"Jeju Proxy Error: {last_error}", 502
-
-        except Exception as e:
-            logger.error(f"Jeju Proxy Final Failed: {e}")
-            return f"Server Error: {str(e)}", 500
+    except requests.RequestException as e:
+        logger.error(f"Jeju Proxy Upstream Failed: {e}")
+        return f"Jeju Proxy Error: {str(e)}", 502
+    except Exception as e:
+        logger.error(f"Jeju Proxy Final Failed: {e}")
+        return f"Server Error: {str(e)}", 500
 
 # === UTIC/NTIC Proxy Logic ===
 @app.route('/utic')

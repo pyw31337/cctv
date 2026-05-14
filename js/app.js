@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality1';
+const APP_BUILD_VERSION = '20260514-quality2';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
@@ -21,7 +21,7 @@ const GEO_CELL_SIZE = 0.08;
 const GEO_SEARCH_RING_LIMIT = 8;
 const GEO_CANDIDATE_TARGET = 220;
 const PLAYBACK_STARTUP_TIMEOUT_MS = 12000;
-const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 9500;
+const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 8500;
 const PLAYBACK_STALL_TIMEOUT_MS = 9000;
 const DYNAMIC_BACKUP_RADIUS_KM = 8;
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
@@ -792,18 +792,6 @@ function getCameraHealthMeta(cctv) {
         : (state.healthSnapshot ? state.healthSnapshot.last_updated : null);
     const staleSuffix = state.healthSnapshotStale ? ' (점검 지연)' : '';
 
-    if (state.healthSnapshotStale) {
-        return {
-            regionKey,
-            status: 'STALE',
-            shortLabel: '실시간 확인',
-            longLabel: `${getRegionLabel(regionKey)} 점검 정보가 오래되어 실제 재생 상태를 우선 확인합니다`,
-            tone: 'unknown',
-            penalty: 0.6,
-            lastUpdated
-        };
-    }
-
     if (isUnsupportedBrowserStream(cctv)) {
         return {
             regionKey,
@@ -812,6 +800,18 @@ function getCameraHealthMeta(cctv) {
             longLabel: `${getRegionLabel(regionKey)} 원본은 구형 전용 플레이어 기반이라 현재 웹 앱에서 재생할 수 없습니다`,
             tone: 'danger',
             penalty: 12,
+            lastUpdated
+        };
+    }
+
+    if (state.healthSnapshotStale) {
+        return {
+            regionKey,
+            status: 'STALE',
+            shortLabel: '실시간 확인',
+            longLabel: `${getRegionLabel(regionKey)} 점검 정보가 오래되어 실제 재생 상태를 우선 확인합니다`,
+            tone: 'unknown',
+            penalty: 0.6,
             lastUpdated
         };
     }
@@ -913,6 +913,30 @@ function getRoadContextPriority(cctv, distanceKm) {
     }
 
     return score;
+}
+
+function getSourceResilienceAdjustment(cctv, health, distanceKm) {
+    const source = cctv?.source || '';
+    const jejuHealth = state.regionHealth.JEJU;
+    const jejuStatus = jejuHealth?.status || '';
+    const jejuIsUnstable = ['DEGRADED', 'DOWN'].includes(jejuStatus);
+    const staleCompensation = state.healthSnapshotStale ? 3.0 : 0;
+
+    if (!jejuIsUnstable) return 0;
+
+    if (source === 'JEJU') {
+        return (jejuStatus === 'DOWN' ? 5.2 : 3.6) + staleCompensation;
+    }
+
+    if (['NOWJEJU', 'TRENDWORLD'].includes(source) && Number.isFinite(distanceKm) && distanceKm <= DYNAMIC_BACKUP_RADIUS_KM) {
+        return jejuStatus === 'DOWN' ? -1.4 : -1.0;
+    }
+
+    if (health?.status === 'UNSUPPORTED') {
+        return 4;
+    }
+
+    return 0;
 }
 
 function formatDistance(distanceKm) {
@@ -1366,7 +1390,8 @@ function updateNearestCctvs() {
             const streamQuality = getStreamQualityScore(cctv);
             const backupBonus = cctv.backup_urls && cctv.backup_urls.length > 0 ? 0.6 : 0;
             const roadContextPriority = getRoadContextPriority(cctv, distance);
-            const priorityScore = distance + health.penalty + ((1 - streamQuality) * 6) + roadContextPriority - backupBonus;
+            const sourceResilience = getSourceResilienceAdjustment(cctv, health, distance);
+            const priorityScore = distance + health.penalty + ((1 - streamQuality) * 6) + roadContextPriority + sourceResilience - backupBonus;
 
             return {
                 ...cctv,
@@ -1374,6 +1399,7 @@ function updateNearestCctvs() {
                 _health: health,
                 _streamQuality: streamQuality,
                 _roadContextPriority: roadContextPriority,
+                _sourceResilience: sourceResilience,
                 _priorityScore: priorityScore
             };
         })
@@ -1757,17 +1783,17 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 capLevelToPlayerSize: true,
                 maxBufferLength: 30,
                 maxMaxBufferLength: 60,
-                fragLoadingTimeOut: 30000,
-                manifestLoadingTimeOut: 15000,
-                manifestLoadingMaxRetry: 8,
+                fragLoadingTimeOut: 12000,
+                manifestLoadingTimeOut: 8000,
+                manifestLoadingMaxRetry: 1,
                 manifestLoadingRetryDelay: 700,
-                manifestLoadingMaxRetryTimeout: 8000,
-                levelLoadingMaxRetry: 8,
+                manifestLoadingMaxRetryTimeout: 3000,
+                levelLoadingMaxRetry: 1,
                 levelLoadingRetryDelay: 700,
-                levelLoadingMaxRetryTimeout: 8000,
-                fragLoadingMaxRetry: 8,
+                levelLoadingMaxRetryTimeout: 3000,
+                fragLoadingMaxRetry: 2,
                 fragLoadingRetryDelay: 700,
-                fragLoadingMaxRetryTimeout: 8000,
+                fragLoadingMaxRetryTimeout: 4000,
             });
             hls.loadSource(jejuUrl);
             hls.attachMedia(video);
@@ -1779,9 +1805,15 @@ function createVideoElement(cctv, sourceIndex = 0) {
             hls.on(Hls.Events.ERROR, function (event, data) {
                 if (!data.fatal) return;
 
+                const statusCode = Number(data && data.response && (data.response.code || data.response.status));
+                if (statusCode >= 400) {
+                    triggerFailover(video.parentElement);
+                    return;
+                }
+
                 const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
                 const isMediaError = data.type === Hls.ErrorTypes.MEDIA_ERROR;
-                if ((isNetworkError || isMediaError) && recoveryAttempts < 12) {
+                if ((isNetworkError || isMediaError) && recoveryAttempts < 2) {
                     recoveryAttempts += 1;
                     setTimeout(() => {
                         if (!video.parentElement) return;
@@ -2060,23 +2092,24 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
+        const failFastHlsSource = ['JEJU', 'NOWJEJU'].includes(selectedSource);
         const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
             capLevelToPlayerSize: true,
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
-            fragLoadingTimeOut: 30000,
-            manifestLoadingTimeOut: 15000,
-            manifestLoadingMaxRetry: 8,
+            fragLoadingTimeOut: failFastHlsSource ? 12000 : 30000,
+            manifestLoadingTimeOut: failFastHlsSource ? 8000 : 15000,
+            manifestLoadingMaxRetry: failFastHlsSource ? 1 : 8,
             manifestLoadingRetryDelay: 700,
-            manifestLoadingMaxRetryTimeout: 8000,
-            levelLoadingMaxRetry: 8,
+            manifestLoadingMaxRetryTimeout: failFastHlsSource ? 3000 : 8000,
+            levelLoadingMaxRetry: failFastHlsSource ? 1 : 8,
             levelLoadingRetryDelay: 700,
-            levelLoadingMaxRetryTimeout: 8000,
-            fragLoadingMaxRetry: 8,
+            levelLoadingMaxRetryTimeout: failFastHlsSource ? 3000 : 8000,
+            fragLoadingMaxRetry: failFastHlsSource ? 2 : 8,
             fragLoadingRetryDelay: 700,
-            fragLoadingMaxRetryTimeout: 8000,
+            fragLoadingMaxRetryTimeout: failFastHlsSource ? 4000 : 8000,
             maxBufferSize: 30 * 1000 * 1000,
         });
 
@@ -2117,11 +2150,16 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         hls.on(Hls.Events.ERROR, function (event, data) {
             const statusCode = Number(data && data.response && (data.response.code || data.response.status));
-            const shouldFailFast = selectedSource === 'NOWJEJU' && statusCode >= 400;
+            const shouldFailFast = ['JEJU', 'NOWJEJU'].includes(selectedSource) && statusCode >= 400;
             const isJejuHls = selectedSource === 'JEJU';
             const isRecoverable = data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR;
 
-            if (isJejuHls && data.fatal && isRecoverable && recoveryAttempts < 12) {
+            if (shouldFailFast) {
+                failoverFromHls();
+                return;
+            }
+
+            if (isJejuHls && data.fatal && isRecoverable && recoveryAttempts < 2) {
                 recoveryAttempts += 1;
                 setTimeout(() => {
                     if (!video.parentElement) return;
@@ -2171,8 +2209,10 @@ function ensureDynamicBackups(cctv) {
         ? cctv.backup_urls.map(item => normalizeBackupEntry(item, cctv)).filter(Boolean)
         : [];
     const knownUrls = new Set([cctv.directUrl, cctv.url, ...backupUrls.map(item => item && item.url)].filter(Boolean));
-    const preferredSources = cctv.source === 'JEJU'
-        ? ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS']
+    const jejuStatus = state.regionHealth.JEJU?.status || '';
+    const jejuIsUnstable = ['DEGRADED', 'DOWN'].includes(jejuStatus);
+    const preferredSources = cctv.source === 'JEJU' && jejuIsUnstable
+        ? ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'GITS']
         : ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS'];
 
     const nearbyBackups = state.cctvData
