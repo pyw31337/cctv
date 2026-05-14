@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality4';
+const APP_BUILD_VERSION = '20260514-quality5';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
@@ -21,7 +21,7 @@ const GEO_CELL_SIZE = 0.08;
 const GEO_SEARCH_RING_LIMIT = 8;
 const GEO_CANDIDATE_TARGET = 220;
 const PLAYBACK_STARTUP_TIMEOUT_MS = 12000;
-const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 10000;
+const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 18000;
 const PLAYBACK_STALL_TIMEOUT_MS = 9000;
 const DYNAMIC_BACKUP_RADIUS_KM = 8;
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
@@ -1162,7 +1162,7 @@ function getStreamLoadingCopy(cctv, isFallback = false, fallbackIndex = 0, backu
     if (isJejuCandidate) {
         return {
             title: '원본 영상 연결 중',
-            detail: '최대 10초까지 기다린 뒤 실패하면 대체 영상을 연결합니다.'
+            detail: '최대 18초까지 기다린 뒤 실패하면 대체 영상을 연결합니다.'
         };
     }
 
@@ -1899,13 +1899,13 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 maxBufferLength: 30,
                 maxMaxBufferLength: 60,
                 fragLoadingTimeOut: 12000,
-                manifestLoadingTimeOut: 10000,
-                manifestLoadingMaxRetry: 1,
+                manifestLoadingTimeOut: JEJU_PLAYBACK_STARTUP_TIMEOUT_MS,
+                manifestLoadingMaxRetry: 2,
                 manifestLoadingRetryDelay: 700,
-                manifestLoadingMaxRetryTimeout: 3000,
-                levelLoadingMaxRetry: 1,
+                manifestLoadingMaxRetryTimeout: 5000,
+                levelLoadingMaxRetry: 2,
                 levelLoadingRetryDelay: 700,
-                levelLoadingMaxRetryTimeout: 3000,
+                levelLoadingMaxRetryTimeout: 5000,
                 fragLoadingMaxRetry: 2,
                 fragLoadingRetryDelay: 700,
                 fragLoadingMaxRetryTimeout: 4000,
@@ -2207,6 +2207,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
+        const isJejuHlsSource = selectedSource === 'JEJU';
         const failFastHlsSource = ['JEJU', 'NOWJEJU'].includes(selectedSource);
         const hls = new Hls({
             enableWorker: true,
@@ -2214,14 +2215,14 @@ function createVideoElement(cctv, sourceIndex = 0) {
             capLevelToPlayerSize: true,
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
-            fragLoadingTimeOut: failFastHlsSource ? 12000 : 30000,
-            manifestLoadingTimeOut: failFastHlsSource ? 10000 : 15000,
-            manifestLoadingMaxRetry: failFastHlsSource ? 1 : 8,
+            fragLoadingTimeOut: isJejuHlsSource ? JEJU_PLAYBACK_STARTUP_TIMEOUT_MS : (failFastHlsSource ? 12000 : 30000),
+            manifestLoadingTimeOut: isJejuHlsSource ? JEJU_PLAYBACK_STARTUP_TIMEOUT_MS : (failFastHlsSource ? 10000 : 15000),
+            manifestLoadingMaxRetry: isJejuHlsSource ? 2 : (failFastHlsSource ? 1 : 8),
             manifestLoadingRetryDelay: 700,
-            manifestLoadingMaxRetryTimeout: failFastHlsSource ? 3000 : 8000,
-            levelLoadingMaxRetry: failFastHlsSource ? 1 : 8,
+            manifestLoadingMaxRetryTimeout: isJejuHlsSource ? 5000 : (failFastHlsSource ? 3000 : 8000),
+            levelLoadingMaxRetry: isJejuHlsSource ? 2 : (failFastHlsSource ? 1 : 8),
             levelLoadingRetryDelay: 700,
-            levelLoadingMaxRetryTimeout: failFastHlsSource ? 3000 : 8000,
+            levelLoadingMaxRetryTimeout: isJejuHlsSource ? 5000 : (failFastHlsSource ? 3000 : 8000),
             fragLoadingMaxRetry: failFastHlsSource ? 2 : 8,
             fragLoadingRetryDelay: 700,
             fragLoadingMaxRetryTimeout: failFastHlsSource ? 4000 : 8000,

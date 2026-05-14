@@ -47,6 +47,33 @@ jeju_lock = threading.Lock()
 jeju_stream_cache = {}
 
 
+def load_jeju_id_map():
+    """Load stable short-id to stream UUID mappings recovered from Jeju data."""
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [
+        os.environ.get('JEJU_ID_MAP_PATH'),
+        os.path.join(root_dir, 'data', 'jeju_id_map.json'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'jeju_id_map.json'),
+    ]
+    for path in [candidate for candidate in candidates if candidate]:
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                logger.info("Jeju: loaded %d short-id mappings from %s", len(data), path)
+                return data
+            logger.warning("Jeju: ID map at %s was not an object", path)
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            logger.warning("Jeju: failed to load ID map from %s: %s", path, exc)
+    logger.warning("Jeju: no local short-id map loaded")
+    return {}
+
+
+JEJU_ID_MAP = load_jeju_id_map()
+
+
 def get_jeju_headers():
     return {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -68,7 +95,7 @@ def redirect_cached_jeju_stream(target_id):
             jeju_stream_cache.pop(target_id, None)
         return None
 
-    return flask.redirect(f"/proxy?url={quote(cached['url'])}")
+    return flask.redirect(cached['url'])
 
 
 def _refresh_z3_from_its():
@@ -445,10 +472,15 @@ def proxy_jeju():
         return "Missing ID", 400
 
     short_id = cctv_id.replace("JEJU_", "")
-    target_id = short_id
-    cache_keys = {target_id}
+    mapped_id = JEJU_ID_MAP.get(short_id)
+    target_id = mapped_id or short_id
+    cache_keys = {short_id, target_id}
+    if mapped_id:
+        logger.info(f"Jeju: Mapped {short_id} -> {target_id}")
 
     cached_response = redirect_cached_jeju_stream(target_id)
+    if not cached_response and mapped_id:
+        cached_response = redirect_cached_jeju_stream(short_id)
     if cached_response:
         return cached_response
 
@@ -465,9 +497,9 @@ def proxy_jeju():
             except requests.RequestException:
                 pass
 
-        # Short IDs such as C75/W83 need a UUID lookup. Most generated records
-        # already carry UUIDs, so this slow path is avoided for normal playback.
-        if len(short_id) < 20:
+        # Short IDs such as C75/W83 need a UUID lookup. Prefer the local map
+        # because Jeju's feature-info endpoint frequently closes short-id calls.
+        if len(short_id) < 20 and not mapped_id:
             info_url = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
             payload = {
                 "DEVICE_KIND": "CCTV",
@@ -491,7 +523,7 @@ def proxy_jeju():
         payload = {"DEVICE_ID": target_id}
 
         logger.info(f"Jeju: Fetching token for {target_id}...")
-        resp = jeju_session.post(target_api, data=payload, headers=headers, timeout=(2, 6))
+        resp = jeju_session.post(target_api, data=payload, headers=headers, timeout=(3, 12))
         if resp.status_code != 200:
             return f"Jeju API Error: {resp.status_code}", 502
 
@@ -503,8 +535,8 @@ def proxy_jeju():
                         'url': real_url,
                         'created_at': time.time(),
                     }
-            logger.info(f"Jeju {cctv_id} Success -> Proxying: {real_url[:60]}...")
-            return flask.redirect(f"/proxy?url={quote(real_url)}")
+            logger.info(f"Jeju {cctv_id} Success -> Redirecting direct: {real_url[:60]}...")
+            return flask.redirect(real_url)
 
         logger.error(f"Invalid resp from Jeju API: {real_url}")
         return f"Invalid URL from Jeju API for {target_id}", 502
