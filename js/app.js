@@ -11,8 +11,12 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality9';
+const APP_BUILD_VERSION = '20260514-quality10';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
+const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
+const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
+const PLAYBACK_HEALTH_PROBLEM_TTL_MS = 45 * 60 * 1000;
+const PLAYBACK_HEALTH_MAX_ENTRIES = 160;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -183,6 +187,7 @@ const state = {
 let map = null;
 const SEARCH_MARKER_SRC = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png';
 const YOUTUBE_MARKER_SRC = 'https://img.icons8.com/color/48/youtube-play.png';
+let playbackHealthPersistTimer = null;
 
 
 // === DOM References (Cached) ===
@@ -195,6 +200,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await Promise.all([loadCctvData(), loadHealthStatus()]);
     restoreInitialViewState();
+    hydrateStoredPlaybackHealth();
 
     // Setup Event Listeners
     setupEventListeners();
@@ -796,18 +802,127 @@ function getRegionLabel(regionKey) {
     return REGION_LABELS[regionKey] || regionKey || '미분류';
 }
 
+function getStoredPlaybackHealthTimestamp(health) {
+    if (!health) return 0;
+    const storedAt = Number(health.storedAt);
+    if (Number.isFinite(storedAt) && storedAt > 0) return storedAt;
+
+    const parsed = Date.parse(health.lastUpdated || '');
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getStoredPlaybackHealthTtl(health) {
+    if (!health) return 0;
+    return health.tone === 'danger' || health.status === 'PLAYBACK_ERROR'
+        ? PLAYBACK_HEALTH_PROBLEM_TTL_MS
+        : PLAYBACK_HEALTH_OK_TTL_MS;
+}
+
+function isStoredPlaybackHealthFresh(health, now = Date.now()) {
+    const storedAt = getStoredPlaybackHealthTimestamp(health);
+    if (!storedAt) return false;
+    return now - storedAt <= getStoredPlaybackHealthTtl(health);
+}
+
+function sanitizeStoredPlaybackHealth(entry) {
+    if (!entry || typeof entry !== 'object') return null;
+    const storedAt = getStoredPlaybackHealthTimestamp(entry);
+    const penalty = Number(entry.penalty);
+
+    return {
+        status: entry.status || 'UNKNOWN',
+        shortLabel: entry.shortLabel || '최근 확인',
+        longLabel: entry.longLabel || '현재 브라우저에서 확인한 최근 재생 상태',
+        tone: entry.tone || 'unknown',
+        penalty: Number.isFinite(penalty) ? penalty : 1.5,
+        lastUpdated: entry.lastUpdated || (storedAt ? new Date(storedAt).toISOString() : new Date().toISOString()),
+        storedAt: storedAt || Date.now()
+    };
+}
+
+function hydrateStoredPlaybackHealth() {
+    try {
+        if (!window.localStorage) return;
+        const raw = window.localStorage.getItem(PLAYBACK_HEALTH_STORAGE_KEY);
+        if (!raw) return;
+
+        const parsed = JSON.parse(raw);
+        const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+        let restoredCount = 0;
+        let needsPrune = false;
+
+        entries.forEach(entry => {
+            const id = entry?.id;
+            if (!id || (state.cctvById.size > 0 && !state.cctvById.has(id))) {
+                needsPrune = true;
+                return;
+            }
+
+            const health = sanitizeStoredPlaybackHealth(entry);
+            if (!health || !isStoredPlaybackHealthFresh(health)) {
+                needsPrune = true;
+                return;
+            }
+
+            state.cameraPlaybackHealth.set(id, health);
+            restoredCount++;
+        });
+
+        if (needsPrune) queueStoredPlaybackHealthPersist();
+        if (restoredCount > 0) console.log(`[Playback] Restored ${restoredCount} recent camera health entries`);
+    } catch (error) {
+        console.warn('[Playback] Stored camera health ignored:', error);
+    }
+}
+
+function queueStoredPlaybackHealthPersist() {
+    if (playbackHealthPersistTimer) {
+        clearTimeout(playbackHealthPersistTimer);
+    }
+
+    playbackHealthPersistTimer = setTimeout(() => {
+        playbackHealthPersistTimer = null;
+        persistStoredPlaybackHealth();
+    }, 180);
+}
+
+function persistStoredPlaybackHealth() {
+    try {
+        if (!window.localStorage) return;
+        const now = Date.now();
+        const entries = Array.from(state.cameraPlaybackHealth.entries())
+            .map(([id, health]) => ({ id, ...health }))
+            .filter(entry => state.cctvById.has(entry.id) && isStoredPlaybackHealthFresh(entry, now))
+            .sort((a, b) => getStoredPlaybackHealthTimestamp(b) - getStoredPlaybackHealthTimestamp(a))
+            .slice(0, PLAYBACK_HEALTH_MAX_ENTRIES);
+
+        window.localStorage.setItem(PLAYBACK_HEALTH_STORAGE_KEY, JSON.stringify({
+            version: 1,
+            savedAt: now,
+            entries
+        }));
+    } catch (error) {
+        console.warn('[Playback] Could not persist camera health:', error);
+    }
+}
+
 function getCameraHealthMeta(cctv) {
     const playbackHealth = cctv && cctv.id ? state.cameraPlaybackHealth.get(cctv.id) : null;
     if (playbackHealth) {
-        return {
-            regionKey: inferRegionKey(cctv),
-            status: playbackHealth.status,
-            shortLabel: playbackHealth.shortLabel,
-            longLabel: playbackHealth.longLabel,
-            tone: playbackHealth.tone,
-            penalty: playbackHealth.penalty,
-            lastUpdated: playbackHealth.lastUpdated
-        };
+        if (!isStoredPlaybackHealthFresh(playbackHealth)) {
+            state.cameraPlaybackHealth.delete(cctv.id);
+            queueStoredPlaybackHealthPersist();
+        } else {
+            return {
+                regionKey: inferRegionKey(cctv),
+                status: playbackHealth.status,
+                shortLabel: playbackHealth.shortLabel,
+                longLabel: playbackHealth.longLabel,
+                tone: playbackHealth.tone,
+                penalty: playbackHealth.penalty,
+                lastUpdated: playbackHealth.lastUpdated
+            };
+        }
     }
 
     const regionKey = inferRegionKey(cctv);
@@ -1242,14 +1357,17 @@ function updatePanelHealthUi(panel, cctv) {
 
 function setPlaybackHealth(cctv, nextHealth) {
     if (!cctv || !cctv.id) return;
+    const now = Date.now();
     state.cameraPlaybackHealth.set(cctv.id, {
         status: nextHealth.status,
         shortLabel: nextHealth.shortLabel,
         longLabel: nextHealth.longLabel,
         tone: nextHealth.tone,
         penalty: nextHealth.penalty,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date(now).toISOString(),
+        storedAt: now
     });
+    queueStoredPlaybackHealthPersist();
 }
 
 function getPlaybackTimeoutMs(cctv) {
