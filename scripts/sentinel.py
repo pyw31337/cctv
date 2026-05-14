@@ -63,6 +63,10 @@ SOURCE_REGION_ALIASES = {
 os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
 
 
+def utc_timestamp():
+    return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
 def log(message):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     log_msg = f'[{timestamp}] {message}'
@@ -333,7 +337,7 @@ def test_region(region_name, cameras):
             'failed': 0,
             'failure_ratio': 0.0,
             'camera_count': 0,
-            'checked_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'checked_at': utc_timestamp(),
             'sample_ids': [],
             'failed_ids': [],
             'sample_strategy': {
@@ -372,7 +376,7 @@ def test_region(region_name, cameras):
         'failed': failed,
         'failure_ratio': round(failure_ratio, 3),
         'camera_count': len(cameras),
-        'checked_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'checked_at': utc_timestamp(),
         'sample_ids': sample_ids,
         'failed_ids': failed_ids,
         'sample_strategy': {
@@ -434,7 +438,7 @@ def run_sentinel():
             status_entry.update(result)
             status_entry['active_source'] = resolve_active_source(region_name, result['status'], config)
 
-        current_status['last_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        current_status['last_updated'] = utc_timestamp()
         save_json(STATUS_FILE, current_status)
         log('--- Sentinel Finished ---')
     except Exception as error:

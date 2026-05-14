@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-healthdot1';
+const APP_BUILD_VERSION = '20260514-timezone1';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -921,9 +921,16 @@ function formatRelativeTime(timestamp) {
 
 function parseHealthTimestamp(timestamp) {
     if (!timestamp) return new Date(NaN);
-    return timestamp.includes('T')
-        ? new Date(timestamp)
-        : new Date(timestamp.replace(' ', 'T'));
+    const normalized = String(timestamp).trim();
+    if (!normalized) return new Date(NaN);
+
+    if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized)) {
+        return new Date(normalized);
+    }
+
+    // GitHub Actions writes bare timestamps in UTC. Without the Z suffix,
+    // browsers treat them as local time and make fresh checks look 9 hours old in Korea.
+    return new Date(normalized.replace(' ', 'T') + 'Z');
 }
 
 function isStaleHealthTimestamp(timestamp) {
