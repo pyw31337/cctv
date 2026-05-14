@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality2';
+const APP_BUILD_VERSION = '20260514-quality3';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
@@ -729,10 +729,19 @@ function isRawIpStreamUrl(url) {
     return /^https?:\/\/\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?/i.test(url || '');
 }
 
+function isJejuUticProxyable(cctv) {
+    const url = cctv ? (cctv.directUrl || cctv.url || '') : '';
+    const source = cctv ? (cctv.source || '') : '';
+    const kind = getUrlParam(url, 'kind');
+    const streamId = getUrlParam(url, 'id');
+    return source === 'UTIC' && kind === 'K' && !!streamId && inferRegionKey(cctv) === 'JEJU';
+}
+
 function isUnsupportedBrowserStream(cctv) {
     const url = cctv ? (cctv.directUrl || cctv.url || '') : '';
     const source = cctv ? (cctv.source || '') : '';
     const kind = getUrlParam(url, 'kind');
+    if (isJejuUticProxyable(cctv)) return false;
     return source === 'UTIC' && kind === 'K';
 }
 
@@ -924,7 +933,7 @@ function getSourceResilienceAdjustment(cctv, health, distanceKm) {
 
     if (!jejuIsUnstable) return 0;
 
-    if (source === 'JEJU') {
+    if (source === 'JEJU' || isJejuUticProxyable(cctv)) {
         return (jejuStatus === 'DOWN' ? 5.2 : 3.6) + staleCompensation;
     }
 
@@ -1692,11 +1701,18 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const sourceFallbackId = selectedOriginalId || cctv.original_id || ((cctv.id || '').includes('_') ? cctv.id.split('_').pop() : cctv.id);
     const selectedCctvIp = getUrlParam(url, 'cctvip') || sourceFallbackId;
     const selectedKind = getUrlParam(url, 'kind');
+    const selectedJejuUticStreamId = selectedSource === 'UTIC' && selectedKind === 'K' && inferRegionKey(cctv) === 'JEJU'
+        ? getUrlParam(url, 'id')
+        : null;
     const genericProxyBase = isRawIpStreamUrl(url)
         ? 'https://158.179.194.163.sslip.io/proxy'
         : 'https://cctv-proxy.pyw213.workers.dev/proxy';
 
-    if (selectedSource === 'KBS' && selectedCctvIp) {
+    if (selectedJejuUticStreamId) {
+        url = `${JEJU_PROXY_BASE}?id=${encodeURIComponent(selectedJejuUticStreamId)}&_t=${Date.now()}`;
+        selectedSource = 'JEJU';
+        selectedOriginalId = selectedJejuUticStreamId;
+    } else if (selectedSource === 'KBS' && selectedCctvIp) {
         url = `https://cctv-proxy.pyw213.workers.dev/kb?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
     } else if (shouldProxy) {
         if (selectedSource === 'TRENDWORLD' || selectedSource === 'NOWJEJU' || selectedSource === 'HRFCO') {
@@ -2202,7 +2218,8 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
 function ensureDynamicBackups(cctv) {
     if (!cctv || cctv._dynamicFallbacksAdded) return;
-    if (!['JEJU', 'NOWJEJU', 'TRENDWORLD'].includes(cctv.source)) return;
+    const backupSource = isJejuUticProxyable(cctv) ? 'JEJU' : cctv.source;
+    if (!['JEJU', 'NOWJEJU', 'TRENDWORLD'].includes(backupSource)) return;
     if (!Number.isFinite(Number(cctv.lat)) || !Number.isFinite(Number(cctv.lng))) return;
 
     const backupUrls = Array.isArray(cctv.backup_urls)
@@ -2211,7 +2228,7 @@ function ensureDynamicBackups(cctv) {
     const knownUrls = new Set([cctv.directUrl, cctv.url, ...backupUrls.map(item => item && item.url)].filter(Boolean));
     const jejuStatus = state.regionHealth.JEJU?.status || '';
     const jejuIsUnstable = ['DEGRADED', 'DOWN'].includes(jejuStatus);
-    const preferredSources = cctv.source === 'JEJU' && jejuIsUnstable
+    const preferredSources = backupSource === 'JEJU' && jejuIsUnstable
         ? ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'GITS']
         : ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS'];
 

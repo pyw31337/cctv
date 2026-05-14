@@ -446,6 +446,7 @@ def proxy_jeju():
 
     short_id = cctv_id.replace("JEJU_", "")
     target_id = short_id
+    cache_keys = {target_id}
 
     cached_response = redirect_cached_jeju_stream(target_id)
     if cached_response:
@@ -479,6 +480,7 @@ def proxy_jeju():
                 data = resp.json()
                 if 'stremid' in data:
                     target_id = data['stremid']
+                    cache_keys.add(target_id)
                     logger.info(f"Jeju: Resolved {short_id} -> {target_id}")
 
             cached_response = redirect_cached_jeju_stream(target_id)
@@ -496,10 +498,11 @@ def proxy_jeju():
         real_url = resp.text.strip().strip('"')
         if real_url.startswith("http"):
             with jeju_lock:
-                jeju_stream_cache[target_id] = {
-                    'url': real_url,
-                    'created_at': time.time(),
-                }
+                for cache_key in cache_keys:
+                    jeju_stream_cache[cache_key] = {
+                        'url': real_url,
+                        'created_at': time.time(),
+                    }
             logger.info(f"Jeju {cctv_id} Success -> Proxying: {real_url[:60]}...")
             return flask.redirect(f"/proxy?url={quote(real_url)}")
 
