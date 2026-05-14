@@ -11,7 +11,8 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-timezone1';
+const APP_BUILD_VERSION = '20260514-banner1';
+const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -41,7 +42,7 @@ const REGION_LABELS = {
     ICITS: '인천도시공사',
     INCHEON: '인천',
     JEJU: '제주',
-    KBS: 'Loomex',
+    KBS: 'KBS',
     KNPS: '국립공원',
     NOWJEJU: '나우제주',
     NTIC: '고속도로',
@@ -168,7 +169,9 @@ const state = {
     mapInitialized: false,
     searchMarker: null, // Reference to the red marker
     initialSelectionId: null,
-    activeCctvId: null
+    activeCctvId: null,
+    serviceBannerTimer: null,
+    serviceBannerDismissedKey: null
 };
 
 let map = null;
@@ -593,6 +596,7 @@ function selectPlace(lat, lng, name, address) {
 
     // Update CCTVs
     updateNearestCctvs();
+    renderServiceStatusBanner();
     renderVideoGrid();
     renderMapMarkers(); // Update markers on map
 
@@ -739,6 +743,9 @@ function inferRegionKey(cctv) {
 
     if (cctv.regionKey) return cctv.regionKey;
     if (cctv.urlType === 'daejeon_mp4_dynamic' || id.startsWith('DAEJEON_') || source === 'DAEJEON_ITS') {
+        return 'DAEJEON';
+    }
+    if (source === 'UTIC' && (id.startsWith('E07') || name.includes('대전시'))) {
         return 'DAEJEON';
     }
     if (source === 'UTIC' && daejeonInlineId && daejeonInlineId.startsWith('CCTV')) {
@@ -943,41 +950,93 @@ function renderServiceStatusBanner() {
     const banner = $('#service-status-banner');
     if (!banner) return;
 
+    if (state.serviceBannerTimer) {
+        clearTimeout(state.serviceBannerTimer);
+        state.serviceBannerTimer = null;
+    }
+
     if (!state.healthSnapshot || !state.healthSnapshot.regions) {
-        banner.classList.add('hidden');
-        banner.innerHTML = '';
+        hideServiceStatusBanner(true);
         return;
     }
 
-    const entries = Object.entries(state.healthSnapshot.regions);
+    const currentRegionKeys = [...new Set(
+        state.nearestCctvs.slice(0, 4).map(cctv => inferRegionKey(cctv)).filter(Boolean)
+    )];
+    if (currentRegionKeys.length === 0) {
+        hideServiceStatusBanner(true);
+        return;
+    }
+
+    const entries = currentRegionKeys
+        .map(regionKey => [regionKey, state.healthSnapshot.regions[regionKey]])
+        .filter(([, value]) => value);
     const downRegions = entries.filter(([, value]) => value.status === 'DOWN');
     const degradedRegions = entries.filter(([, value]) => value.status === 'DEGRADED');
     const lastUpdatedText = formatRelativeTime(state.healthSnapshot.last_updated);
 
-    let tone = 'ok';
-    let title = '운영 안정';
-    let body = '최근 점검 기준 대부분 지역이 정상입니다.';
+    let tone = null;
+    let title = '';
+    let body = '';
 
     if (state.healthSnapshotStale) {
         tone = 'warn';
         title = '점검 정보 지연';
-        body = '자동 점검이 지연되어 화면별 실제 재생 상태를 우선 반영합니다.';
+        body = `${currentRegionKeys.map(getRegionLabel).join(', ')} 점검 정보가 지연되어 화면별 실제 재생 상태를 우선 반영합니다.`;
     } else if (downRegions.length > 0) {
         tone = 'danger';
-        title = '일부 지역 장애';
+        title = '현재 지역 장애';
         body = `${downRegions.slice(0, 3).map(([regionKey]) => getRegionLabel(regionKey)).join(', ')} 연결이 불안정합니다. 대체 소스를 우선 추천합니다.`;
     } else if (degradedRegions.length > 0) {
         tone = 'warn';
-        title = '일부 지역 점검 중';
+        title = '현재 지역 점검 중';
         body = `${degradedRegions.slice(0, 3).map(([regionKey]) => getRegionLabel(regionKey)).join(', ')} 품질이 일시적으로 흔들릴 수 있습니다.`;
+    }
+
+    if (!tone) {
+        hideServiceStatusBanner(true);
+        return;
+    }
+
+    const bannerKey = `${tone}:${title}:${body}:${lastUpdatedText}`;
+    if (state.serviceBannerDismissedKey === bannerKey) {
+        hideServiceStatusBanner(true);
+        return;
     }
 
     banner.className = `service-status-banner tone-${tone}`;
     banner.innerHTML = `
-        <div class="service-status-title">${title}</div>
-        <div class="service-status-body">${body}</div>
-        <div class="service-status-time">${lastUpdatedText}</div>
+        <button type="button" class="service-status-close" aria-label="상태 메시지 닫기">×</button>
+        <div class="service-status-content">
+            <div class="service-status-title">${title}</div>
+            <div class="service-status-body">${body}</div>
+            <div class="service-status-time">${lastUpdatedText}</div>
+        </div>
     `;
+    const closeButton = banner.querySelector('.service-status-close');
+    if (closeButton) {
+        closeButton.addEventListener('click', () => {
+            state.serviceBannerDismissedKey = bannerKey;
+            hideServiceStatusBanner();
+        }, { once: true });
+    }
+
+    state.serviceBannerTimer = setTimeout(() => {
+        hideServiceStatusBanner();
+    }, SERVICE_BANNER_VISIBLE_MS);
+}
+
+function hideServiceStatusBanner(clearContent = false) {
+    const banner = $('#service-status-banner');
+    if (!banner) return;
+
+    if (state.serviceBannerTimer) {
+        clearTimeout(state.serviceBannerTimer);
+        state.serviceBannerTimer = null;
+    }
+
+    banner.classList.add('hidden');
+    if (clearContent) banner.innerHTML = '';
 }
 
 function renderPanelHealthBadge(panel, cctv) {
@@ -1014,11 +1073,7 @@ function renderSelectTrigger(panel, cctv, fallbackLabel) {
     name.className = 'cctv-select-name';
     name.textContent = label;
 
-    const dot = document.createElement('span');
-    dot.className = `panel-health-dot tone-${health.tone}`;
-    dot.setAttribute('aria-hidden', 'true');
-
-    trigger.append(name, dot);
+    trigger.append(name);
     trigger.title = `${label} · ${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
     trigger.setAttribute('aria-label', `${label}, ${health.shortLabel}`);
 }
@@ -1280,10 +1335,7 @@ function populateSelectOptions(panel, currentIndex) {
         const name = document.createElement('span');
         name.className = 'cctv-option-name';
         name.textContent = cctv.name || `CCTV ${i + 1}`;
-        const dot = document.createElement('span');
-        dot.className = `panel-health-dot tone-${health.tone}`;
-        dot.setAttribute('aria-hidden', 'true');
-        option.append(name, dot);
+        option.append(name);
         option.dataset.cctvIndex = i;
         option.title = `${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
         option.setAttribute('aria-label', `${name.textContent}, ${health.shortLabel}`);
@@ -2133,6 +2185,7 @@ function initMap() {
         const center = map.getCenter();
         state.center = { lat: center.getLat(), lng: center.getLng() };
         updateNearestCctvs();
+        renderServiceStatusBanner();
         renderMapMarkers();
         // Also update video grid so it stays in sync when switching back
         renderVideoGrid();
