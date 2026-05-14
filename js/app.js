@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality5';
+const APP_BUILD_VERSION = '20260514-quality6';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
@@ -723,6 +723,27 @@ function getUrlParam(url, key) {
     } catch (error) {
         return null;
     }
+}
+
+async function resolveJejuPlaybackUrl(url) {
+    if (!url || !url.includes('/jeju')) return url;
+
+    const response = await fetch(url, {
+        cache: 'no-store',
+        redirect: 'follow'
+    });
+    if (!response.ok) {
+        throw new Error(`jeju ${response.status}`);
+    }
+
+    const finalUrl = response.url || url;
+    try {
+        // Consume the small manifest response so the connection can close cleanly.
+        await response.text();
+    } catch (error) {
+        console.warn('[JEJU] Manifest prefetch body read failed:', error);
+    }
+    return finalUrl;
 }
 
 function isRawIpStreamUrl(url) {
@@ -1910,8 +1931,6 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 fragLoadingRetryDelay: 700,
                 fragLoadingMaxRetryTimeout: 4000,
             });
-            hls.loadSource(jejuUrl);
-            hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, function () {
                 video.play().catch(() => {});
             });
@@ -1941,6 +1960,17 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 }
                 triggerFailover(video.parentElement);
             });
+
+            hls.attachMedia(video);
+            resolveJejuPlaybackUrl(jejuUrl)
+                .then((resolvedUrl) => {
+                    if (!video.parentElement) return;
+                    hls.loadSource(resolvedUrl);
+                })
+                .catch((error) => {
+                    console.warn('[JEJU] Manifest resolve failed:', error);
+                    triggerFailover(video.parentElement);
+                });
 
             video.hls = hls;
         } else {
@@ -2229,8 +2259,6 @@ function createVideoElement(cctv, sourceIndex = 0) {
             maxBufferSize: 30 * 1000 * 1000,
         });
 
-        hls.loadSource(url);
-        hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
             video.play().catch(() => {});
         });
@@ -2292,6 +2320,22 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 failoverFromHls();
             }
         });
+
+        hls.attachMedia(video);
+        const loadHlsSource = (sourceUrl) => {
+            if (hlsFailoverTriggered || !video.parentElement) return;
+            hls.loadSource(sourceUrl);
+        };
+        if (isJejuHlsSource) {
+            resolveJejuPlaybackUrl(url)
+                .then(loadHlsSource)
+                .catch((error) => {
+                    console.warn('[JEJU] Manifest resolve failed:', error);
+                    failoverFromHls();
+                });
+        } else {
+            loadHlsSource(url);
+        }
 
         video.hls = hls;
         armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
