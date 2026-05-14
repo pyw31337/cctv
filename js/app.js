@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-jeju3';
+const APP_BUILD_VERSION = '20260514-layout1';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -916,17 +916,23 @@ function renderPanelHealthBadge(panel, cctv) {
     if (!badge) {
         badge = document.createElement('div');
         badge.className = 'panel-health-badge';
-        panel.appendChild(badge);
+    }
+
+    const controls = panel.querySelector('.panel-controls');
+    const expandButton = panel.querySelector('.panel-expand-btn');
+    if (controls && badge.parentElement !== controls) {
+        controls.insertBefore(badge, expandButton || null);
     }
 
     const health = cctv._health || getCameraHealthMeta(cctv);
     badge.className = `panel-health-badge tone-${health.tone}`;
     badge.innerHTML = `
-        <span>거리 ${formatDistance(cctv.distance)}</span>
-        <span class="panel-health-sep">·</span>
-        <span>${health.shortLabel}</span>
+        <span class="panel-health-dot" aria-hidden="true"></span>
+        <span>${formatDistance(cctv.distance)}</span>
     `;
-    badge.title = `${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
+    badge.title = `${health.longLabel} · ${formatRelativeTime(health.lastUpdated)} · ${formatDistance(cctv.distance)}`;
+    badge.setAttribute('role', 'img');
+    badge.setAttribute('aria-label', `${health.shortLabel}, ${formatDistance(cctv.distance)}`);
 }
 
 function removePanelHealthBadge(panel) {
@@ -1332,10 +1338,6 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
     const is43 = cctv.aspectRatio === '4:3';
 
-    // Default to 'cover' to fill the screen (premium look), 
-    // but UTIC/4:3 sources can be toggled or handled specifically
-    const defaultObjectFit = is43 ? 'contain' : 'cover';
-
     // Helper to trigger failover
     const triggerFailover = (wrapper) => {
         console.log(`[Failover] Stream failed for ${cctv.name} (Index ${sourceIndex}). Trying next...`);
@@ -1345,7 +1347,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // Handle Daejeon dynamic MP4 URLs (client-side generation to bypass oracle block)
     if (cctv.urlType === 'daejeon_mp4_dynamic' && sourceIndex === 0) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
 
         const getDaejeonUrl = (offsetMins) => {
@@ -1390,7 +1392,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // Handle Jeju streams explicitly
     if (cctv.source === 'JEJU' && sourceIndex === 0) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.muted = true;
         video.autoplay = true;
@@ -1465,7 +1467,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         }
         if (!kbUrl.includes('_t=')) kbUrl += `&_t=${Date.now()}`;
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.src = kbUrl;
         video.muted = true;
@@ -1501,7 +1503,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             const iframe = document.createElement('iframe');
             iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&controls=0`;
             iframe.className = 'youtube-iframe';
-            iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;object-fit:cover;';
+            iframe.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;border:none;display:block;';
             iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
             iframe.allowFullscreen = true;
             return iframe;
@@ -1511,7 +1513,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // GITS: async real-time token fetch via CF Worker /gits endpoint
     if (isGits && cctv.original_id) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.muted = true;
         video.autoplay = true;
@@ -1539,7 +1541,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // MP4 / Native (non-GITS)
     if (isMp4) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.src = url;
         video.muted = true;
@@ -1556,7 +1558,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // Other kinds: extract real m3u8 URL via /utic endpoint, fall back to iframe
     if (isUtic) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.muted = true;
         video.autoplay = true;
@@ -1696,7 +1698,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // HLS streams (Hls.js)
     if ((isHls || isSecureStream || isProxy || isKnownHlsSource) && Hls.isSupported()) {
         const video = document.createElement('video');
-        video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
         video.muted = true;
         video.autoplay = true;
@@ -1788,7 +1790,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
     // Native HLS (Safari)
     const video = document.createElement('video');
-    video.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    video.style.cssText = 'width:100%;height:100%;object-fit:contain;object-position:center center;';
     if (is43) video.dataset.aspectRatio = '4:3';
     video.src = url;
     video.muted = true;
