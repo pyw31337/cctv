@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality3';
+const APP_BUILD_VERSION = '20260514-quality4';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
@@ -21,7 +21,7 @@ const GEO_CELL_SIZE = 0.08;
 const GEO_SEARCH_RING_LIMIT = 8;
 const GEO_CANDIDATE_TARGET = 220;
 const PLAYBACK_STARTUP_TIMEOUT_MS = 12000;
-const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 8500;
+const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 10000;
 const PLAYBACK_STALL_TIMEOUT_MS = 9000;
 const DYNAMIC_BACKUP_RADIUS_KM = 8;
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
@@ -929,16 +929,18 @@ function getSourceResilienceAdjustment(cctv, health, distanceKm) {
     const jejuHealth = state.regionHealth.JEJU;
     const jejuStatus = jejuHealth?.status || '';
     const jejuIsUnstable = ['DEGRADED', 'DOWN'].includes(jejuStatus);
-    const staleCompensation = state.healthSnapshotStale ? 3.0 : 0;
 
     if (!jejuIsUnstable) return 0;
 
     if (source === 'JEJU' || isJejuUticProxyable(cctv)) {
-        return (jejuStatus === 'DOWN' ? 5.2 : 3.6) + staleCompensation;
+        if (Number.isFinite(distanceKm) && distanceKm <= 2) {
+            return -Math.max(0, (health?.penalty || 0) - 0.8);
+        }
+        return 0;
     }
 
     if (['NOWJEJU', 'TRENDWORLD'].includes(source) && Number.isFinite(distanceKm) && distanceKm <= DYNAMIC_BACKUP_RADIUS_KM) {
-        return jejuStatus === 'DOWN' ? -1.4 : -1.0;
+        return 0;
     }
 
     if (health?.status === 'UNSUPPORTED') {
@@ -946,6 +948,16 @@ function getSourceResilienceAdjustment(cctv, health, distanceKm) {
     }
 
     return 0;
+}
+
+function getStableModulo(value, modulo) {
+    if (!modulo) return 0;
+    const text = String(value || '');
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+        hash = ((hash * 31) + text.charCodeAt(i)) >>> 0;
+    }
+    return hash % modulo;
 }
 
 function formatDistance(distanceKm) {
@@ -1086,6 +1098,78 @@ function hideServiceStatusBanner(clearContent = false) {
 
     banner.classList.add('hidden');
     if (clearContent) banner.innerHTML = '';
+}
+
+function showStreamLoadingIndicator(wrapper, title, detail) {
+    if (!wrapper) return null;
+    const existing = wrapper.querySelector('.video-loading-indicator');
+    if (existing) existing.remove();
+
+    const indicator = document.createElement('div');
+    indicator.className = 'video-loading-indicator';
+    indicator.innerHTML = `
+        <span class="video-loading-spinner" aria-hidden="true"></span>
+        <span class="video-loading-copy">
+            <strong>${title}</strong>
+            <span>${detail}</span>
+        </span>
+    `;
+    wrapper.appendChild(indicator);
+    return indicator;
+}
+
+function bindStreamLoadingIndicator(wrapper, media, indicator) {
+    if (!wrapper || !media || !indicator) return;
+    if (media.classList && media.classList.contains('video-placeholder')) {
+        indicator.remove();
+        return;
+    }
+
+    let settled = false;
+    const cleanupFns = [];
+    const clear = () => {
+        if (settled) return;
+        settled = true;
+        cleanupFns.forEach(fn => fn());
+        if (indicator.parentElement) indicator.remove();
+    };
+
+    if (media.tagName === 'VIDEO') {
+        ['loadeddata', 'playing', 'canplay', 'timeupdate'].forEach(eventName => {
+            const handler = () => {
+                if (media.readyState >= 2 && media.videoWidth > 0) clear();
+            };
+            media.addEventListener(eventName, handler);
+            cleanupFns.push(() => media.removeEventListener(eventName, handler));
+        });
+    } else if (media.tagName === 'IFRAME') {
+        const timer = setTimeout(clear, 1200);
+        cleanupFns.push(() => clearTimeout(timer));
+    } else {
+        clear();
+    }
+}
+
+function getStreamLoadingCopy(cctv, isFallback = false, fallbackIndex = 0, backupCount = 0) {
+    if (isFallback) {
+        return {
+            title: '대체 영상 연결 중',
+            detail: `${cctv?.name || '대체 영상'}으로 전환합니다. (${fallbackIndex}/${backupCount})`
+        };
+    }
+
+    const isJejuCandidate = inferRegionKey(cctv) === 'JEJU';
+    if (isJejuCandidate) {
+        return {
+            title: '원본 영상 연결 중',
+            detail: '최대 10초까지 기다린 뒤 실패하면 대체 영상을 연결합니다.'
+        };
+    }
+
+    return {
+        title: '영상 연결 중',
+        detail: '재생 준비가 끝나면 자동으로 표시됩니다.'
+    };
 }
 
 function renderPanelHealthBadge(panel, cctv) {
@@ -1263,7 +1347,8 @@ function handlePanelVideoHealthEvent(event) {
     if (!video || video.tagName !== 'VIDEO') return;
 
     const panel = video.closest('.video-panel');
-    const cctv = getPanelCctv(panel);
+    const activeCctv = video._activeCctv || (video.dataset.activeCctvId ? findCctvById(video.dataset.activeCctvId) : null);
+    const cctv = activeCctv || getPanelCctv(panel);
     if (!panel || !cctv) return;
 
     if (event.type === 'error') {
@@ -1449,6 +1534,13 @@ function renderVideoGrid() {
             // Create and insert video element
             const video = createVideoElement(cctv);
             wrapper.appendChild(video);
+            if (video.tagName === 'VIDEO') {
+                video.dataset.activeCctvId = cctv.id;
+                video._activeCctv = cctv;
+            }
+            const loadingCopy = getStreamLoadingCopy(cctv);
+            const loadingIndicator = showStreamLoadingIndicator(wrapper, loadingCopy.title, loadingCopy.detail);
+            bindStreamLoadingIndicator(wrapper, video, loadingIndicator);
 
             panel.dataset.cctvId = cctv.id;
             panel.dataset.slotIndex = index;
@@ -1621,6 +1713,13 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     // Create new video element
     const video = createVideoElement(cctv);
     wrapper.appendChild(video);
+    if (video.tagName === 'VIDEO') {
+        video.dataset.activeCctvId = cctv.id;
+        video._activeCctv = cctv;
+    }
+    const loadingCopy = getStreamLoadingCopy(cctv);
+    const loadingIndicator = showStreamLoadingIndicator(wrapper, loadingCopy.title, loadingCopy.detail);
+    bindStreamLoadingIndicator(wrapper, video, loadingIndicator);
 
     // Update panel data
     panel.dataset.cctvId = cctv.id;
@@ -1800,7 +1899,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 maxBufferLength: 30,
                 maxMaxBufferLength: 60,
                 fragLoadingTimeOut: 12000,
-                manifestLoadingTimeOut: 8000,
+                manifestLoadingTimeOut: 10000,
                 manifestLoadingMaxRetry: 1,
                 manifestLoadingRetryDelay: 700,
                 manifestLoadingMaxRetryTimeout: 3000,
@@ -2116,7 +2215,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
             fragLoadingTimeOut: failFastHlsSource ? 12000 : 30000,
-            manifestLoadingTimeOut: failFastHlsSource ? 8000 : 15000,
+            manifestLoadingTimeOut: failFastHlsSource ? 10000 : 15000,
             manifestLoadingMaxRetry: failFastHlsSource ? 1 : 8,
             manifestLoadingRetryDelay: 700,
             manifestLoadingMaxRetryTimeout: failFastHlsSource ? 3000 : 8000,
@@ -2232,7 +2331,7 @@ function ensureDynamicBackups(cctv) {
         ? ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'GITS']
         : ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS'];
 
-    const nearbyBackups = state.cctvData
+    const nearbyBackupCandidates = state.cctvData
         .filter(item => item && item.id !== cctv.id && preferredSources.includes(item.source))
         .filter(item => !isUnsupportedBrowserStream(item))
         .map(item => ({
@@ -2244,14 +2343,24 @@ function ensureDynamicBackups(cctv) {
             const sourceDelta = preferredSources.indexOf(a.item.source) - preferredSources.indexOf(b.item.source);
             const sameSpotDelta = Number(a.distance > 0.25) - Number(b.distance > 0.25);
             return sameSpotDelta || sourceDelta || a.distance - b.distance;
-        })
+        });
+    const rotation = backupSource === 'JEJU' && nearbyBackupCandidates.length > 1
+        ? getStableModulo(cctv.id || cctv.name, Math.min(nearbyBackupCandidates.length, 5))
+        : 0;
+    const rotatedBackupCandidates = nearbyBackupCandidates
+        .slice(rotation)
+        .concat(nearbyBackupCandidates.slice(0, rotation));
+    const nearbyBackups = rotatedBackupCandidates
         .slice(0, 5)
         .map(({ item }) => ({
             id: item.id,
             source: item.source,
             url: item.directUrl || item.url,
             name: item.name,
-            original_id: item.original_id
+            original_id: item.original_id,
+            lat: item.lat,
+            lng: item.lng,
+            distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng)
         }));
 
     if (nearbyBackups.length > 0) {
@@ -2275,6 +2384,33 @@ function normalizeBackupEntry(backup, cctv) {
     return backup;
 }
 
+function getActiveStreamCctv(cctv, sourceIndex) {
+    if (!cctv || sourceIndex === 0) return cctv;
+
+    const backup = normalizeBackupEntry(cctv.backup_urls && cctv.backup_urls[sourceIndex - 1], cctv);
+    if (!backup) return cctv;
+
+    const matched = backup.id ? findCctvById(backup.id) : null;
+    const display = {
+        ...(matched || cctv),
+        source: backup.source || matched?.source || cctv.source,
+        name: backup.name || matched?.name || cctv.name,
+        id: backup.id || matched?.id || cctv.id,
+        original_id: backup.original_id || matched?.original_id || cctv.original_id
+    };
+
+    if (Number.isFinite(Number(display.lat)) && Number.isFinite(Number(display.lng))) {
+        display.distance = getDistance(state.center.lat, state.center.lng, display.lat, display.lng);
+    } else if (Number.isFinite(Number(backup.distance))) {
+        display.distance = Number(backup.distance);
+    } else {
+        display.distance = cctv.distance;
+    }
+
+    display._health = matched ? getCameraHealthMeta(matched) : getCameraHealthMeta(display);
+    return display;
+}
+
 function handleStreamFailover(wrapper, cctv, nextIndex) {
     if (!wrapper) return;
     ensureDynamicBackups(cctv);
@@ -2285,20 +2421,25 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
     cleanupVideo(wrapper);
 
     if (isRetryingPrimary || nextIndex <= backupCount) {
-        const indicator = document.createElement('div');
-        indicator.className = 'video-loading-indicator';
-        indicator.innerHTML = isRetryingPrimary
-            ? '<strong>영상을 다시 불러오는 중...</strong><span>잠시만 기다려 주세요.</span>'
-            : `<strong>대체 영상으로 전환 중...</strong><span>${nextIndex}/${backupCount}번째 보조 소스를 시도합니다.</span>`;
-        wrapper.appendChild(indicator);
-
         setTimeout(() => {
-            if (wrapper.contains(indicator)) {
-                wrapper.removeChild(indicator);
-            }
-            const newVideo = createVideoElement(cctv, isRetryingPrimary ? 0 : nextIndex);
+            const activeIndex = isRetryingPrimary ? 0 : nextIndex;
+            const activeCctv = getActiveStreamCctv(cctv, activeIndex);
+            const newVideo = createVideoElement(cctv, activeIndex);
             wrapper.appendChild(newVideo);
-            scheduleVideoHealthProbe(wrapper.closest('.video-panel'), cctv, newVideo);
+            if (newVideo.tagName === 'VIDEO' && activeCctv?.id) {
+                newVideo.dataset.activeCctvId = activeCctv.id;
+                newVideo._activeCctv = activeCctv;
+            }
+            const loadingCopy = getStreamLoadingCopy(activeCctv, !isRetryingPrimary, nextIndex, backupCount);
+            const loadingIndicator = showStreamLoadingIndicator(wrapper, loadingCopy.title, loadingCopy.detail);
+            bindStreamLoadingIndicator(wrapper, newVideo, loadingIndicator);
+
+            const panel = wrapper.closest('.video-panel');
+            if (panel && activeCctv) {
+                renderSelectTrigger(panel, activeCctv, `CCTV ${nextIndex + 1}`);
+                renderPanelHealthBadge(panel, activeCctv);
+            }
+            scheduleVideoHealthProbe(panel, activeCctv || cctv, newVideo);
         }, isRetryingPrimary ? 160 : 180);
     } else {
         const errPh = createErrorPlaceholder({
