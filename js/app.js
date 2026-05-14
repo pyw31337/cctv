@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality10';
+const APP_BUILD_VERSION = '20260514-quality11';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -181,6 +181,7 @@ const state = {
     initialSelectionId: null,
     activeCctvId: null,
     serviceBannerTimer: null,
+    serviceBannerCountdownTimer: null,
     serviceBannerDismissedKey: null
 };
 
@@ -1142,10 +1143,7 @@ function renderServiceStatusBanner() {
     const banner = $('#service-status-banner');
     if (!banner) return;
 
-    if (state.serviceBannerTimer) {
-        clearTimeout(state.serviceBannerTimer);
-        state.serviceBannerTimer = null;
-    }
+    clearServiceStatusBannerTimers();
 
     if (!state.healthSnapshot || !state.healthSnapshot.regions) {
         hideServiceStatusBanner(true);
@@ -1202,7 +1200,10 @@ function renderServiceStatusBanner() {
         <div class="service-status-content">
             <div class="service-status-title">${title}</div>
             <div class="service-status-body">${body}</div>
-            <div class="service-status-time">${lastUpdatedText}</div>
+            <div class="service-status-meta">
+                <span class="service-status-time">${lastUpdatedText}</span>
+                <span class="service-status-countdown" aria-label="5초 후 자동으로 닫힘">5s</span>
+            </div>
         </div>
     `;
     const closeButton = banner.querySelector('.service-status-close');
@@ -1213,20 +1214,45 @@ function renderServiceStatusBanner() {
         }, { once: true });
     }
 
+    startServiceStatusBannerCountdown(banner);
     state.serviceBannerTimer = setTimeout(() => {
         hideServiceStatusBanner();
     }, SERVICE_BANNER_VISIBLE_MS);
+}
+
+function clearServiceStatusBannerTimers() {
+    if (state.serviceBannerTimer) {
+        clearTimeout(state.serviceBannerTimer);
+        state.serviceBannerTimer = null;
+    }
+
+    if (state.serviceBannerCountdownTimer) {
+        clearInterval(state.serviceBannerCountdownTimer);
+        state.serviceBannerCountdownTimer = null;
+    }
+}
+
+function startServiceStatusBannerCountdown(banner) {
+    const countdown = banner.querySelector('.service-status-countdown');
+    if (!countdown) return;
+
+    const startedAt = Date.now();
+    const updateCountdown = () => {
+        const elapsed = Date.now() - startedAt;
+        const remainingSeconds = Math.max(0, Math.ceil((SERVICE_BANNER_VISIBLE_MS - elapsed) / 1000));
+        countdown.textContent = `${remainingSeconds}s`;
+        countdown.setAttribute('aria-label', `${remainingSeconds}초 후 상태 메시지 자동 닫힘`);
+    };
+
+    updateCountdown();
+    state.serviceBannerCountdownTimer = setInterval(updateCountdown, 250);
 }
 
 function hideServiceStatusBanner(clearContent = false) {
     const banner = $('#service-status-banner');
     if (!banner) return;
 
-    if (state.serviceBannerTimer) {
-        clearTimeout(state.serviceBannerTimer);
-        state.serviceBannerTimer = null;
-    }
-
+    clearServiceStatusBannerTimers();
     banner.classList.add('hidden');
     if (clearContent) banner.innerHTML = '';
 }
