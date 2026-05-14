@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-stabilize3';
+const APP_BUILD_VERSION = '20260514-healthdot1';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -159,8 +159,10 @@ const state = {
     cctvData: [],
     cctvById: new Map(),
     nearestCctvs: [],
+    cameraPlaybackHealth: new Map(),
     regionHealth: {},
     healthSnapshot: null,
+    healthSnapshotStale: false,
     geoIndex: new Map(),
     markers: [], // Array to store Kakao map markers
     mapInitialized: false,
@@ -232,18 +234,17 @@ async function loadHealthStatus() {
             throw new Error(`HTTP ${response.status}`);
         }
         const snapshot = await response.json();
-        if (isStaleHealthTimestamp(snapshot.last_updated)) {
-            console.warn('Ignoring stale health status snapshot:', snapshot.last_updated);
-            state.healthSnapshot = null;
-            state.regionHealth = {};
-            return;
-        }
         state.healthSnapshot = snapshot;
         state.regionHealth = state.healthSnapshot.regions || {};
+        state.healthSnapshotStale = isStaleHealthTimestamp(snapshot.last_updated);
+        if (state.healthSnapshotStale) {
+            console.warn('Using stale health status snapshot:', snapshot.last_updated);
+        }
     } catch (error) {
         console.warn('Failed to load live health status:', error);
         state.healthSnapshot = null;
         state.regionHealth = {};
+        state.healthSnapshotStale = false;
     }
 }
 
@@ -760,11 +761,25 @@ function getRegionLabel(regionKey) {
 }
 
 function getCameraHealthMeta(cctv) {
+    const playbackHealth = cctv && cctv.id ? state.cameraPlaybackHealth.get(cctv.id) : null;
+    if (playbackHealth) {
+        return {
+            regionKey: inferRegionKey(cctv),
+            status: playbackHealth.status,
+            shortLabel: playbackHealth.shortLabel,
+            longLabel: playbackHealth.longLabel,
+            tone: playbackHealth.tone,
+            penalty: playbackHealth.penalty,
+            lastUpdated: playbackHealth.lastUpdated
+        };
+    }
+
     const regionKey = inferRegionKey(cctv);
     const healthEntry = state.regionHealth[regionKey];
     const lastUpdated = healthEntry && healthEntry.checked_at
         ? healthEntry.checked_at
         : (state.healthSnapshot ? state.healthSnapshot.last_updated : null);
+    const staleSuffix = state.healthSnapshotStale ? ' (점검 지연)' : '';
 
     if (isUnsupportedBrowserStream(cctv)) {
         return {
@@ -795,8 +810,8 @@ function getCameraHealthMeta(cctv) {
         return {
             regionKey,
             status: 'DOWN',
-            shortLabel: usingFallback ? '대체 소스' : '최근 장애',
-            longLabel: usingFallback ? `${getRegionLabel(regionKey)} 대체 소스 사용 중` : `${getRegionLabel(regionKey)} 최근 장애 감지`,
+            shortLabel: (usingFallback ? '대체 소스' : '최근 장애') + staleSuffix,
+            longLabel: usingFallback ? `${getRegionLabel(regionKey)} 대체 소스 사용 중${staleSuffix}` : `${getRegionLabel(regionKey)} 최근 장애 감지${staleSuffix}`,
             tone: usingFallback ? 'warn' : 'danger',
             penalty: usingFallback ? 4.2 : 8,
             lastUpdated
@@ -807,8 +822,8 @@ function getCameraHealthMeta(cctv) {
         return {
             regionKey,
             status: 'DEGRADED',
-            shortLabel: '불안정',
-            longLabel: `${getRegionLabel(regionKey)} 일부 카메라 불안정`,
+            shortLabel: '불안정' + staleSuffix,
+            longLabel: `${getRegionLabel(regionKey)} 일부 카메라 불안정${staleSuffix}`,
             tone: 'warn',
             penalty: 3,
             lastUpdated
@@ -816,12 +831,13 @@ function getCameraHealthMeta(cctv) {
     }
 
     const hasFailures = Number(healthEntry.failed || 0) > 0;
+    const okTone = state.healthSnapshotStale ? 'ok-soft' : (hasFailures ? 'ok-soft' : 'ok');
     return {
         regionKey,
         status: 'OK',
-        shortLabel: hasFailures ? '대체 가능' : '안정적',
-        longLabel: hasFailures ? `${getRegionLabel(regionKey)} 일부 샘플은 대체 소스로 회복` : `${getRegionLabel(regionKey)} 최근 점검 정상`,
-        tone: hasFailures ? 'ok-soft' : 'ok',
+        shortLabel: state.healthSnapshotStale ? '최근 점검 정상' : (hasFailures ? '대체 가능' : '안정적'),
+        longLabel: hasFailures ? `${getRegionLabel(regionKey)} 일부 샘플은 대체 소스로 회복${staleSuffix}` : `${getRegionLabel(regionKey)} 최근 점검 정상${staleSuffix}`,
+        tone: okTone,
         penalty: hasFailures ? 0.8 : 0,
         lastUpdated
     };
@@ -935,7 +951,11 @@ function renderServiceStatusBanner() {
     let title = '운영 안정';
     let body = '최근 점검 기준 대부분 지역이 정상입니다.';
 
-    if (downRegions.length > 0) {
+    if (state.healthSnapshotStale) {
+        tone = 'warn';
+        title = '점검 정보 지연';
+        body = '자동 점검이 지연되어 화면별 실제 재생 상태를 우선 반영합니다.';
+    } else if (downRegions.length > 0) {
         tone = 'danger';
         title = '일부 지역 장애';
         body = `${downRegions.slice(0, 3).map(([regionKey]) => getRegionLabel(regionKey)).join(', ')} 연결이 불안정합니다. 대체 소스를 우선 추천합니다.`;
@@ -966,22 +986,20 @@ function renderPanelHealthBadge(panel, cctv) {
         controls.insertBefore(badge, expandButton || null);
     }
 
-    const health = cctv._health || getCameraHealthMeta(cctv);
+    const health = getCameraHealthMeta(cctv);
     badge.className = `panel-health-badge tone-${health.tone}`;
     badge.innerHTML = `
-        <span class="panel-health-dot" aria-hidden="true"></span>
         <span>${formatDistance(cctv.distance)}</span>
     `;
     badge.title = `${health.longLabel} · ${formatRelativeTime(health.lastUpdated)} · ${formatDistance(cctv.distance)}`;
-    badge.setAttribute('role', 'img');
-    badge.setAttribute('aria-label', `${health.shortLabel}, ${formatDistance(cctv.distance)}`);
+    badge.setAttribute('aria-label', formatDistance(cctv.distance));
 }
 
 function renderSelectTrigger(panel, cctv, fallbackLabel) {
     const trigger = panel.querySelector('.cctv-select-trigger');
     if (!trigger) return;
 
-    const health = cctv?._health || getCameraHealthMeta(cctv);
+    const health = getCameraHealthMeta(cctv);
     const label = cctv?.name || fallbackLabel || 'CCTV 선택';
     trigger.innerHTML = '';
 
@@ -996,6 +1014,80 @@ function renderSelectTrigger(panel, cctv, fallbackLabel) {
     trigger.append(name, dot);
     trigger.title = `${label} · ${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
     trigger.setAttribute('aria-label', `${label}, ${health.shortLabel}`);
+}
+
+function getPanelCctv(panel) {
+    const cctvId = panel && panel.dataset ? panel.dataset.cctvId : null;
+    if (!cctvId) return null;
+    return state.nearestCctvs.find(item => item.id === cctvId) || findCctvById(cctvId);
+}
+
+function updatePanelHealthUi(panel, cctv) {
+    if (!panel || !cctv) return;
+    renderSelectTrigger(panel, cctv);
+    renderPanelHealthBadge(panel, cctv);
+    populateSelectOptions(panel, Number(panel.dataset.cctvIndex || panel.dataset.slotIndex || 0));
+}
+
+function setPlaybackHealth(cctv, nextHealth) {
+    if (!cctv || !cctv.id) return;
+    state.cameraPlaybackHealth.set(cctv.id, {
+        status: nextHealth.status,
+        shortLabel: nextHealth.shortLabel,
+        longLabel: nextHealth.longLabel,
+        tone: nextHealth.tone,
+        penalty: nextHealth.penalty,
+        lastUpdated: new Date().toISOString()
+    });
+}
+
+function handlePanelVideoHealthEvent(event) {
+    const video = event.target;
+    if (!video || video.tagName !== 'VIDEO') return;
+
+    const panel = video.closest('.video-panel');
+    const cctv = getPanelCctv(panel);
+    if (!panel || !cctv) return;
+
+    if (event.type === 'error') {
+        setPlaybackHealth(cctv, {
+            status: 'PLAYBACK_ERROR',
+            shortLabel: '재생 불안정',
+            longLabel: `${cctv.name || 'CCTV'} 영상 재생 오류 감지`,
+            tone: 'danger',
+            penalty: 6
+        });
+    } else {
+        setPlaybackHealth(cctv, {
+            status: 'PLAYING',
+            shortLabel: '재생 정상',
+            longLabel: `${cctv.name || 'CCTV'} 현재 브라우저에서 재생 확인`,
+            tone: 'ok',
+            penalty: 0
+        });
+    }
+
+    updatePanelHealthUi(panel, cctv);
+}
+
+function scheduleVideoHealthProbe(panel, cctv, video) {
+    if (!panel || !cctv || !video || video.tagName !== 'VIDEO') return;
+
+    [600, 1600, 3200, 5200].forEach(delay => {
+        setTimeout(() => {
+            if (!video.parentElement || !panel.contains(video)) return;
+            if (video.readyState >= 2 && video.videoWidth > 0) {
+                setPlaybackHealth(cctv, {
+                    status: 'PLAYING',
+                    shortLabel: '재생 정상',
+                    longLabel: `${cctv.name || 'CCTV'} 현재 브라우저에서 재생 확인`,
+                    tone: 'ok',
+                    penalty: 0
+                });
+                updatePanelHealthUi(panel, cctv);
+            }
+        }, delay);
+    });
 }
 
 function removePanelHealthBadge(panel) {
@@ -1142,6 +1234,7 @@ function renderVideoGrid() {
             panel.dataset.cctvId = cctv.id;
             panel.dataset.slotIndex = index;
             panel.dataset.cctvIndex = index;
+            scheduleVideoHealthProbe(panel, cctv, video);
 
             // Update dropdown trigger with compact status dot instead of status text.
             renderSelectTrigger(panel, cctv, `CCTV ${index + 1}`);
@@ -1176,7 +1269,7 @@ function populateSelectOptions(panel, currentIndex) {
     cctvList.forEach((cctv, i) => {
         const option = document.createElement('div');
         option.className = 'cctv-option' + (i === currentIndex ? ' selected' : '');
-        const health = cctv._health || getCameraHealthMeta(cctv);
+        const health = getCameraHealthMeta(cctv);
         const name = document.createElement('span');
         name.className = 'cctv-option-name';
         name.textContent = cctv.name || `CCTV ${i + 1}`;
@@ -1199,6 +1292,10 @@ function initPanelControls() {
     // Actually, we'll use a flag to prevent duplicate listeners
     if (grid.dataset.initialized === 'true') return;
     grid.dataset.initialized = 'true';
+
+    ['loadeddata', 'playing', 'canplay', 'error'].forEach(eventName => {
+        grid.addEventListener(eventName, handlePanelVideoHealthEvent, true);
+    });
 
     // Dropdown trigger click
     grid.addEventListener('click', (e) => {
@@ -1312,6 +1409,7 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     // Update panel data
     panel.dataset.cctvId = cctv.id;
     panel.dataset.cctvIndex = cctvIndex;
+    scheduleVideoHealthProbe(panel, cctv, video);
 
     // Update trigger with compact status dot instead of status text.
     renderSelectTrigger(panel, cctv, `CCTV ${cctvIndex + 1}`);
@@ -1924,6 +2022,7 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
             }
             const newVideo = createVideoElement(cctv, isRetryingPrimary ? 0 : nextIndex);
             wrapper.appendChild(newVideo);
+            scheduleVideoHealthProbe(wrapper.closest('.video-panel'), cctv, newVideo);
         }, isRetryingPrimary ? 160 : 180);
     } else {
         const errPh = createErrorPlaceholder({
