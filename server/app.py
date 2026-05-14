@@ -40,6 +40,34 @@ Z3_CACHE_TTL_MINUTES = 50
 Z3_CACHE_STALE_HOURS = 2   # If GitHub data is older than this, try its.go.kr directly
 Z3_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/pyw31337/cctv/main/data/z3_cache.json'
 
+JEJU_STREAM_CACHE_TTL_SECONDS = 45
+jeju_session = requests.Session()
+jeju_session.verify = False
+jeju_lock = threading.Lock()
+jeju_stream_cache = {}
+
+
+def get_jeju_headers():
+    return {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.jejuits.go.kr/jido/mainView.do",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+
+
+def redirect_cached_jeju_stream(target_id):
+    cached = jeju_stream_cache.get(target_id)
+    if not cached:
+        return None
+
+    age = time.time() - cached.get('created_at', 0)
+    if age > JEJU_STREAM_CACHE_TTL_SECONDS:
+        jeju_stream_cache.pop(target_id, None)
+        return None
+
+    return flask.redirect(f"/proxy?url={quote(cached['url'])}")
+
 
 def _refresh_z3_from_its():
     """Fetch Z3 appUrl map directly from its.go.kr.
@@ -414,76 +442,96 @@ def proxy_jeju():
     if not cctv_id:
         return "Missing ID", 400
 
-    # Clean ID
     short_id = cctv_id.replace("JEJU_", "")
-    
-    # 0. Check if we need to resolve Short ID -> UUID
     target_id = short_id
-    if len(short_id) < 20: # Likely a short ID like 'C62'
+
+    cached_response = redirect_cached_jeju_stream(target_id)
+    if cached_response:
+        return cached_response
+
+    headers = get_jeju_headers()
+
+    with jeju_lock:
+        cached_response = redirect_cached_jeju_stream(target_id)
+        if cached_response:
+            return cached_response
+
         try:
-            info_url = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://www.jejuits.go.kr/jido/mainView.do",
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "X-Requested-With": "XMLHttpRequest"
-            }
-            # Need maplevel param or it might fail? Script used "maplevel": "14"
-            payload = {
-                "DEVICE_KIND": "CCTV",
-                "DEVICE_ID": short_id,
-                "maplevel": "14"
-            }
-            
-            logger.info(f"Resolving UUID for {short_id}...")
-            resp = requests.post(info_url, data=payload, headers=headers, timeout=5, verify=False)
-            if resp.status_code == 200:
-                data = resp.json()
-                if 'stremid' in data:
-                    target_id = data['stremid']
-                    logger.info(f"Resolved {short_id} -> {target_id}")
-                else:
-                    logger.warning(f"No stremid in info for {short_id}: {data}")
+            if not jeju_session.cookies:
+                jeju_session.get(
+                    "https://www.jejuits.go.kr/jido/mainView.do",
+                    headers=headers,
+                    timeout=(3, 5),
+                )
+
+            # Short IDs such as C75/W83 need a UUID lookup. Most generated records
+            # already carry UUIDs, so this slow path is avoided for normal playback.
+            if len(short_id) < 20:
+                info_url = "https://www.jejuits.go.kr/jido/getCurFeatureInfo.do"
+                payload = {
+                    "DEVICE_KIND": "CCTV",
+                    "DEVICE_ID": short_id,
+                    "maplevel": "14",
+                }
+                logger.info(f"Jeju: Resolving UUID for {short_id}...")
+                resp = jeju_session.post(info_url, data=payload, headers=headers, timeout=(3, 6))
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if 'stremid' in data:
+                        target_id = data['stremid']
+                        logger.info(f"Jeju: Resolved {short_id} -> {target_id}")
+
+                cached_response = redirect_cached_jeju_stream(target_id)
+                if cached_response:
+                    return cached_response
+
+            target_api = "https://www.jejuits.go.kr/jido/streamUrl.do"
+            payload = {"DEVICE_ID": target_id}
+            last_error = None
+
+            for attempt in range(2):
+                try:
+                    logger.info(f"Jeju: Fetching token for {target_id} (attempt {attempt + 1})...")
+                    resp = jeju_session.post(target_api, data=payload, headers=headers, timeout=(3, 7))
+                    if resp.status_code != 200:
+                        last_error = f"Jeju API Error: {resp.status_code}"
+                        continue
+
+                    real_url = resp.text.strip().strip('"')
+                    if real_url.startswith("http"):
+                        jeju_stream_cache[target_id] = {
+                            'url': real_url,
+                            'created_at': time.time(),
+                        }
+                        logger.info(f"Jeju {cctv_id} Success -> Proxying: {real_url[:60]}...")
+                        return flask.redirect(f"/proxy?url={quote(real_url)}")
+
+                    last_error = f"Invalid URL from Jeju API: {real_url[:80]}"
+                    if "error" in real_url.lower():
+                        jeju_session.get(
+                            "https://www.jejuits.go.kr/jido/mainView.do",
+                            headers=headers,
+                            timeout=(3, 5),
+                        )
+                except requests.RequestException as exc:
+                    last_error = str(exc)
+                    # Refresh cookies once before the second attempt.
+                    if attempt == 0:
+                        try:
+                            jeju_session.get(
+                                "https://www.jejuits.go.kr/jido/mainView.do",
+                                headers=headers,
+                                timeout=(3, 5),
+                            )
+                        except requests.RequestException:
+                            pass
+
+            logger.error(f"Jeju Proxy Failed for {target_id}: {last_error}")
+            return f"Jeju Proxy Error: {last_error}", 502
+
         except Exception as e:
-            logger.error(f"Failed to resolve UUID: {e}")
-            # Continue with short_id just in case, or fail?
-            # likely fail, but let's try.
-
-    # 1. Fetch fresh Auth Key using UUID (target_id)
-    try:
-        # Research results: Use POST to streamUrl.do with DEVICE_ID
-        target_api = "https://www.jejuits.go.kr/jido/streamUrl.do"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://www.jejuits.go.kr/jido/mainView.do",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-        
-        # Ensure we have a payload that matches what the browser sent
-        payload = f"DEVICE_ID={target_id}"
-        
-        logger.info(f"Jeju: Fetching token for {target_id}...")
-        resp = requests.post(target_api, data=payload, headers=headers, timeout=10, verify=False)
-        
-        if resp.status_code != 200:
-            return f"Jeju API Error: {resp.status_code}", 502
-            
-        real_url = resp.text.strip().strip('"')
-        
-        # The API returns the full m3u8 URL with auth tokens
-        if not real_url or not real_url.startswith("http"):
-             logger.error(f"Invalid resp from Jeju API: {real_url}")
-             return f"Invalid URL from Jeju API for {target_id}", 502
-
-        # 2. Redirect to the local CORS-safe proxy instead of raw URL
-        # Manifest rewriting handles relative segments automatically
-        logger.info(f"Jeju {cctv_id} Success -> Proxying: {real_url[:60]}...")
-        return flask.redirect(f"/proxy?url={quote(real_url)}")
-
-    except Exception as e:
-        logger.error(f"Jeju Proxy Final Failed: {e}")
-        return f"Server Error: {str(e)}", 500
+            logger.error(f"Jeju Proxy Final Failed: {e}")
+            return f"Server Error: {str(e)}", 500
 
 # === UTIC/NTIC Proxy Logic ===
 @app.route('/utic')

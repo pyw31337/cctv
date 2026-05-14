@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-banner1';
+const APP_BUILD_VERSION = '20260514-quality1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
@@ -20,6 +20,10 @@ const SEARCH_RESULT_LIMIT = 15;
 const GEO_CELL_SIZE = 0.08;
 const GEO_SEARCH_RING_LIMIT = 8;
 const GEO_CANDIDATE_TARGET = 220;
+const PLAYBACK_STARTUP_TIMEOUT_MS = 12000;
+const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 9500;
+const PLAYBACK_STALL_TIMEOUT_MS = 9000;
+const DYNAMIC_BACKUP_RADIUS_KM = 8;
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
 const ORACLE_PROXY_BASE = `${ORACLE_BASE}/proxy`;
 const JEJU_PROXY_BASE = 'https://158.179.194.163.sslip.io/jeju';
@@ -788,6 +792,18 @@ function getCameraHealthMeta(cctv) {
         : (state.healthSnapshot ? state.healthSnapshot.last_updated : null);
     const staleSuffix = state.healthSnapshotStale ? ' (점검 지연)' : '';
 
+    if (state.healthSnapshotStale) {
+        return {
+            regionKey,
+            status: 'STALE',
+            shortLabel: '실시간 확인',
+            longLabel: `${getRegionLabel(regionKey)} 점검 정보가 오래되어 실제 재생 상태를 우선 확인합니다`,
+            tone: 'unknown',
+            penalty: 0.6,
+            lastUpdated
+        };
+    }
+
     if (isUnsupportedBrowserStream(cctv)) {
         return {
             regionKey,
@@ -1101,6 +1117,112 @@ function setPlaybackHealth(cctv, nextHealth) {
         penalty: nextHealth.penalty,
         lastUpdated: new Date().toISOString()
     });
+}
+
+function getPlaybackTimeoutMs(cctv) {
+    const source = cctv?.source || '';
+    const regionKey = inferRegionKey(cctv);
+    if (source === 'JEJU' || regionKey === 'JEJU') return JEJU_PLAYBACK_STARTUP_TIMEOUT_MS;
+    return PLAYBACK_STARTUP_TIMEOUT_MS;
+}
+
+function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
+    if (!video || video.tagName !== 'VIDEO' || typeof onUnhealthy !== 'function') return;
+
+    const startupTimeoutMs = options.startupTimeoutMs || getPlaybackTimeoutMs(cctv);
+    const stallTimeoutMs = options.stallTimeoutMs || PLAYBACK_STALL_TIMEOUT_MS;
+    let failed = false;
+    let hasStarted = false;
+    let lastProgressAt = Date.now();
+    let lastCurrentTime = 0;
+    let stallStartedAt = null;
+    const timers = [];
+    let interval = null;
+
+    const cleanup = () => {
+        timers.forEach(timer => clearTimeout(timer));
+        if (interval) clearInterval(interval);
+        video.removeEventListener('loadeddata', markHealthy);
+        video.removeEventListener('playing', markHealthy);
+        video.removeEventListener('canplay', markHealthy);
+        video.removeEventListener('timeupdate', markProgress);
+        video.removeEventListener('waiting', markStall);
+        video.removeEventListener('stalled', markStall);
+        video.removeEventListener('error', failFast);
+    };
+
+    const fail = (reason) => {
+        if (failed) return;
+        failed = true;
+        cleanup();
+        console.warn(`[Playback] ${cctv?.name || 'CCTV'} unhealthy: ${reason}`);
+        onUnhealthy(reason);
+    };
+
+    function markHealthy() {
+        if (video.readyState >= 2 && video.videoWidth > 0) {
+            hasStarted = true;
+            stallStartedAt = null;
+            lastProgressAt = Date.now();
+        }
+    }
+
+    function markProgress() {
+        const currentTime = Number(video.currentTime || 0);
+        if (currentTime > lastCurrentTime + 0.05) {
+            hasStarted = true;
+            stallStartedAt = null;
+            lastProgressAt = Date.now();
+            lastCurrentTime = currentTime;
+        }
+    }
+
+    function markStall() {
+        if (!stallStartedAt) stallStartedAt = Date.now();
+    }
+
+    function failFast() {
+        fail('video-error');
+    }
+
+    video.addEventListener('loadeddata', markHealthy);
+    video.addEventListener('playing', markHealthy);
+    video.addEventListener('canplay', markHealthy);
+    video.addEventListener('timeupdate', markProgress);
+    video.addEventListener('waiting', markStall);
+    video.addEventListener('stalled', markStall);
+    video.addEventListener('error', failFast);
+
+    timers.push(setTimeout(() => {
+        if (!hasStarted && (video.readyState < 2 || video.videoWidth === 0)) {
+            fail('startup-timeout');
+        }
+    }, startupTimeoutMs));
+
+    interval = setInterval(() => {
+        if (!video.parentElement) {
+            cleanup();
+            return;
+        }
+        if (video.readyState >= 2 && video.videoWidth > 0) {
+            const currentTime = Number(video.currentTime || 0);
+            const progressed = currentTime > lastCurrentTime + 0.05;
+            if (progressed) {
+                hasStarted = true;
+                stallStartedAt = null;
+                lastProgressAt = Date.now();
+                lastCurrentTime = currentTime;
+                return;
+            }
+            if (!video.paused && Date.now() - lastProgressAt > stallTimeoutMs) {
+                fail('playback-stalled');
+            }
+        } else if (stallStartedAt && Date.now() - stallStartedAt > stallTimeoutMs) {
+            fail('network-stalled');
+        }
+    }, 1800);
+
+    video._watchdogCleanup = cleanup;
 }
 
 function handlePanelVideoHealthEvent(event) {
@@ -1515,19 +1637,21 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
     // Determine URL based on sourceIndex
     // Index 0 = Main URL, Index 1+ = Backup URLs
-    let url, type, selectedSource;
+    let url, type, selectedSource, selectedOriginalId;
 
     if (sourceIndex === 0) {
         url = cctv.directUrl || cctv.url;
         type = 'main';
         selectedSource = cctv.source || '';
+        selectedOriginalId = cctv.original_id || '';
 
     } else {
-        const backup = cctv.backup_urls && cctv.backup_urls[sourceIndex - 1];
+        const backup = normalizeBackupEntry(cctv.backup_urls && cctv.backup_urls[sourceIndex - 1], cctv);
         if (backup) {
             url = backup.url;
             type = `backup-${sourceIndex}`;
             selectedSource = backup.source || cctv.source || '';
+            selectedOriginalId = backup.original_id || backup.id || '';
         } else {
             console.warn(`No backup source found at index ${sourceIndex}`);
             return createErrorPlaceholder({
@@ -1539,7 +1663,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     }
 
     const shouldProxy = url && !url.includes('cctv-proxy.pyw213.workers.dev');
-    const sourceFallbackId = cctv.original_id || ((cctv.id || '').includes('_') ? cctv.id.split('_').pop() : cctv.id);
+    const sourceFallbackId = selectedOriginalId || cctv.original_id || ((cctv.id || '').includes('_') ? cctv.id.split('_').pop() : cctv.id);
     const selectedCctvIp = getUrlParam(url, 'cctvip') || sourceFallbackId;
     const selectedKind = getUrlParam(url, 'kind');
     const genericProxyBase = isRawIpStreamUrl(url)
@@ -1552,7 +1676,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         if (selectedSource === 'TRENDWORLD' || selectedSource === 'NOWJEJU' || selectedSource === 'HRFCO') {
             url = `${genericProxyBase}?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
         } else if (selectedSource === 'JEJU') {
-            const jejuStreamId = cctv.original_id || getUrlParam(url, 'id') || sourceFallbackId;
+            const jejuStreamId = getUrlParam(url, 'id') || selectedOriginalId || sourceFallbackId;
             url = `${JEJU_PROXY_BASE}?id=${encodeURIComponent(jejuStreamId)}&_t=${Date.now()}`;
         } else if (selectedSource === 'UTIC' && selectedCctvIp && ['EE', 'EEE', 'KB'].includes(selectedKind)) {
             url = `https://cctv-proxy.pyw213.workers.dev/kb?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
@@ -1609,6 +1733,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 triggerFailover(video.parentElement);
             }
         };
+        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
         return video;
     }
 
@@ -1675,6 +1800,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
             video.src = jejuUrl;
             video.onerror = () => triggerFailover(video.parentElement);
         }
+        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
+            startupTimeoutMs: JEJU_PLAYBACK_STARTUP_TIMEOUT_MS,
+            stallTimeoutMs: PLAYBACK_STALL_TIMEOUT_MS
+        });
         return video;
     }
 
@@ -1698,6 +1827,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
         video.onerror = () => triggerFailover(video.parentElement);
+        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
         return video;
     }
 
@@ -1752,6 +1882,9 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 if (!video.parentElement) return;
                 video.src = streamUrl;
                 video.onerror = () => { if (video.parentElement) triggerFailover(video.parentElement); };
+                armVideoPlaybackWatchdog(video, cctv, () => {
+                    if (video.parentElement) triggerFailover(video.parentElement);
+                });
             } catch(e) {
                 console.error('[GITS] Token fetch failed:', e);
                 if (video.parentElement) triggerFailover(video.parentElement);
@@ -1773,6 +1906,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.setAttribute('playsinline', '');
 
         video.onerror = () => triggerFailover(video.parentElement);
+        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
         return video;
     }
 
@@ -2006,6 +2140,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
         });
 
         video.hls = hls;
+        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
+            startupTimeoutMs: selectedSource === 'JEJU' ? JEJU_PLAYBACK_STARTUP_TIMEOUT_MS : PLAYBACK_STARTUP_TIMEOUT_MS,
+            stallTimeoutMs: PLAYBACK_STALL_TIMEOUT_MS
+        });
         return video;
     }
 
@@ -2019,35 +2157,44 @@ function createVideoElement(cctv, sourceIndex = 0) {
     video.playsInline = true;
 
     video.onerror = () => triggerFailover(video.parentElement);
+    armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
 
     return video;
 }
 
 function ensureDynamicBackups(cctv) {
     if (!cctv || cctv._dynamicFallbacksAdded) return;
-    if (!['NOWJEJU', 'TRENDWORLD'].includes(cctv.source)) return;
+    if (!['JEJU', 'NOWJEJU', 'TRENDWORLD'].includes(cctv.source)) return;
     if (!Number.isFinite(Number(cctv.lat)) || !Number.isFinite(Number(cctv.lng))) return;
 
-    const backupUrls = Array.isArray(cctv.backup_urls) ? cctv.backup_urls : [];
-    const knownUrls = new Set([cctv.url, ...backupUrls.map(item => item && item.url)].filter(Boolean));
-    const preferredSources = ['JEJU', 'GITS', 'UTIC'];
+    const backupUrls = Array.isArray(cctv.backup_urls)
+        ? cctv.backup_urls.map(item => normalizeBackupEntry(item, cctv)).filter(Boolean)
+        : [];
+    const knownUrls = new Set([cctv.directUrl, cctv.url, ...backupUrls.map(item => item && item.url)].filter(Boolean));
+    const preferredSources = cctv.source === 'JEJU'
+        ? ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS']
+        : ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS'];
 
-    const nearbyBackups = state.cctvs
+    const nearbyBackups = state.cctvData
         .filter(item => item && item.id !== cctv.id && preferredSources.includes(item.source))
+        .filter(item => !isUnsupportedBrowserStream(item))
         .map(item => ({
             item,
             distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng)
         }))
-        .filter(({ item, distance }) => Number.isFinite(distance) && distance <= 5 && item.url && !knownUrls.has(item.url))
+        .filter(({ item, distance }) => Number.isFinite(distance) && distance <= DYNAMIC_BACKUP_RADIUS_KM && (item.directUrl || item.url) && !knownUrls.has(item.directUrl || item.url))
         .sort((a, b) => {
             const sourceDelta = preferredSources.indexOf(a.item.source) - preferredSources.indexOf(b.item.source);
-            return sourceDelta || a.distance - b.distance;
+            const sameSpotDelta = Number(a.distance > 0.25) - Number(b.distance > 0.25);
+            return sameSpotDelta || sourceDelta || a.distance - b.distance;
         })
-        .slice(0, 3)
+        .slice(0, 5)
         .map(({ item }) => ({
+            id: item.id,
             source: item.source,
-            url: item.url,
-            name: item.name
+            url: item.directUrl || item.url,
+            name: item.name,
+            original_id: item.original_id
         }));
 
     if (nearbyBackups.length > 0) {
@@ -2056,6 +2203,19 @@ function ensureDynamicBackups(cctv) {
         cctv.backup_urls = backupUrls;
     }
     cctv._dynamicFallbacksAdded = true;
+}
+
+function normalizeBackupEntry(backup, cctv) {
+    if (!backup) return null;
+    if (typeof backup === 'string') {
+        return {
+            source: cctv?.source || '',
+            url: backup,
+            name: cctv?.name || '대체 영상'
+        };
+    }
+    if (!backup.url) return null;
+    return backup;
 }
 
 function handleStreamFailover(wrapper, cctv, nextIndex) {
@@ -2155,6 +2315,10 @@ function cleanupVideo(container) {
 
     const video = container.querySelector('video');
     if (video) {
+        if (typeof video._watchdogCleanup === 'function') {
+            video._watchdogCleanup();
+            video._watchdogCleanup = null;
+        }
         if (video.hls) {
             video.hls.destroy();
             video.hls = null;

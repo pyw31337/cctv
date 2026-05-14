@@ -2,8 +2,8 @@ name: Z3 Cache Refresh
 
 on:
   schedule:
-    # Run every 30 minutes — tokens expire ~1h so 30min keeps them always fresh
-    - cron: '0,30 * * * *'
+    # Hourly GitHub snapshot. The free Oracle proxy can refresh Z3 directly on demand.
+    - cron: '7 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: z3-cache-refresh
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 

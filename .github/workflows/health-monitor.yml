@@ -2,9 +2,13 @@ name: Stream Health Monitor
 
 on:
   schedule:
-    # Run every 6 hours
-    - cron: '0 */6 * * *'
+    # Daily sampled monitor; browser playback watchdogs cover live user-facing quality.
+    - cron: '37 18 * * *'
   workflow_dispatch:  # Manual trigger
+
+concurrency:
+  group: stream-health-monitor
+  cancel-in-progress: true
 
 jobs:
   health-check:

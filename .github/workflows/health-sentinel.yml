@@ -2,11 +2,15 @@ name: Regional Health Sentinel
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # Run every 10 minutes
+    - cron: '17 * * * *'    # Hourly safety snapshot; runtime playback checks handle live UX.
   workflow_dispatch:        # Allow manual trigger
 
 permissions:
   contents: write
+
+concurrency:
+  group: regional-health-sentinel
+  cancel-in-progress: true
 
 jobs:
   health-check:

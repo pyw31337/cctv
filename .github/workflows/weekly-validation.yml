@@ -2,9 +2,13 @@ name: Weekly CCTV Validation
 
 on:
   schedule:
-    # Run at 00:00 KST (15:00 UTC previous day) every day
-    - cron: '0 15 * * *'
+    # Weekly deep validation. Frequent full scans are too expensive for the free quota.
+    - cron: '0 15 * * 6'
   workflow_dispatch:
+
+concurrency:
+  group: weekly-cctv-validation
+  cancel-in-progress: true
 
 jobs:
   validate:

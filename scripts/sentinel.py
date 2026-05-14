@@ -125,6 +125,8 @@ def infer_region_name(cctv):
 
     if cctv.get('urlType') == 'daejeon_mp4_dynamic' or cctv_id.startswith('DAEJEON_') or source == 'DAEJEON_ITS':
         return 'DAEJEON'
+    if source == 'UTIC' and (cctv_id.startswith('E07') or '대전시' in name):
+        return 'DAEJEON'
     if source == 'UTIC' and daejeon_inline_id and daejeon_inline_id.startswith('CCTV'):
         return 'DAEJEON'
     if source == 'UTIC' and (cctv_id.startswith('L380') or '제주' in name):

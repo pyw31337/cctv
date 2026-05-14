@@ -2,11 +2,15 @@ name: Auto-Renew CCTV URLs
 
 on:
   schedule:
-    - cron: '0 2 * * *' # Run daily at 02:00 UTC (11:00 KST)
+    - cron: '0 2 * * 1,4' # Twice weekly to preserve the free Actions quota.
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: auto-renew-cctv-urls
+  cancel-in-progress: true
 
 jobs:
   renew-urls:
