@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality8';
+const APP_BUILD_VERSION = '20260514-quality9';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
@@ -27,6 +27,8 @@ const DYNAMIC_BACKUP_RADIUS_KM = 8;
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
 const ORACLE_PROXY_BASE = `${ORACLE_BASE}/proxy`;
 const JEJU_PROXY_BASE = 'https://158.179.194.163.sslip.io/jeju';
+const MARKER_DANGER_FILTER = 'hue-rotate(145deg) saturate(1.85) contrast(1.08)';
+const MARKER_WARN_FILTER = 'hue-rotate(185deg) saturate(1.55) contrast(1.05)';
 const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|동부출장소|행정복지|주민센터|사거리|삼거리|교차로|로터리|터미널|역|아파트|시장|학교|초교|초등|중학교|고교|병원|마트|상가|대로변|단지내|시내|중앙|읍내)/;
 const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권제|국도|IC|JC|TG|영업소|터널|램프|휴게소|졸음쉼터|분기점|진입로|외부|하이패스)/i;
 
@@ -2636,10 +2638,11 @@ function renderMapMarkers() {
             placedPositions.push({ lat, lng, count: 0 });
         }
 
+        const markerTitle = `${cctv.name} · ${health.shortLabel}`;
         const markerOptions = {
             position: new kakao.maps.LatLng(lat, lng),
             map: map,
-            title: `${cctv.name} · ${health.shortLabel}`
+            title: markerTitle
         };
 
         // Custom Icon for YouTube
@@ -2650,17 +2653,44 @@ function renderMapMarkers() {
         }
 
         const marker = new kakao.maps.Marker(markerOptions);
-        if (health.status === 'UNSUPPORTED' || (health.status === 'DOWN' && health.tone === 'danger')) {
-            marker.setOpacity(0.65);
-        } else if (health.status === 'DEGRADED' || health.tone === 'warn') {
-            marker.setOpacity(0.82);
-        }
+        applyMarkerHealthFilter(marker, health, markerTitle);
 
         kakao.maps.event.addListener(marker, 'click', () => {
             openVideoLayer(cctv);
         });
 
         state.markers.push(marker);
+    });
+}
+
+function getMarkerHealthFilter(health) {
+    if (!health) return '';
+    if (health.status === 'UNSUPPORTED' || (health.status === 'DOWN' && health.tone === 'danger') || health.tone === 'danger') {
+        return MARKER_DANGER_FILTER;
+    }
+    if (health.status === 'DEGRADED' || health.tone === 'warn') {
+        return MARKER_WARN_FILTER;
+    }
+    return '';
+}
+
+function applyMarkerHealthFilter(marker, health, title) {
+    const filter = getMarkerHealthFilter(health);
+    if (!filter) return;
+
+    marker.setOpacity(1);
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            const container = document.getElementById('kakao-map');
+            if (!container) return;
+
+            const markerImages = Array.from(container.querySelectorAll('img'));
+            const image = markerImages.find(img => img.title === title || img.alt === title);
+            if (!image) return;
+
+            image.style.filter = filter;
+            image.style.opacity = '1';
+        });
     });
 }
 
