@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality6';
+const APP_BUILD_VERSION = '20260514-quality7';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
@@ -730,20 +730,13 @@ async function resolveJejuPlaybackUrl(url) {
 
     const response = await fetch(url, {
         cache: 'no-store',
+        method: 'HEAD',
         redirect: 'follow'
     });
     if (!response.ok) {
         throw new Error(`jeju ${response.status}`);
     }
-
-    const finalUrl = response.url || url;
-    try {
-        // Consume the small manifest response so the connection can close cleanly.
-        await response.text();
-    } catch (error) {
-        console.warn('[JEJU] Manifest prefetch body read failed:', error);
-    }
-    return finalUrl;
+    return response.url || url;
 }
 
 function isRawIpStreamUrl(url) {
