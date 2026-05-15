@@ -1,9 +1,10 @@
 name: Z3 Cache Refresh
 
 on:
-  # Scheduled runs moved to Oracle on-demand refresh to preserve GitHub Actions minutes.
-  # schedule:
-  #   - cron: '7 * * * *'
+  schedule:
+    # Daily safety refresh. Oracle cannot reach its.go.kr reliably, so keep
+    # this low-frequency Actions job for NTIC/Z3 token freshness.
+    - cron: '7 19 * * *'
   workflow_dispatch:
 
 jobs:
