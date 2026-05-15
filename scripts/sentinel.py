@@ -272,6 +272,7 @@ def check_daejeon_stream(cctv):
 
     last_status = None
     last_url = None
+    saw_http_response = False
     for offset in DAEJEON_MP4_OFFSETS:
         url = get_daejeon_url(cctv, stream_id, offset)
         last_url = url
@@ -284,6 +285,7 @@ def check_daejeon_stream(cctv):
                 stream=True
             )
             last_status = resp.status_code
+            saw_http_response = True
             if resp.status_code in (200, 206):
                 set_probe_result(cctv, True, reason='ok', status_code=resp.status_code, url=url, content_type=resp.headers.get('Content-Type'))
                 log(f'[OK] Daejeon {stream_id} is UP (Offset {offset}m)')
@@ -295,6 +297,21 @@ def check_daejeon_stream(cctv):
         except Exception as error:
             set_probe_result(cctv, False, reason='request_error', category='network_error', url=url, detail=error)
             log(f'[ERR] Daejeon {stream_id} check failed: {error}')
+
+    if not saw_http_response:
+        # Daejeon traffic-center MP4 is fetched directly by the user's browser.
+        # Oracle egress to tportal can time out even while browser playback works,
+        # so do not mark the whole region down from monitor-path timeouts alone.
+        set_probe_result(
+            cctv,
+            True,
+            reason='monitor_path_timeout_browser_direct_priority',
+            category='monitor_path_unverified',
+            url=last_url
+        )
+        log(f'[WARN] Daejeon {stream_id} monitor path timed out; assuming browser-direct path is usable')
+        return True
+
     set_probe_result(
         cctv,
         False,
