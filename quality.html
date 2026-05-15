@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV 품질 대시보드</title>
+    <style>
+        :root { color-scheme: dark; --bg:#07111f; --card:#111c2e; --line:#203047; --text:#e5edf8; --muted:#8da0ba; --green:#34d399; --yellow:#fbbf24; --red:#fb7185; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at top left, #123d2c, transparent 32rem), var(--bg); color: var(--text); }
+        main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 60px; }
+        header { display: flex; justify-content: space-between; gap: 20px; align-items: flex-end; margin-bottom: 24px; }
+        h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.04em; }
+        .sub { margin-top: 8px; color: var(--muted); }
+        .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+        .card { background: color-mix(in oklab, var(--card), transparent 6%); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 20px 50px rgba(0,0,0,.22); }
+        .metric { font-size: 30px; font-weight: 850; letter-spacing: -0.04em; }
+        .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+        section { margin-top: 18px; }
+        h2 { margin: 0 0 10px; font-size: 18px; }
+        table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 14px; }
+        th, td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.07); text-align: left; font-size: 13px; }
+        th { color: var(--muted); font-weight: 700; background: rgba(255,255,255,.03); }
+        tr:last-child td { border-bottom: 0; }
+        .pill { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,.08); font-weight: 800; font-size: 12px; }
+        .ok { color: var(--green); } .warn { color: var(--yellow); } .bad { color: var(--red); }
+        .toolbar { display: flex; gap: 8px; align-items: center; }
+        button, a.button { border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--text); border-radius: 999px; padding: 9px 13px; cursor: pointer; text-decoration: none; font-weight: 700; }
+        @media (max-width: 760px) { header { align-items: flex-start; flex-direction: column; } .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <div>
+            <h1>CCTV 품질 대시보드</h1>
+            <div class="sub" id="updated">실사용 품질 요약을 불러오는 중입니다.</div>
+        </div>
+        <div class="toolbar">
+            <button id="refresh">새로고침</button>
+            <a class="button" href="./">서비스 보기</a>
+        </div>
+    </header>
+
+    <div class="grid">
+        <div class="card"><div class="metric" id="camera-count">-</div><div class="label">집계된 CCTV</div></div>
+        <div class="card"><div class="metric" id="success-rate">-</div><div class="label">평균 성공률</div></div>
+        <div class="card"><div class="metric" id="slow-count">-</div><div class="label">느림/불안정 후보</div></div>
+    </div>
+
+    <section class="card">
+        <h2>우선 점검 CCTV</h2>
+        <table><thead><tr><th>CCTV</th><th>소스</th><th>지역</th><th>성공률</th><th>평균 로딩</th><th>샘플</th></tr></thead><tbody id="camera-rows"></tbody></table>
+    </section>
+
+    <section class="card">
+        <h2>소스별 품질</h2>
+        <table><thead><tr><th>소스</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
+    </section>
+</main>
+<script>
+const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
+const FALLBACK_URL = 'data/quality_summary.json';
+const $ = (id) => document.getElementById(id);
+function pct(value) { return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'; }
+function ms(value) { return value > 0 ? `${Math.round(value / 100) / 10}s` : '-'; }
+function tone(rate, avg) { if (rate < .65) return 'bad'; if (rate < .82 || avg > 8000) return 'warn'; return 'ok'; }
+function normalize(item) {
+    const samples = Number(item.samples || item.total || 0);
+    const success = Number(item.success || 0);
+    const failure = Number(item.failure || 0);
+    const successRate = Number.isFinite(Number(item.success_rate)) ? Number(item.success_rate) : (samples ? success / samples : 0);
+    const avgFirstFrameMs = Number(item.avg_first_frame_ms || 0);
+    return { ...item, samples, success, failure, successRate, avgFirstFrameMs };
+}
+async function loadSummary() {
+    let summary = null;
+    for (const url of [SUMMARY_URL, FALLBACK_URL]) {
+        try {
+            const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
+            if (!res.ok) throw new Error(res.status);
+            summary = await res.json();
+            break;
+        } catch {}
+    }
+    render(summary || { cameras: {}, sources: {}, regions: {} });
+}
+function render(summary) {
+    const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
+    const sources = Object.entries(summary.sources || {}).map(([id, item]) => ({ id, ...normalize(item) }));
+    const avgSuccess = cameras.length ? cameras.reduce((sum, item) => sum + item.successRate, 0) / cameras.length : NaN;
+    const problemCameras = cameras.filter(item => item.successRate < .75 || item.avgFirstFrameMs > 8000);
+    $('camera-count').textContent = cameras.length.toLocaleString('ko-KR');
+    $('success-rate').textContent = pct(avgSuccess);
+    $('slow-count').textContent = problemCameras.length.toLocaleString('ko-KR');
+    $('updated').textContent = summary.generated_at ? `마지막 집계: ${new Date(summary.generated_at).toLocaleString('ko-KR')}` : '아직 서버 집계 데이터가 없습니다.';
+    $('camera-rows').innerHTML = problemCameras.sort((a,b) => a.successRate - b.successRate || b.avgFirstFrameMs - a.avgFirstFrameMs).slice(0, 30).map(item => `
+        <tr><td>${item.camera_name || item.id}</td><td>${item.source || '-'}</td><td>${item.region || '-'}</td><td><span class="pill ${tone(item.successRate, item.avgFirstFrameMs)}">${pct(item.successRate)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td>${item.samples}</td></tr>
+    `).join('') || '<tr><td colspan="6">점검 후보가 아직 없습니다.</td></tr>';
+    $('source-rows').innerHTML = sources.sort((a,b) => a.successRate - b.successRate).map(item => `
+        <tr><td>${item.id}</td><td><span class="pill ${tone(item.successRate, item.avgFirstFrameMs)}">${pct(item.successRate)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td>${item.failure}</td><td>${item.samples}</td></tr>
+    `).join('') || '<tr><td colspan="5">소스 집계가 아직 없습니다.</td></tr>';
+}
+$('refresh').addEventListener('click', loadSummary);
+loadSummary();
+</script>
+</body>
+</html>

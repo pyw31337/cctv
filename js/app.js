@@ -11,12 +11,26 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260514-quality11';
+const APP_BUILD_VERSION = '20260515-quality12';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
 const PLAYBACK_HEALTH_PROBLEM_TTL_MS = 45 * 60 * 1000;
 const PLAYBACK_HEALTH_MAX_ENTRIES = 160;
+const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
+const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
+const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
+const QUALITY_SUMMARY_FALLBACK_URL = 'data/quality_summary.json';
+const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
+const QUALITY_SUMMARY_TIMEOUT_MS = 1800;
+const QUALITY_TELEMETRY_SAMPLE_RATE = 0.35;
+const QUALITY_TELEMETRY_DAILY_LIMIT = 20;
+const QUALITY_TELEMETRY_QUEUE_LIMIT = 12;
+const QUALITY_SLOW_FIRST_FRAME_MS = 8000;
+const QUALITY_SORT_STORAGE_KEY = 'cctv_quality_sort_mode';
+const LOW_DATA_MODE_STORAGE_KEY = 'cctv_low_data_mode';
+const TELEMETRY_SAMPLE_STORAGE_KEY = 'cctv_quality_sample_v1';
+const TELEMETRY_DAILY_STORAGE_KEY = 'cctv_quality_daily_v1';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -174,6 +188,9 @@ const state = {
     regionHealth: {},
     healthSnapshot: null,
     healthSnapshotStale: false,
+    qualitySummary: null,
+    qualitySummaryLoaded: false,
+    qualityTelemetryQueue: [],
     geoIndex: new Map(),
     markers: [], // Array to store Kakao map markers
     mapInitialized: false,
@@ -182,13 +199,16 @@ const state = {
     activeCctvId: null,
     serviceBannerTimer: null,
     serviceBannerCountdownTimer: null,
-    serviceBannerDismissedKey: null
+    serviceBannerDismissedKey: null,
+    sortMode: 'recommended',
+    lowDataMode: false
 };
 
 let map = null;
 const SEARCH_MARKER_SRC = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png';
 const YOUTUBE_MARKER_SRC = 'https://img.icons8.com/color/48/youtube-play.png';
 let playbackHealthPersistTimer = null;
+let qualityTelemetryFlushTimer = null;
 
 
 // === DOM References (Cached) ===
@@ -201,10 +221,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await Promise.all([loadCctvData(), loadHealthStatus()]);
     restoreInitialViewState();
+    restoreQualityPreferences();
     hydrateStoredPlaybackHealth();
 
     // Setup Event Listeners
     setupEventListeners();
+    renderQualityControls();
 
     // Initial State
     updateNearestCctvs();
@@ -221,6 +243,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     console.log('Initialization Complete.');
+
+    loadQualitySummary().then((loaded) => {
+        if (!loaded) return;
+        updateNearestCctvs();
+        renderServiceStatusBanner();
+        renderVideoGrid();
+        renderMapMarkers();
+    });
 });
 
 // === Data Loading ===
@@ -264,6 +294,53 @@ async function loadHealthStatus() {
     }
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, {
+            cache: 'no-store',
+            signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function loadQualitySummary() {
+    const cacheBucket = Math.floor(Date.now() / QUALITY_SUMMARY_BUCKET_MS);
+    const urls = [
+        QUALITY_SUMMARY_URL ? `${QUALITY_SUMMARY_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
+        `${QUALITY_SUMMARY_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+    ].filter(Boolean);
+
+    for (const url of urls) {
+        try {
+            const summary = await fetchJsonWithTimeout(url, QUALITY_SUMMARY_TIMEOUT_MS);
+            applyQualitySummary(summary);
+            return true;
+        } catch (error) {
+            console.debug('[Quality] Summary load skipped:', url, error.message || error);
+        }
+    }
+
+    return false;
+}
+
+function applyQualitySummary(summary) {
+    if (!summary || typeof summary !== 'object') return;
+    state.qualitySummary = {
+        generated_at: summary.generated_at || summary.generatedAt || null,
+        cameras: summary.cameras || {},
+        sources: summary.sources || {},
+        regions: summary.regions || {}
+    };
+    state.qualitySummaryLoaded = true;
+}
+
 function restoreInitialViewState() {
     const params = new URLSearchParams(window.location.search);
     const lat = parseFloat(params.get('lat'));
@@ -297,6 +374,58 @@ function restoreInitialViewState() {
     }
 
     $('#search-input').value = state.keyword;
+}
+
+function restoreQualityPreferences() {
+    try {
+        const storedSortMode = localStorage.getItem(QUALITY_SORT_STORAGE_KEY);
+        if (['recommended', 'nearest', 'urban', 'stability', 'quality'].includes(storedSortMode)) {
+            state.sortMode = storedSortMode;
+        }
+        state.lowDataMode = localStorage.getItem(LOW_DATA_MODE_STORAGE_KEY) === 'true';
+    } catch {
+        state.sortMode = 'recommended';
+        state.lowDataMode = false;
+    }
+}
+
+function renderQualityControls() {
+    const sortSelect = $('#quality-sort-select');
+    if (sortSelect) sortSelect.value = state.sortMode;
+
+    const lowDataToggle = $('#low-data-toggle');
+    if (lowDataToggle) {
+        lowDataToggle.classList.toggle('active', state.lowDataMode);
+        lowDataToggle.setAttribute('aria-pressed', String(state.lowDataMode));
+        lowDataToggle.textContent = state.lowDataMode ? '저속 ON' : '저속';
+        lowDataToggle.title = state.lowDataMode
+            ? '저속 모드 사용 중: 첫 번째 영상만 자동 재생합니다'
+            : '저속 모드: 첫 번째 영상만 자동 재생합니다';
+    }
+}
+
+function setSortMode(mode) {
+    if (!['recommended', 'nearest', 'urban', 'stability', 'quality'].includes(mode)) return;
+    state.sortMode = mode;
+    try {
+        localStorage.setItem(QUALITY_SORT_STORAGE_KEY, mode);
+    } catch {}
+
+    updateNearestCctvs();
+    renderServiceStatusBanner();
+    renderVideoGrid();
+    renderMapMarkers();
+    syncUrlState();
+}
+
+function setLowDataMode(enabled) {
+    state.lowDataMode = Boolean(enabled);
+    try {
+        localStorage.setItem(LOW_DATA_MODE_STORAGE_KEY, String(state.lowDataMode));
+    } catch {}
+
+    renderQualityControls();
+    renderVideoGrid();
 }
 
 // === Event Listeners (Delegation) ===
@@ -338,6 +467,20 @@ function setupEventListeners() {
     $('#weather-btn').addEventListener('click', toggleWeather);
     $('#weather-close').addEventListener('click', closeWeather);
 
+    const sortSelect = $('#quality-sort-select');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', () => {
+            setSortMode(sortSelect.value);
+        });
+    }
+
+    const lowDataToggle = $('#low-data-toggle');
+    if (lowDataToggle) {
+        lowDataToggle.addEventListener('click', () => {
+            setLowDataMode(!state.lowDataMode);
+        });
+    }
+
     // Video Layer
     $('#video-layer-close').addEventListener('click', closeVideoLayer);
     $('#video-layer').addEventListener('click', (e) => {
@@ -375,6 +518,11 @@ function setupEventListeners() {
 
     // Mobile Keyboard Handling
     setupMobileKeyboardHandling();
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushQualityTelemetry();
+    });
+    window.addEventListener('pagehide', flushQualityTelemetry);
 }
 
 // === Mode Switching ===
@@ -803,6 +951,116 @@ function getRegionLabel(regionKey) {
     return REGION_LABELS[regionKey] || regionKey || '미분류';
 }
 
+function getCameraQualitySummary(cctv) {
+    if (!cctv || !state.qualitySummary || !state.qualitySummary.cameras) return null;
+    return state.qualitySummary.cameras[cctv.id] || null;
+}
+
+function getQualityMetric(summary, snakeName, camelName, fallback = 0) {
+    if (!summary) return fallback;
+    const value = summary[snakeName] ?? summary[camelName];
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function normalizeQualitySummary(summary) {
+    if (!summary) return null;
+
+    const samples = getQualityMetric(summary, 'samples', 'samples', getQualityMetric(summary, 'total', 'total', 0));
+    const success = getQualityMetric(summary, 'success', 'success', 0);
+    const failure = getQualityMetric(summary, 'failure', 'failure', 0);
+    const slow = getQualityMetric(summary, 'slow', 'slow', 0);
+    const fallback = getQualityMetric(summary, 'fallback', 'fallback', 0);
+    const successRate = getQualityMetric(summary, 'success_rate', 'successRate', samples ? success / samples : 0);
+    const failureRate = getQualityMetric(summary, 'failure_rate', 'failureRate', samples ? failure / samples : 0);
+    const slowRate = getQualityMetric(summary, 'slow_rate', 'slowRate', samples ? slow / samples : 0);
+    const fallbackRate = getQualityMetric(summary, 'fallback_rate', 'fallbackRate', samples ? fallback / samples : 0);
+    const avgFirstFrameMs = getQualityMetric(summary, 'avg_first_frame_ms', 'avgFirstFrameMs', 0);
+    const avgWidth = getQualityMetric(summary, 'avg_width', 'avgWidth', 0);
+    const avgHeight = getQualityMetric(summary, 'avg_height', 'avgHeight', 0);
+
+    return {
+        samples,
+        successRate,
+        failureRate,
+        slowRate,
+        fallbackRate,
+        avgFirstFrameMs,
+        avgWidth,
+        avgHeight,
+        updatedAt: summary.updated_at || summary.updatedAt || summary.last_seen_at || summary.lastSeenAt || state.qualitySummary?.generated_at || null
+    };
+}
+
+function getQualitySummaryAdjustment(cctv) {
+    const metrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
+    if (!metrics || metrics.samples < 3) return 0;
+
+    let adjustment = 0;
+    if (metrics.successRate < 0.5) adjustment += 6;
+    else if (metrics.successRate < 0.72) adjustment += 3.2;
+    else if (metrics.successRate < 0.85) adjustment += 1.2;
+
+    if (metrics.failureRate >= 0.45) adjustment += 2;
+    if (metrics.slowRate >= 0.4) adjustment += 1.4;
+    if (metrics.fallbackRate >= 0.5) adjustment += 1;
+
+    if (metrics.avgFirstFrameMs > 12000) adjustment += 2.4;
+    else if (metrics.avgFirstFrameMs > QUALITY_SLOW_FIRST_FRAME_MS) adjustment += 1.2;
+
+    if (metrics.samples >= 6 && metrics.successRate >= 0.9 && metrics.avgFirstFrameMs > 0 && metrics.avgFirstFrameMs < 3500) {
+        adjustment -= 1;
+    }
+
+    return Math.max(-1.2, Math.min(8, adjustment));
+}
+
+function getQualitySummaryHealthMeta(cctv, regionKey) {
+    const metrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
+    if (!metrics || metrics.samples < 3) return null;
+
+    const label = getRegionLabel(regionKey);
+    const timeText = metrics.updatedAt || state.qualitySummary?.generated_at || null;
+
+    if (metrics.failureRate >= 0.55 || metrics.successRate < 0.45) {
+        return {
+            regionKey,
+            status: 'QUALITY_DOWN',
+            shortLabel: '실사용 불안정',
+            longLabel: `${label} 실사용 재생 실패가 최근 많이 감지되었습니다`,
+            tone: 'danger',
+            penalty: 7,
+            lastUpdated: timeText
+        };
+    }
+
+    if (metrics.slowRate >= 0.4 || metrics.avgFirstFrameMs > QUALITY_SLOW_FIRST_FRAME_MS) {
+        return {
+            regionKey,
+            status: 'QUALITY_SLOW',
+            shortLabel: '로딩 느림',
+            longLabel: `${label} 실사용 기준 첫 화면 로딩이 느린 편입니다`,
+            tone: 'warn',
+            penalty: 3.2,
+            lastUpdated: timeText
+        };
+    }
+
+    if (metrics.samples >= 5 && metrics.successRate >= 0.88) {
+        return {
+            regionKey,
+            status: 'QUALITY_OK',
+            shortLabel: '실사용 정상',
+            longLabel: `${label} 실사용 재생 성공률이 안정적입니다`,
+            tone: metrics.avgFirstFrameMs > 6000 ? 'ok-soft' : 'ok',
+            penalty: metrics.avgFirstFrameMs > 6000 ? 0.4 : 0,
+            lastUpdated: timeText
+        };
+    }
+
+    return null;
+}
+
 function getStoredPlaybackHealthTimestamp(health) {
     if (!health) return 0;
     const storedAt = Number(health.storedAt);
@@ -945,6 +1203,9 @@ function getCameraHealthMeta(cctv) {
         };
     }
 
+    const qualityMeta = getQualitySummaryHealthMeta(cctv, regionKey);
+    if (qualityMeta) return qualityMeta;
+
     if (state.healthSnapshotStale) {
         return {
             regionKey,
@@ -1080,6 +1341,32 @@ function getSourceResilienceAdjustment(cctv, health, distanceKm) {
     }
 
     return 0;
+}
+
+function getSortPriorityScore(parts) {
+    const {
+        distance,
+        healthPenalty,
+        streamQuality,
+        roadContextPriority,
+        sourceResilience,
+        backupBonus,
+        qualityAdjustment
+    } = parts;
+
+    switch (state.sortMode) {
+        case 'nearest':
+            return distance + (healthPenalty * 0.65) + qualityAdjustment + sourceResilience - (backupBonus * 0.4);
+        case 'urban':
+            return distance + healthPenalty + ((1 - streamQuality) * 4) + (roadContextPriority * 1.9) + qualityAdjustment + sourceResilience - backupBonus;
+        case 'stability':
+            return (distance * 0.55) + (healthPenalty * 1.35) + ((1 - streamQuality) * 5.5) + (qualityAdjustment * 1.45) + roadContextPriority + sourceResilience - backupBonus;
+        case 'quality':
+            return (distance * 0.7) + (healthPenalty * 0.85) + ((1 - streamQuality) * 10) + (qualityAdjustment * 0.9) + roadContextPriority + sourceResilience - (backupBonus * 1.2);
+        case 'recommended':
+        default:
+            return distance + healthPenalty + ((1 - streamQuality) * 6) + roadContextPriority + sourceResilience + qualityAdjustment - backupBonus;
+    }
 }
 
 function getStableModulo(value, modulo) {
@@ -1396,6 +1683,146 @@ function setPlaybackHealth(cctv, nextHealth) {
     queueStoredPlaybackHealthPersist();
 }
 
+function getTelemetrySampleDecision() {
+    try {
+        const existing = localStorage.getItem(TELEMETRY_SAMPLE_STORAGE_KEY);
+        if (existing === 'in') return true;
+        if (existing === 'out') return false;
+
+        const bytes = new Uint8Array(1);
+        if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') return false;
+        window.crypto.getRandomValues(bytes);
+        const sampledIn = (bytes[0] / 255) < QUALITY_TELEMETRY_SAMPLE_RATE;
+        localStorage.setItem(TELEMETRY_SAMPLE_STORAGE_KEY, sampledIn ? 'in' : 'out');
+        return sampledIn;
+    } catch {
+        return false;
+    }
+}
+
+function canQueueQualityTelemetry() {
+    if (!QUALITY_TELEMETRY_ENDPOINT || !getTelemetrySampleDecision()) return false;
+
+    try {
+        const today = new Date().toISOString().slice(0, 10);
+        const raw = localStorage.getItem(TELEMETRY_DAILY_STORAGE_KEY);
+        const stateForDay = raw ? JSON.parse(raw) : {};
+        const count = stateForDay.date === today ? Number(stateForDay.count || 0) : 0;
+        if (count >= QUALITY_TELEMETRY_DAILY_LIMIT) return false;
+
+        localStorage.setItem(TELEMETRY_DAILY_STORAGE_KEY, JSON.stringify({ date: today, count: count + 1 }));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function sanitizeTelemetryText(value, maxLength = 80) {
+    return String(value || '').replace(/[^\p{L}\p{N}\s._@()[\]-]/gu, '').trim().slice(0, maxLength);
+}
+
+function recordQualityEvent(cctv, eventType, details = {}) {
+    if (!cctv || !cctv.id || !canQueueQualityTelemetry()) return;
+
+    const payload = {
+        app_version: APP_BUILD_VERSION,
+        event_type: eventType,
+        camera_id: sanitizeTelemetryText(cctv.id, 96),
+        camera_name: sanitizeTelemetryText(cctv.name, 80),
+        source: sanitizeTelemetryText(cctv.source || inferRegionKey(cctv), 32),
+        region: sanitizeTelemetryText(inferRegionKey(cctv), 32),
+        source_index: Number.isFinite(Number(details.sourceIndex)) ? Number(details.sourceIndex) : 0,
+        used_fallback: Boolean(details.usedFallback),
+        first_frame_ms: Number.isFinite(Number(details.firstFrameMs)) ? Math.round(Number(details.firstFrameMs)) : null,
+        fail_ms: Number.isFinite(Number(details.failMs)) ? Math.round(Number(details.failMs)) : null,
+        stall_count: Number.isFinite(Number(details.stallCount)) ? Math.max(0, Math.round(Number(details.stallCount))) : 0,
+        video_width: Number.isFinite(Number(details.videoWidth)) ? Math.round(Number(details.videoWidth)) : null,
+        video_height: Number.isFinite(Number(details.videoHeight)) ? Math.round(Number(details.videoHeight)) : null,
+        reason: sanitizeTelemetryText(details.reason || '', 48),
+        ts: new Date().toISOString()
+    };
+
+    state.qualityTelemetryQueue.push(payload);
+    if (state.qualityTelemetryQueue.length > QUALITY_TELEMETRY_QUEUE_LIMIT) {
+        state.qualityTelemetryQueue.splice(0, state.qualityTelemetryQueue.length - QUALITY_TELEMETRY_QUEUE_LIMIT);
+    }
+
+    if (state.qualityTelemetryQueue.length >= 3) {
+        flushQualityTelemetry();
+    } else if (!qualityTelemetryFlushTimer) {
+        qualityTelemetryFlushTimer = setTimeout(flushQualityTelemetry, 1200);
+    }
+}
+
+function flushQualityTelemetry() {
+    if (qualityTelemetryFlushTimer) {
+        clearTimeout(qualityTelemetryFlushTimer);
+        qualityTelemetryFlushTimer = null;
+    }
+
+    if (!QUALITY_TELEMETRY_ENDPOINT || state.qualityTelemetryQueue.length === 0) return;
+    const events = state.qualityTelemetryQueue.splice(0, state.qualityTelemetryQueue.length);
+    const body = JSON.stringify({ events });
+
+    try {
+        if (navigator.sendBeacon) {
+            const sent = navigator.sendBeacon(QUALITY_TELEMETRY_ENDPOINT, new Blob([body], { type: 'application/json' }));
+            if (sent) return;
+        }
+        fetch(QUALITY_TELEMETRY_ENDPOINT, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body,
+            keepalive: true
+        }).catch(() => {});
+    } catch {
+        // Telemetry is optional; playback must never depend on it.
+    }
+}
+
+function initVideoQualityTelemetry(panel, cctv, video) {
+    if (!panel || !cctv || !video || video._qualityTelemetryInitialized) return;
+    video._qualityTelemetryInitialized = true;
+    video._qualityStartedAt = performance.now();
+    video._qualityStallCount = 0;
+    video._qualitySourceIndex = Number(video.dataset.sourceIndex || 0);
+
+    const markStall = () => {
+        video._qualityStallCount = Number(video._qualityStallCount || 0) + 1;
+    };
+    video.addEventListener('waiting', markStall);
+    video.addEventListener('stalled', markStall);
+}
+
+function recordVideoQualitySuccess(video, cctv) {
+    if (!video || !cctv || video._qualityReported) return;
+    if (video.tagName === 'VIDEO' && (video.readyState < 2 || video.videoWidth <= 0)) return;
+
+    video._qualityReported = true;
+    const firstFrameMs = performance.now() - Number(video._qualityStartedAt || performance.now());
+    recordQualityEvent(cctv, firstFrameMs > QUALITY_SLOW_FIRST_FRAME_MS ? 'slow' : 'success', {
+        firstFrameMs,
+        stallCount: Number(video._qualityStallCount || 0),
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        sourceIndex: Number(video._qualitySourceIndex || 0),
+        usedFallback: Number(video._qualitySourceIndex || 0) > 0
+    });
+}
+
+function recordVideoQualityFailure(video, cctv, reason) {
+    if (!video || !cctv || video._qualityReported) return;
+
+    video._qualityReported = true;
+    recordQualityEvent(cctv, 'failure', {
+        failMs: performance.now() - Number(video._qualityStartedAt || performance.now()),
+        stallCount: Number(video._qualityStallCount || 0),
+        sourceIndex: Number(video._qualitySourceIndex || 0),
+        usedFallback: Number(video._qualitySourceIndex || 0) > 0,
+        reason
+    });
+}
+
 function getPlaybackTimeoutMs(cctv) {
     const source = cctv?.source || '';
     const regionKey = inferRegionKey(cctv);
@@ -1433,6 +1860,7 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
         failed = true;
         cleanup();
         console.warn(`[Playback] ${cctv?.name || 'CCTV'} unhealthy: ${reason}`);
+        recordVideoQualityFailure(video, cctv, reason);
         onUnhealthy(reason);
     };
 
@@ -1512,6 +1940,7 @@ function handlePanelVideoHealthEvent(event) {
     if (!panel || !cctv) return;
 
     if (event.type === 'error') {
+        recordVideoQualityFailure(video, cctv, 'video-error');
         setPlaybackHealth(cctv, {
             status: 'PLAYBACK_ERROR',
             shortLabel: '재생 불안정',
@@ -1520,6 +1949,7 @@ function handlePanelVideoHealthEvent(event) {
             penalty: 6
         });
     } else {
+        recordVideoQualitySuccess(video, cctv);
         setPlaybackHealth(cctv, {
             status: 'PLAYING',
             shortLabel: '재생 정상',
@@ -1534,11 +1964,13 @@ function handlePanelVideoHealthEvent(event) {
 
 function scheduleVideoHealthProbe(panel, cctv, video) {
     if (!panel || !cctv || !video || video.tagName !== 'VIDEO') return;
+    initVideoQualityTelemetry(panel, cctv, video);
 
     [600, 1600, 3200, 5200].forEach(delay => {
         setTimeout(() => {
             if (!video.parentElement || !panel.contains(video)) return;
             if (video.readyState >= 2 && video.videoWidth > 0) {
+                recordVideoQualitySuccess(video, cctv);
                 setPlaybackHealth(cctv, {
                     status: 'PLAYING',
                     shortLabel: '재생 정상',
@@ -1621,6 +2053,7 @@ function openIssueReporter(cctv) {
         '- [ ] 영상이 재생되지 않음',
         '- [ ] 재생이 매우 느림',
         '- [ ] 다른 영상이 보임',
+        '- [ ] CCTV 명칭과 실제 화면이 맞지 않음',
         '- [ ] 지역 상태 안내와 실제 동작이 다름',
         '',
         '## 추가 메모',
@@ -1645,7 +2078,16 @@ function updateNearestCctvs() {
             const backupBonus = cctv.backup_urls && cctv.backup_urls.length > 0 ? 0.6 : 0;
             const roadContextPriority = getRoadContextPriority(cctv, distance);
             const sourceResilience = getSourceResilienceAdjustment(cctv, health, distance);
-            const priorityScore = distance + health.penalty + ((1 - streamQuality) * 6) + roadContextPriority + sourceResilience - backupBonus;
+            const qualityAdjustment = getQualitySummaryAdjustment(cctv);
+            const priorityScore = getSortPriorityScore({
+                distance,
+                healthPenalty: health.penalty,
+                streamQuality,
+                roadContextPriority,
+                sourceResilience,
+                backupBonus,
+                qualityAdjustment
+            });
 
             return {
                 ...cctv,
@@ -1654,6 +2096,7 @@ function updateNearestCctvs() {
                 _streamQuality: streamQuality,
                 _roadContextPriority: roadContextPriority,
                 _sourceResilience: sourceResilience,
+                _qualityAdjustment: qualityAdjustment,
                 _priorityScore: priorityScore
             };
         })
@@ -1671,6 +2114,7 @@ function updateNearestCctvs() {
 function renderVideoGrid() {
     const grid = $('#video-grid');
     const panels = grid.querySelectorAll('.video-panel');
+    const visiblePanelCount = state.lowDataMode ? 1 : panels.length;
 
     panels.forEach((panel, index) => {
         const cctv = state.nearestCctvs[index];
@@ -1689,6 +2133,20 @@ function renderVideoGrid() {
 
         // Clear wrapper content
         cleanupVideo(wrapper);
+        panel.classList.toggle('panel-suspended', state.lowDataMode && index >= visiblePanelCount);
+
+        if (index >= visiblePanelCount) {
+            const ph = document.createElement('div');
+            ph.className = 'video-placeholder suspended';
+            ph.textContent = '저속 모드에서는 첫 번째 영상만 자동 재생합니다. 필요하면 저속 모드를 끄거나 목록에서 직접 선택해 주세요.';
+            wrapper.appendChild(ph);
+            delete panel.dataset.cctvId;
+            panel.dataset.slotIndex = index;
+            removePanelHealthBadge(panel);
+            renderSelectTrigger(panel, null, `CCTV ${index + 1}`);
+            populateSelectOptions(panel, index);
+            return;
+        }
 
         if (cctv) {
             // Create and insert video element
@@ -1696,6 +2154,7 @@ function renderVideoGrid() {
             wrapper.appendChild(video);
             if (video.tagName === 'VIDEO') {
                 video.dataset.activeCctvId = cctv.id;
+                video.dataset.sourceIndex = '0';
                 video._activeCctv = cctv;
             }
             const loadingCopy = getStreamLoadingCopy(cctv);
@@ -1875,6 +2334,7 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     wrapper.appendChild(video);
     if (video.tagName === 'VIDEO') {
         video.dataset.activeCctvId = cctv.id;
+        video.dataset.sourceIndex = '0';
         video._activeCctv = cctv;
     }
     const loadingCopy = getStreamLoadingCopy(cctv);
@@ -2611,7 +3071,14 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
             wrapper.appendChild(newVideo);
             if (newVideo.tagName === 'VIDEO' && activeCctv?.id) {
                 newVideo.dataset.activeCctvId = activeCctv.id;
+                newVideo.dataset.sourceIndex = String(activeIndex);
                 newVideo._activeCctv = activeCctv;
+            }
+            if (!isRetryingPrimary && activeCctv) {
+                recordQualityEvent(activeCctv, 'fallback', {
+                    sourceIndex: activeIndex,
+                    usedFallback: true
+                });
             }
             const loadingCopy = getStreamLoadingCopy(activeCctv, !isRetryingPrimary, nextIndex, backupCount);
             const loadingIndicator = showStreamLoadingIndicator(wrapper, loadingCopy.title, loadingCopy.detail);
@@ -3041,9 +3508,15 @@ function openVideoLayer(cctv) {
     }
 
     const video = createVideoElement(cctv);
-    if (video.tagName === 'VIDEO') video.controls = true;
+    if (video.tagName === 'VIDEO') {
+        video.controls = true;
+        video.dataset.activeCctvId = displayCctv.id;
+        video.dataset.sourceIndex = '0';
+        video._activeCctv = displayCctv;
+    }
 
     frame.appendChild(video);
+    if (video.tagName === 'VIDEO') scheduleVideoHealthProbe(frame, displayCctv, video);
 
     // Add Expand Toggle Button if not exists
     const header = $('.video-layer-header');

@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cctv-quality",
+  "main": "src/index.js",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.05
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "https://pyw31337.github.io,http://localhost:8000,http://127.0.0.1:8000"
+  },
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cctv_quality",
+      "database_id": "REPLACE_WITH_CLOUDFLARE_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
