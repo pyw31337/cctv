@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality14';
+const APP_BUILD_VERSION = '20260515-quality15';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -3289,24 +3289,25 @@ function createHealthMarkerImage(health) {
 
     const color = getMarkerHealthColor(health);
     const shadow = tone === 'danger'
-        ? 'rgba(127, 29, 29, 0.35)'
+        ? 'rgba(127, 29, 29, 0.32)'
         : tone === 'warn'
-            ? 'rgba(120, 53, 15, 0.32)'
+            ? 'rgba(120, 53, 15, 0.28)'
             : tone === 'unknown'
-                ? 'rgba(30, 41, 59, 0.28)'
-                : 'rgba(20, 83, 45, 0.28)';
+                ? 'rgba(30, 41, 59, 0.24)'
+                : 'rgba(20, 83, 45, 0.24)';
     const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="42" height="52" viewBox="0 0 42 52">
-            <ellipse cx="21" cy="48" rx="11" ry="3" fill="${shadow}"/>
-            <path d="M21 2C10.5 2 4 10.1 4 20.2 4 34 21 50 21 50s17-16 17-29.8C38 10.1 31.5 2 21 2Z" fill="${color}" stroke="rgba(15,23,42,.38)" stroke-width="1.5"/>
-            <circle cx="21" cy="20" r="8.5" fill="rgba(255,255,255,.92)"/>
-            <circle cx="21" cy="20" r="4.5" fill="${color}"/>
+        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+            <circle cx="18" cy="20" r="12.5" fill="${shadow}"/>
+            <circle cx="18" cy="18" r="13" fill="rgba(255,255,255,.94)" stroke="rgba(15,23,42,.26)" stroke-width="1.25"/>
+            <circle cx="18" cy="18" r="9.2" fill="none" stroke="${color}" stroke-width="4.8"/>
+            <circle cx="18" cy="18" r="4.2" fill="${color}"/>
+            <circle cx="15.1" cy="14.6" r="2" fill="rgba(255,255,255,.58)"/>
         </svg>
     `.trim();
     const image = new kakao.maps.MarkerImage(
         `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-        new kakao.maps.Size(42, 52),
-        { offset: new kakao.maps.Point(21, 50) }
+        new kakao.maps.Size(36, 36),
+        { offset: new kakao.maps.Point(18, 18) }
     );
     markerImageCache.set(tone, image);
     return image;
