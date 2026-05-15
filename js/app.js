@@ -1642,6 +1642,28 @@ function updatePanelHealthUi(panel, cctv) {
     populateSelectOptions(panel, Number(panel.dataset.cctvIndex || panel.dataset.slotIndex || 0));
 }
 
+function updateVideoLayerHealthUi(cctv) {
+    if (!cctv || state.activeCctvId !== cctv.id) return;
+    const layer = $('#video-layer');
+    if (!layer || !layer.classList.contains('active')) return;
+
+    const subTitle = $('#video-layer-title .video-title-sub');
+    if (!subTitle) return;
+
+    const distance = Number.isFinite(cctv.distance)
+        ? cctv.distance
+        : getDistance(state.center.lat, state.center.lng, cctv.lat, cctv.lng);
+    const health = getCameraHealthMeta(cctv);
+
+    subTitle.innerHTML = `
+        <span>${formatDistance(distance)}</span>
+        <span class="panel-health-sep">·</span>
+        <span class="tone-${health.tone}">${health.shortLabel}</span>
+        <span class="panel-health-sep">·</span>
+        <span>${formatRelativeTime(health.lastUpdated)}</span>
+    `;
+}
+
 function setPlaybackHealth(cctv, nextHealth) {
     if (!cctv || !cctv.id) return;
     const now = Date.now();
@@ -1655,6 +1677,7 @@ function setPlaybackHealth(cctv, nextHealth) {
         storedAt: now
     });
     queueStoredPlaybackHealthPersist();
+    updateVideoLayerHealthUi(cctv);
 }
 
 function getTelemetrySampleDecision() {
