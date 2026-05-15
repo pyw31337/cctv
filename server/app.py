@@ -8,8 +8,9 @@ import threading
 import hashlib
 import json
 import re
+import base64
 from datetime import datetime, timedelta
-from urllib.parse import quote, urlencode, urljoin
+from urllib.parse import quote, urlencode, urljoin, unquote
 import flask
 from flask import Flask, request, Response, send_from_directory, abort
 import requests
@@ -387,6 +388,10 @@ def proxy_stream():
         elif 'cctvsec.ktict.co.kr' in target_url:
              headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
              headers["Referer"] = "https://its.go.kr/"
+        elif 'kbsapi.loomex.net' in target_url or 'kbscctv-cache.loomex.net' in target_url:
+             headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+             headers["Referer"] = "https://www.utic.go.kr/guide/cctvOpenData.do"
+             headers["Accept"] = "*/*"
 
         # Fetch fully before responding so transient upstream resets can be retried.
         resp = fetch_upstream(target_url, headers)
@@ -409,7 +414,15 @@ def proxy_stream():
             new_lines = []
             for line in lines:
                 if line.strip() and not line.startswith('#'):
-                    full_segment_url = urljoin(target_url, line.strip())
+                    base_url = target_url
+                    target_path_tail = target_url.split('?', 1)[0].rstrip('/').rsplit('/', 1)[-1]
+                    if (
+                        'kbsapi.loomex.net/v1/api/cctvRequest' in target_url
+                        and not target_url.endswith('/')
+                        and '.' not in target_path_tail
+                    ):
+                        base_url = target_url + '/'
+                    full_segment_url = urljoin(base_url, line.strip())
                     new_lines.append(f"/proxy?url={quote(full_segment_url, safe='')}")
                 else:
                     new_lines.append(line)
@@ -661,6 +674,46 @@ def proxy_utic():
 
 
 # === KB / Loomex (경기도·부산 CCTV via kbsapi.loomex.net) Proxy Logic ===
+def extract_wowza_query_from_kbs_manifest(manifest_text):
+    match = re.search(r'chunklist_([^\s/]+?)\.m3u8', manifest_text or '')
+    if not match:
+        return None
+
+    raw_token = unquote(match.group(1))
+    candidates = [raw_token, raw_token[1:], raw_token[2:]]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            padded = candidate + ('=' * ((4 - len(candidate) % 4) % 4))
+            decoded = base64.b64decode(padded).decode('utf-8')
+        except Exception:
+            continue
+        if decoded.startswith('wowzatoken'):
+            return decoded
+    return None
+
+
+def build_kbs_cache_url(cctvip, kbs_url, headers):
+    """KBS scenic cameras return a kbsapi manifest whose child playlist can 500.
+    Reuse its fresh Wowza token against the public kbscctv-cache lowStream path.
+    """
+    if 'kbsapi.loomex.net/v1/api/cctvRequest' not in kbs_url:
+        return None
+
+    resp = fetch_upstream(kbs_url, headers, attempts=2)
+    if resp.status_code != 200:
+        logger.warning("KB %s kbsapi manifest returned %s", cctvip, resp.status_code)
+        return None
+
+    wowza_query = extract_wowza_query_from_kbs_manifest(resp.text)
+    if not wowza_query:
+        logger.warning("KB %s could not extract Wowza token from kbsapi manifest", cctvip)
+        return None
+
+    return f"https://kbscctv-cache.loomex.net/lowStream/_definst_/{cctvip}_low.stream/playlist.m3u8?{wowza_query}"
+
+
 @app.route('/kb')
 def proxy_kb():
     """Fetches a fresh Loomex (kbsapi) stream URL for a given cctvip via utic.go.kr."""
@@ -690,6 +743,11 @@ def proxy_kb():
             return f"Unexpected URL format: {kbs_url[:50]}", 502
 
         logger.info(f"KB {cctvip} -> {kbs_url[:70]}...")
+        cache_url = build_kbs_cache_url(cctvip, kbs_url, headers)
+        if cache_url:
+            logger.info(f"KB {cctvip} cache lowStream -> {cache_url[:80]}...")
+            return flask.redirect(f"/proxy?url={quote(cache_url, safe='')}")
+
         return flask.redirect(f"/proxy?url={quote(kbs_url)}")
 
     except Exception as e:

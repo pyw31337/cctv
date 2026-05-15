@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality12';
+const APP_BUILD_VERSION = '20260515-quality13';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -45,6 +45,7 @@ const DYNAMIC_BACKUP_RADIUS_KM = 8;
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
 const ORACLE_PROXY_BASE = `${ORACLE_BASE}/proxy`;
 const JEJU_PROXY_BASE = 'https://158.179.194.163.sslip.io/jeju';
+const KB_PROXY_BASE = `${ORACLE_BASE}/kb`;
 const MARKER_DANGER_FILTER = 'hue-rotate(145deg) saturate(1.85) contrast(1.08)';
 const MARKER_WARN_FILTER = 'hue-rotate(185deg) saturate(1.55) contrast(1.05)';
 const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|동부출장소|행정복지|주민센터|사거리|삼거리|교차로|로터리|터미널|역|아파트|시장|학교|초교|초등|중학교|고교|병원|마트|상가|대로변|단지내|시내|중앙|읍내)/;
@@ -207,6 +208,7 @@ const state = {
 let map = null;
 const SEARCH_MARKER_SRC = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png';
 const YOUTUBE_MARKER_SRC = 'https://img.icons8.com/color/48/youtube-play.png';
+const markerImageCache = new Map();
 let playbackHealthPersistTimer = null;
 let qualityTelemetryFlushTimer = null;
 
@@ -387,6 +389,17 @@ function restoreQualityPreferences() {
         state.sortMode = 'recommended';
         state.lowDataMode = false;
     }
+
+    if (isMobileQualityControlsHidden()) {
+        state.lowDataMode = false;
+    }
+}
+
+function isMobileQualityControlsHidden() {
+    if (!window.matchMedia) return false;
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches
+        || window.matchMedia('(max-width: 820px)').matches
+        || window.matchMedia('(max-height: 520px) and (max-width: 1100px)').matches;
 }
 
 function renderQualityControls() {
@@ -2115,6 +2128,7 @@ function renderVideoGrid() {
     const grid = $('#video-grid');
     const panels = grid.querySelectorAll('.video-panel');
     const visiblePanelCount = state.lowDataMode ? 1 : panels.length;
+    grid.classList.toggle('low-data-mode', state.lowDataMode);
 
     panels.forEach((panel, index) => {
         const cctv = state.nearestCctvs[index];
@@ -2432,7 +2446,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         selectedSource = 'JEJU';
         selectedOriginalId = selectedJejuUticStreamId;
     } else if (selectedSource === 'KBS' && selectedCctvIp) {
-        url = `https://cctv-proxy.pyw213.workers.dev/kb?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
+        url = `${KB_PROXY_BASE}?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
     } else if (shouldProxy) {
         if (selectedSource === 'TRENDWORLD' || selectedSource === 'NOWJEJU' || selectedSource === 'HRFCO') {
             url = `${genericProxyBase}?url=${encodeURIComponent(url)}&_t=${Date.now()}`;
@@ -2440,7 +2454,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             const jejuStreamId = getUrlParam(url, 'id') || selectedOriginalId || sourceFallbackId;
             url = `${JEJU_PROXY_BASE}?id=${encodeURIComponent(jejuStreamId)}&_t=${Date.now()}`;
         } else if (selectedSource === 'UTIC' && selectedCctvIp && ['EE', 'EEE', 'KB'].includes(selectedKind)) {
-            url = `https://cctv-proxy.pyw213.workers.dev/kb?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
+            url = `${KB_PROXY_BASE}?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
         }
     }
 
@@ -2586,22 +2600,42 @@ function createVideoElement(cctv, sourceIndex = 0) {
     // directUrl in cctv_data.json is pre-set to /kb?cctvip=X for EE cameras
     if (url.includes('/kb?cctvip=') || (url.includes('kind=EE') && url.includes('cctvip='))) {
         let kbUrl = url;
-        if (!url.includes('/kb?cctvip=')) {
-            const cctvipMatch = url.match(/[?&]cctvip=(\d+)/);
-            if (cctvipMatch) {
-                kbUrl = `https://cctv-proxy.pyw213.workers.dev/kb?cctvip=${cctvipMatch[1]}`;
-            }
+        const cctvipMatch = url.match(/[?&]cctvip=(\d+)/);
+        if (cctvipMatch) {
+            kbUrl = `${KB_PROXY_BASE}?cctvip=${cctvipMatch[1]}`;
         }
         if (!kbUrl.includes('_t=')) kbUrl += `&_t=${Date.now()}`;
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
-        video.src = kbUrl;
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
         video.setAttribute('playsinline', '');
-        video.onerror = () => triggerFailover(video.parentElement);
+        const shouldUseKbsHls = selectedSource === 'KBS' || selectedKind === 'KB' || cctv.source === 'KBS';
+        if (shouldUseKbsHls && window.Hls && Hls.isSupported()) {
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: false,
+                manifestLoadingMaxRetry: 2,
+                levelLoadingMaxRetry: 2,
+                fragLoadingMaxRetry: 2,
+            });
+            hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                video.play().catch(() => {});
+            });
+            hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data && data.fatal) {
+                    triggerFailover(video.parentElement);
+                }
+            });
+            hls.attachMedia(video);
+            hls.loadSource(kbUrl);
+            video.hls = hls;
+        } else {
+            video.src = kbUrl;
+            video.onerror = () => triggerFailover(video.parentElement);
+        }
         armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
         return video;
     }
@@ -3256,15 +3290,16 @@ function renderMapMarkers() {
             title: markerTitle
         };
 
-        // Custom Icon for YouTube
         if (cctv.source === 'YOUTUBE') {
             const imageSize = new kakao.maps.Size(32, 32);
             const imageOption = { offset: new kakao.maps.Point(16, 16) }; // Center
             markerOptions.image = new kakao.maps.MarkerImage(YOUTUBE_MARKER_SRC, imageSize, imageOption);
+        } else {
+            const healthMarkerImage = createHealthMarkerImage(health);
+            if (healthMarkerImage) markerOptions.image = healthMarkerImage;
         }
 
         const marker = new kakao.maps.Marker(markerOptions);
-        applyMarkerHealthFilter(marker, health, markerTitle);
 
         kakao.maps.event.addListener(marker, 'click', () => {
             openVideoLayer(cctv);
@@ -3272,6 +3307,56 @@ function renderMapMarkers() {
 
         state.markers.push(marker);
     });
+}
+
+function createHealthMarkerImage(health) {
+    if (!window.kakao || !kakao.maps) return null;
+
+    const tone = health?.tone || 'unknown';
+    if (markerImageCache.has(tone)) {
+        return markerImageCache.get(tone);
+    }
+
+    const color = getMarkerHealthColor(health);
+    const shadow = tone === 'danger'
+        ? 'rgba(127, 29, 29, 0.35)'
+        : tone === 'warn'
+            ? 'rgba(120, 53, 15, 0.32)'
+            : tone === 'unknown'
+                ? 'rgba(30, 41, 59, 0.28)'
+                : 'rgba(20, 83, 45, 0.28)';
+    const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="42" height="52" viewBox="0 0 42 52">
+            <ellipse cx="21" cy="48" rx="11" ry="3" fill="${shadow}"/>
+            <path d="M21 2C10.5 2 4 10.1 4 20.2 4 34 21 50 21 50s17-16 17-29.8C38 10.1 31.5 2 21 2Z" fill="${color}" stroke="rgba(15,23,42,.38)" stroke-width="1.5"/>
+            <circle cx="21" cy="20" r="8.5" fill="rgba(255,255,255,.92)"/>
+            <circle cx="21" cy="20" r="4.5" fill="${color}"/>
+        </svg>
+    `.trim();
+    const image = new kakao.maps.MarkerImage(
+        `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+        new kakao.maps.Size(42, 52),
+        { offset: new kakao.maps.Point(21, 50) }
+    );
+    markerImageCache.set(tone, image);
+    return image;
+}
+
+function getMarkerHealthColor(health) {
+    if (!health) return '#94a3b8';
+    if (health.status === 'UNSUPPORTED' || (health.status === 'DOWN' && health.tone === 'danger') || health.tone === 'danger') {
+        return '#ef4444';
+    }
+    if (health.status === 'DEGRADED' || health.tone === 'warn') {
+        return '#f59e0b';
+    }
+    if (health.tone === 'ok-soft') {
+        return '#84cc16';
+    }
+    if (health.status === 'OK' || health.tone === 'ok') {
+        return '#22c55e';
+    }
+    return '#94a3b8';
 }
 
 function getMarkerHealthFilter(health) {
