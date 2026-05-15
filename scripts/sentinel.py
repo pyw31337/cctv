@@ -34,7 +34,8 @@ KNOWN_REGION_KEYS = {
     'BUSAN', 'CCTVWORLD', 'CHUNGJU', 'DAEGU', 'DAEJEON', 'FITIC', 'GANGWON',
     'GGEX', 'GIGAEYES', 'GITS', 'GOYANG', 'GWANGJU', 'ICITS', 'INCHEON',
     'JEJU', 'KBS', 'KNPS', 'NOWJEJU', 'NTIC', 'PAJU', 'SEJONG', 'SPATIC',
-    'TOPIS', 'TRENDWORLD', 'ULLEUNG', 'ULSAN', 'UTIC', 'YT'
+    'TOPIS', 'TRENDWORLD', 'ULLEUNG', 'ULSAN', 'UTIC', 'UTIC_DIRECT',
+    'UTIC_LEGACY', 'UTIC_Z3', 'YT'
 }
 
 SOURCE_REGION_ALIASES = {
@@ -196,6 +197,13 @@ def infer_region_name(cctv):
         return 'JEJU'
     if source == 'UTIC' and cctv_id.startswith('L12'):
         return 'PAJU'
+    if source == 'UTIC':
+        kind = get_url_param(url, 'kind')
+        if kind == 'Z3':
+            return 'UTIC_Z3'
+        if kind in ['KB', 'EE', 'EEE']:
+            return 'UTIC_DIRECT'
+        return 'UTIC_LEGACY'
     if prefix and prefix in KNOWN_REGION_KEYS:
         return prefix
     if source in SOURCE_REGION_ALIASES:
@@ -394,6 +402,46 @@ def check_paju_stream(cctv):
     return False
 
 
+def check_gits_stream(cctv):
+    stream_id = cctv.get('original_id') or str(cctv.get('id', '')).replace('GITS_', '')
+    if not stream_id:
+        set_probe_result(cctv, False, reason='missing_gits_id', category='data_error')
+        return False
+
+    url = f'{ORACLE_BASE}/gits?cctvip={quote(str(stream_id))}'
+    try:
+        resp = requests.get(
+            url,
+            timeout=REQUEST_TIMEOUT,
+            verify=False,
+            headers=HEADERS,
+            allow_redirects=False,
+            stream=True
+        )
+        location = resp.headers.get('Location', '')
+        content_type = resp.headers.get('Content-Type', '').lower()
+        if resp.status_code in (301, 302, 303, 307, 308) and location:
+            set_probe_result(cctv, True, reason='resolver_redirect_ok', status_code=resp.status_code, url=url, content_type=content_type)
+            log(f"[OK] GiTS {cctv.get('id')} resolver is UP")
+            return True
+        if resp.status_code == 200:
+            body = resp.raw.read(128, decode_content=True).decode('utf-8', errors='ignore').strip()
+            if body.startswith('http') or body.startswith('#EXTM3U'):
+                set_probe_result(cctv, True, reason='resolver_body_ok', status_code=resp.status_code, url=url, content_type=content_type)
+                log(f"[OK] GiTS {cctv.get('id')} resolver body is UP")
+                return True
+        category = 'not_found' if resp.status_code == 404 else ('auth_or_token' if resp.status_code in (401, 403) else 'token_or_manifest')
+        set_probe_result(cctv, False, reason='gits_resolver_failed', category=category, status_code=resp.status_code, url=url, content_type=content_type)
+        log(f"[FAIL] GiTS {cctv.get('id')} resolver returned {resp.status_code}")
+    except requests.Timeout as error:
+        set_probe_result(cctv, False, reason='timeout', category='timeout', url=url, detail=error)
+        log(f"[ERR] GiTS {cctv.get('id')} timed out: {error}")
+    except Exception as error:
+        set_probe_result(cctv, False, reason='request_error', category='network_error', url=url, detail=error)
+        log(f"[ERR] GiTS {cctv.get('id')} check failed: {error}")
+    return False
+
+
 def check_generic_stream(cctv):
     url = cctv.get('directUrl') or cctv.get('url')
     if not url:
@@ -415,6 +463,9 @@ def check_generic_stream(cctv):
         url = f'{ORACLE_BASE}/utic?kind=Z3&cctvid={quote(cctvid)}&cctvip={quote(cctvip)}'
     elif source == 'UTIC' and kind in ['KB', 'EE', 'EEE'] and cctvip:
         url = f'{ORACLE_BASE}/kb?cctvip={cctvip}'
+    elif source == 'UTIC' and 'openDataCctvStream.jsp' in url:
+        query = urlparse(url).query
+        url = f'{ORACLE_BASE}/utic?{query}'
 
     if source in ['NOWJEJU', 'TRENDWORLD']:
         url = f'{ORACLE_BASE}/proxy?url={requests.utils.quote(url)}'
@@ -449,6 +500,8 @@ def check_camera(region_name, cctv):
         return check_jeju_stream(cctv)
     if region_name == 'PAJU':
         return check_paju_stream(cctv)
+    if cctv.get('source') == 'GITS':
+        return check_gits_stream(cctv)
     if is_unsupported_browser_stream(cctv):
         log(f"[UNSUPPORTED] {cctv.get('id')} uses a legacy UTIC browser plugin stream")
         set_probe_result(cctv, False, reason='unsupported_legacy_player', category='unsupported_legacy')

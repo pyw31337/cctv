@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality21';
+const APP_BUILD_VERSION = '20260515-quality22';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -85,6 +85,9 @@ const REGION_LABELS = {
     ULLEUNG: '울릉',
     ULSAN: '울산',
     UTIC: 'UTIC',
+    UTIC_DIRECT: 'UTIC 직접영상',
+    UTIC_LEGACY: 'UTIC 구형',
+    UTIC_Z3: 'UTIC 국도',
     YT: 'YouTube'
 };
 
@@ -1018,6 +1021,12 @@ function inferRegionKey(cctv) {
     }
     if (source === 'JEJU') return 'JEJU';
     if (source === 'UTIC' && id.startsWith('L12')) return 'PAJU';
+    if (source === 'UTIC') {
+        const kind = getUrlParam(cctv.directUrl || cctv.url || '', 'kind');
+        if (kind === 'Z3') return 'UTIC_Z3';
+        if (['EE', 'EEE', 'KB'].includes(kind)) return 'UTIC_DIRECT';
+        return 'UTIC_LEGACY';
+    }
     if (prefix && REGION_LABELS[prefix]) return prefix;
     if (REGION_ALIASES[source]) return REGION_ALIASES[source];
     if (id.includes('_')) return id.split('_')[0];
@@ -3057,7 +3066,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         || url.includes('158.179.194.163.sslip.io/proxy');
     const isKnownHlsSource = ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'HRFCO'].includes(selectedSource);
     const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
-    const isGits = cctv.source === 'GITS' && sourceIndex === 0;
+    const isGits = selectedSource === 'GITS';
 
     // YouTube Handling
     if (isYouTube) {
@@ -3079,8 +3088,8 @@ function createVideoElement(cctv, sourceIndex = 0) {
         }
     }
 
-    // GITS: async real-time token fetch via CF Worker /gits endpoint
-    if (isGits && cctv.original_id) {
+    // GITS: resolve through the same Oracle endpoint used by health checks.
+    if (isGits && (selectedOriginalId || cctv.original_id)) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
@@ -3089,23 +3098,39 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
-        (async () => {
-            try {
-                const resp = await fetch(`https://cctv-proxy.pyw213.workers.dev/gits?id=${cctv.original_id}&_t=${Date.now()}`);
-                if (!resp.ok) throw new Error('gits ' + resp.status);
-                const streamUrl = (await resp.text()).trim();
-                if (!streamUrl.startsWith('http')) throw new Error('bad url: ' + streamUrl.slice(0, 50));
-                if (!video.parentElement) return;
-                video.src = streamUrl;
-                video.onerror = () => { if (video.parentElement) triggerFailover(video.parentElement); };
-                armVideoPlaybackWatchdog(video, cctv, () => {
-                    if (video.parentElement) triggerFailover(video.parentElement);
-                });
-            } catch(e) {
-                console.error('[GITS] Token fetch failed:', e);
-                if (video.parentElement) triggerFailover(video.parentElement);
-            }
-        })();
+        const gitsId = selectedOriginalId || cctv.original_id;
+        const gitsUrl = `${ORACLE_BASE}/gits?cctvip=${encodeURIComponent(gitsId)}&_t=${Date.now()}`;
+        const failGits = () => {
+            if (video.parentElement) triggerFailover(video.parentElement);
+        };
+
+        if (window.Hls && Hls.isSupported()) {
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                capLevelToPlayerSize: true,
+                manifestLoadingTimeOut: 12000,
+                manifestLoadingMaxRetry: 1,
+                levelLoadingMaxRetry: 1,
+                fragLoadingMaxRetry: 1,
+            });
+            hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                video.play().catch(() => {});
+            });
+            hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data && data.fatal) {
+                    hls.destroy();
+                    failGits();
+                }
+            });
+            hls.attachMedia(video);
+            hls.loadSource(gitsUrl);
+            video.hls = hls;
+        } else {
+            video.src = gitsUrl;
+            video.onerror = failGits;
+        }
+        armVideoPlaybackWatchdog(video, cctv, failGits);
 
         return video;
     }

@@ -818,11 +818,20 @@ def proxy_kb():
 @app.route('/gits')
 def proxy_gits():
     """Fetches a fresh GiTS stream URL on-demand for a given cctvip (GiTS cctvId)."""
-    cctvip = request.args.get('cctvip')
+    cctvip = request.args.get('cctvip') or request.args.get('id')
     if not cctvip:
         return "Missing cctvip", 400
 
-    popup_url = f"https://gits.gg.go.kr/web/popup/webCctvPopup.do?cctvId={cctvip}"
+    cctvip = str(cctvip).replace('GITS_', '').strip()
+    route_id = request.args.get('routeId', '')
+    svc_link_id = request.args.get('svcLinkId', '')
+
+    query = urlencode({k: v for k, v in {
+        'cctvId': cctvip,
+        'routeId': route_id,
+        'svcLinkId': svc_link_id,
+    }.items() if v})
+    popup_url = f"https://gits.gg.go.kr/web/popup/webCctvPopup.do?{query}"
     gits_headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://gits.gg.go.kr/web/map/webMap.do?opt=3"
@@ -835,25 +844,32 @@ def proxy_gits():
 
         html = resp.text
 
-        # Extract the !hls token URL (preferred - returns signed m3u8)
-        match_hls = re.search(r'\$\.get\("([^"]+!hls)"', html)
-        if match_hls:
+        # Extract the !hls token URL (preferred - returns signed m3u8).
+        hls_patterns = [
+            r'\$\.get\(["\']([^"\']+!hls)["\']',
+            r'["\'](https?:\/\/gitsview\.gg\.go\.kr\/[^"\']+!hls)["\']',
+            r'["\'](\/\/gitsview\.gg\.go\.kr\/[^"\']+!hls)["\']',
+        ]
+        for pattern in hls_patterns:
+            match_hls = re.search(pattern, html)
+            if not match_hls:
+                continue
             hls_token_url = match_hls.group(1)
             if hls_token_url.startswith("//"):
                 hls_token_url = "https:" + hls_token_url
-            hls_resp = requests.get(hls_token_url, headers=gits_headers, timeout=10)
+            hls_resp = requests.get(hls_token_url, headers=gits_headers, timeout=10, verify=False)
             if hls_resp.status_code == 200:
                 m3u8_url = hls_resp.text.strip()
                 if m3u8_url.startswith("http"):
                     logger.info(f"GiTS {cctvip} -> {m3u8_url[:70]}...")
-                    return flask.redirect(f"/proxy?url={quote(m3u8_url)}")
+                    return flask.redirect(f"/proxy?url={quote(m3u8_url, safe='')}")
 
         # Fallback: videoUrl (direct stream, no token resolution needed)
-        match_video = re.search(r'var videoUrl = "(http[^"]+)"', html)
+        match_video = re.search(r'var\s+videoUrl\s*=\s*["\'](http[^"\']+)["\']', html)
         if match_video:
             video_url = match_video.group(1).replace("http://", "https://")
             logger.info(f"GiTS {cctvip} (videoUrl fallback) -> {video_url[:70]}...")
-            return flask.redirect(f"/proxy?url={quote(video_url)}")
+            return flask.redirect(f"/proxy?url={quote(video_url, safe='')}")
 
         return f"GiTS: stream not found for cctvip {cctvip}", 404
 
