@@ -11,7 +11,8 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality22';
+const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
+const APP_BUILD_VERSION = '20260515-quality23';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -196,6 +197,7 @@ const state = {
     nearestCctvs: [],
     cameraPlaybackHealth: new Map(),
     regionHealth: {},
+    cameraFailures: new Map(),
     healthSnapshot: null,
     healthSnapshotStale: false,
     qualitySummary: null,
@@ -295,6 +297,7 @@ async function loadHealthStatus() {
             const snapshot = await fetchJsonWithTimeout(url, 2200);
             state.healthSnapshot = snapshot;
             state.regionHealth = state.healthSnapshot.regions || {};
+            state.cameraFailures = buildCameraFailureMap(state.healthSnapshot.camera_failures);
             state.healthSnapshotStale = isStaleHealthTimestamp(snapshot.last_updated);
             if (state.healthSnapshotStale) {
                 console.warn('Using stale health status snapshot:', snapshot.last_updated);
@@ -308,6 +311,7 @@ async function loadHealthStatus() {
     console.warn('Failed to load all health status sources.');
     state.healthSnapshot = null;
     state.regionHealth = {};
+    state.cameraFailures = new Map();
     state.healthSnapshotStale = false;
 }
 
@@ -1038,6 +1042,68 @@ function getRegionLabel(regionKey) {
     return REGION_LABELS[regionKey] || regionKey || '미분류';
 }
 
+function buildCameraFailureMap(failures) {
+    if (!failures || typeof failures !== 'object') return new Map();
+    return new Map(Object.entries(failures).filter(([, value]) => value && typeof value === 'object'));
+}
+
+function getCameraFailureRecord(cctv) {
+    if (!cctv || !cctv.id || !state.cameraFailures) return null;
+    const record = state.cameraFailures.get(cctv.id);
+    if (!record) return null;
+
+    const lastFailedAt = Date.parse(record.last_failed_at || record.lastFailedAt || '');
+    if (!Number.isFinite(lastFailedAt)) return record;
+    if (Date.now() - lastFailedAt > CAMERA_FAILURE_RECENT_MS) return null;
+    return record;
+}
+
+function getCameraFailureHealthMeta(cctv, regionKey, lastUpdated) {
+    const record = getCameraFailureRecord(cctv);
+    if (!record) return null;
+
+    const level = record.emergency_level || 'watch';
+    const diagnosis = record.diagnosis || {};
+    const failedFor = Number(record.failed_for_minutes || 0);
+    const failureCount = Number(record.failure_count || 0);
+    const cause = diagnosis.likely_cause || record.last_reason || '최근 자동 점검에서 반복 실패가 감지되었습니다';
+    const action = diagnosis.recommended_action ? ` 권장 조치: ${diagnosis.recommended_action}` : '';
+
+    if (level === 'critical') {
+        return {
+            regionKey,
+            status: 'CAMERA_CRITICAL',
+            shortLabel: '장기 장애',
+            longLabel: `${cctv.name || '이 CCTV'}는 ${failedFor}분 동안 ${failureCount}회 실패했습니다. 원인: ${cause}.${action}`,
+            tone: 'danger',
+            penalty: 14,
+            lastUpdated: record.last_failed_at || lastUpdated
+        };
+    }
+
+    if (level === 'investigate') {
+        return {
+            regionKey,
+            status: 'CAMERA_INVESTIGATE',
+            shortLabel: '반복 실패',
+            longLabel: `${cctv.name || '이 CCTV'}는 최근 ${failureCount}회 실패했습니다. 원인: ${cause}.${action}`,
+            tone: 'danger',
+            penalty: 10,
+            lastUpdated: record.last_failed_at || lastUpdated
+        };
+    }
+
+    return {
+        regionKey,
+        status: 'CAMERA_WATCH',
+        shortLabel: '점검 주의',
+        longLabel: `${cctv.name || '이 CCTV'}는 최근 점검에서 실패했습니다. 원인: ${cause}.`,
+        tone: 'warn',
+        penalty: 4,
+        lastUpdated: record.last_failed_at || lastUpdated
+    };
+}
+
 function getCameraQualitySummary(cctv) {
     if (!cctv || !state.qualitySummary || !state.qualitySummary.cameras) return null;
     return state.qualitySummary.cameras[cctv.id] || null;
@@ -1349,6 +1415,9 @@ function getCameraHealthMeta(cctv) {
         };
     }
 
+    const cameraFailureMeta = getCameraFailureHealthMeta(cctv, regionKey, lastUpdated);
+    if (cameraFailureMeta) return cameraFailureMeta;
+
     const qualityMeta = getQualitySummaryHealthMeta(cctv, regionKey);
     if (qualityMeta) return qualityMeta;
 
@@ -1468,6 +1537,14 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
         };
     }
 
+    if (['CAMERA_CRITICAL', 'CAMERA_INVESTIGATE'].includes(health.status)) {
+        return {
+            tone: 'danger',
+            label: health.shortLabel,
+            title: health.longLabel || '자동 점검에서 반복 장애가 확인되었습니다.'
+        };
+    }
+
     if (health.status === 'UNSUPPORTED' || health.status === 'QUALITY_DOWN' || health.status === 'PLAYBACK_ERROR' || health.tone === 'danger') {
         return {
             tone: 'danger',
@@ -1500,6 +1577,11 @@ function isKbResolverPlaybackCandidate(cctv) {
 }
 
 function hasCameraSpecificPlaybackProblem(cctv) {
+    const failureRecord = getCameraFailureRecord(cctv);
+    if (failureRecord && ['investigate', 'critical'].includes(failureRecord.emergency_level || '')) {
+        return true;
+    }
+
     const playbackHealth = cctv && cctv.id ? state.cameraPlaybackHealth.get(cctv.id) : null;
     if (playbackHealth && isStoredPlaybackHealthFresh(playbackHealth)) {
         return playbackHealth.status === 'PLAYBACK_ERROR' || playbackHealth.tone === 'danger';
@@ -1561,6 +1643,19 @@ function isFrameOnlyPlaybackCandidate(cctv) {
         || url.includes('gangneung_player.html')
         || url.includes('cctvPopup.do')
         || url.includes('hrfco.go.kr');
+}
+
+function shouldIsolateProblemCamera(cctv) {
+    const health = cctv?._health || getCameraHealthMeta(cctv);
+    if (!health) return false;
+    if (health.status === 'UNSUPPORTED') return true;
+    if (['CAMERA_CRITICAL', 'CAMERA_INVESTIGATE', 'PLAYBACK_ERROR', 'QUALITY_DOWN'].includes(health.status)) {
+        return true;
+    }
+    if (health.status === 'DOWN' && !isAggregateOnlyHealthWarning(cctv, health)) {
+        return true;
+    }
+    return false;
 }
 
 function isDirectVideoPlaybackCandidate(cctv) {
@@ -2495,10 +2590,10 @@ function updateNearestCctvs() {
         })
         .sort((a, b) => a._priorityScore - b._priorityScore || a.distance - b.distance);
 
-    const supported = ranked.filter(cctv => cctv._health.status !== 'UNSUPPORTED');
-    const unsupported = ranked.filter(cctv => cctv._health.status === 'UNSUPPORTED');
-    const ordered = supported.length >= 4
-        ? supported.concat(unsupported)
+    const preferred = ranked.filter(cctv => !shouldIsolateProblemCamera(cctv));
+    const isolated = ranked.filter(cctv => shouldIsolateProblemCamera(cctv));
+    const ordered = preferred.length >= 4
+        ? preferred.concat(isolated)
         : ranked;
 
     state.nearestCctvs = ordered.slice(0, NEAREST_RESULT_LIMIT);

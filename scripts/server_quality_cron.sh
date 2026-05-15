@@ -29,7 +29,15 @@ else
 fi
 
 echo "[$(date -Is)] start regional sentinel" >> "$LOG_FILE"
-"$PYTHON" scripts/sentinel.py >> "$LOG_FILE" 2>&1
+if command -v timeout >/dev/null 2>&1; then
+  if ! timeout 12m "$PYTHON" scripts/sentinel.py >> "$LOG_FILE" 2>&1; then
+    echo "[$(date -Is)] regional sentinel failed or timed out" >> "$LOG_FILE"
+  fi
+else
+  if ! "$PYTHON" scripts/sentinel.py >> "$LOG_FILE" 2>&1; then
+    echo "[$(date -Is)] regional sentinel failed" >> "$LOG_FILE"
+  fi
+fi
 echo "[$(date -Is)] finish regional sentinel" >> "$LOG_FILE"
 
 # Warm the local status endpoint so the public app can read the fresh result

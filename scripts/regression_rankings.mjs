@@ -109,6 +109,7 @@ harness.state.cctvData = cctvData;
 harness.state.cctvById = new Map(cctvData.map((item) => [item.id, item]));
 harness.state.regionHealth = makeSyntheticHealth().regions;
 harness.state.healthSnapshot = makeSyntheticHealth();
+harness.state.cameraFailures = new Map();
 harness.state.healthSnapshotStale = false;
 harness.state.qualitySummary = null;
 harness.buildGeoIndex(cctvData);
@@ -137,5 +138,34 @@ for (const sortMode of ['recommended', 'nearest', 'urban']) {
   );
   console.log(`[OK] ${guri.label} ${sortMode}: ${topNames.join(', ')}`);
 }
+
+const failingGuriCamera = byId.get('L901466');
+harness.state.cameraFailures = new Map([[
+  'L901466',
+  {
+    id: 'L901466',
+    name: '세무서4',
+    region: 'UTIC_DIRECT',
+    source: 'UTIC',
+    emergency_level: 'critical',
+    failed_for_minutes: 130,
+    failure_count: 4,
+    last_failed_at: new Date().toISOString(),
+    diagnosis: {
+      likely_cause: '테스트용 반복 장애',
+      recommended_action: '추천 하위 격리',
+    },
+  },
+]]);
+harness.state.center = guri.center;
+harness.state.sortMode = 'nearest';
+harness.updateNearestCctvs();
+const isolatedTopNames = names(harness.state.nearestCctvs, 8);
+const isolatedHealth = harness.getCameraHealthMeta(failingGuriCamera);
+const isolatedConfidence = harness.getCameraPlaybackConfidence(failingGuriCamera, isolatedHealth);
+assert(isolatedHealth.status === 'CAMERA_CRITICAL', 'camera failure registry should override aggregate health');
+assert(isolatedConfidence.tone === 'danger', 'critical camera failure should render a red selector dot');
+assert(!isolatedTopNames.includes('세무서4'), `critical camera should be isolated from top 8, got ${JSON.stringify(isolatedTopNames)}`);
+console.log(`[OK] critical camera isolation: ${isolatedTopNames.join(', ')}`);
 
 console.log('[OK] ranking regressions passed');

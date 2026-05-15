@@ -170,6 +170,41 @@ def is_unsupported_browser_stream(cctv):
     return source == 'UTIC' and kind == 'K'
 
 
+def get_source_specific_failure_category(cctv, fallback_category, status_code=None):
+    url = cctv.get('directUrl') or cctv.get('url') or ''
+    source = cctv.get('source') or ''
+    region = infer_region_name(cctv)
+    kind = get_url_param(url, 'kind')
+
+    if source == 'GITS' or region == 'GITS':
+        if status_code == 404 or fallback_category == 'not_found':
+            return 'gits_source_missing'
+        if status_code in (401, 403) or fallback_category in ('auth_or_token', 'token_or_manifest'):
+            return 'gits_token_or_auth'
+        return fallback_category
+
+    if kind == 'Z3' or region == 'UTIC_Z3':
+        if fallback_category == 'timeout':
+            return 'z3_resolver_timeout'
+        if status_code == 404 or fallback_category == 'not_found':
+            return 'z3_stream_missing'
+        if status_code in (401, 403) or fallback_category in ('auth_or_token', 'token_or_manifest'):
+            return 'z3_token_or_manifest'
+        if fallback_category in ('http_error', 'network_error'):
+            return 'z3_resolver_error'
+        return fallback_category
+
+    if source == 'NTIC' or region == 'NTIC':
+        if fallback_category == 'timeout':
+            return 'ntic_resolver_timeout'
+        if status_code == 404 or fallback_category == 'not_found':
+            return 'ntic_stream_missing'
+        if fallback_category in ('http_error', 'network_error'):
+            return 'ntic_resolver_error'
+
+    return fallback_category
+
+
 def infer_region_name(cctv):
     if not cctv:
         return None
@@ -430,14 +465,15 @@ def check_gits_stream(cctv):
                 set_probe_result(cctv, True, reason='resolver_body_ok', status_code=resp.status_code, url=url, content_type=content_type)
                 log(f"[OK] GiTS {cctv.get('id')} resolver body is UP")
                 return True
-        category = 'not_found' if resp.status_code == 404 else ('auth_or_token' if resp.status_code in (401, 403) else 'token_or_manifest')
+        base_category = 'not_found' if resp.status_code == 404 else ('auth_or_token' if resp.status_code in (401, 403) else 'token_or_manifest')
+        category = get_source_specific_failure_category(cctv, base_category, resp.status_code)
         set_probe_result(cctv, False, reason='gits_resolver_failed', category=category, status_code=resp.status_code, url=url, content_type=content_type)
         log(f"[FAIL] GiTS {cctv.get('id')} resolver returned {resp.status_code}")
     except requests.Timeout as error:
-        set_probe_result(cctv, False, reason='timeout', category='timeout', url=url, detail=error)
+        set_probe_result(cctv, False, reason='timeout', category=get_source_specific_failure_category(cctv, 'timeout'), url=url, detail=error)
         log(f"[ERR] GiTS {cctv.get('id')} timed out: {error}")
     except Exception as error:
-        set_probe_result(cctv, False, reason='request_error', category='network_error', url=url, detail=error)
+        set_probe_result(cctv, False, reason='request_error', category=get_source_specific_failure_category(cctv, 'network_error'), url=url, detail=error)
         log(f"[ERR] GiTS {cctv.get('id')} check failed: {error}")
     return False
 
@@ -481,14 +517,15 @@ def check_generic_stream(cctv):
             set_probe_result(cctv, True, reason='ok', status_code=resp.status_code, url=url, content_type=content_type)
             log(f"[OK] {cctv.get('id')} is UP")
             return True
-        category = 'not_found' if resp.status_code == 404 else ('auth_or_token' if resp.status_code in (401, 403) else 'http_error')
+        base_category = 'not_found' if resp.status_code == 404 else ('auth_or_token' if resp.status_code in (401, 403) else 'http_error')
+        category = get_source_specific_failure_category(cctv, base_category, resp.status_code)
         set_probe_result(cctv, False, reason='http_error', category=category, status_code=resp.status_code, url=url, content_type=content_type)
         log(f"[FAIL] {cctv.get('id')} returned {resp.status_code}")
     except requests.Timeout as error:
-        set_probe_result(cctv, False, reason='timeout', category='timeout', url=url, detail=error)
+        set_probe_result(cctv, False, reason='timeout', category=get_source_specific_failure_category(cctv, 'timeout'), url=url, detail=error)
         log(f"[ERR] {cctv.get('id')} timed out: {error}")
     except Exception as error:
-        set_probe_result(cctv, False, reason='request_error', category='network_error', url=url, detail=error)
+        set_probe_result(cctv, False, reason='request_error', category=get_source_specific_failure_category(cctv, 'network_error'), url=url, detail=error)
         log(f"[ERR] {cctv.get('id')} check failed: {error}")
     return False
 
@@ -618,6 +655,52 @@ def classify_failure(sample):
     source = sample.get('source') or 'UNKNOWN'
     region = sample.get('region') or 'UNKNOWN'
 
+    if category == 'gits_source_missing':
+        return {
+            'likely_cause': 'GITS 팝업에서 HLS 토큰 또는 videoUrl이 더 이상 노출되지 않음',
+            'recommended_action': 'GITS 지도 데이터 수집 경로와 cctvId/routeId/svcLinkId 조합을 재수집하고, 복구 전까지 경기 ITS 카메라를 추천 하위로 격리'
+        }
+    if category == 'gits_token_or_auth':
+        return {
+            'likely_cause': 'GITS 토큰 발급 또는 접근 권한 정책 변경',
+            'recommended_action': 'Referer/session/cookie가 필요한지 확인하고 토큰 리졸버를 갱신'
+        }
+    if category == 'z3_resolver_timeout':
+        return {
+            'likely_cause': 'UTIC 국도(Z3) 토큰 리졸버 또는 cctvsec.ktict.co.kr 응답 지연',
+            'recommended_action': 'z3_cache 최신성, its.go.kr 직접 갱신 가능 여부, Oracle 서버에서 cctvsec 연결 지연 여부를 확인'
+        }
+    if category == 'z3_stream_missing':
+        return {
+            'likely_cause': 'UTIC 국도(Z3) cctvip가 최신 its.go.kr appUrl 캐시에 없거나 원본 경로가 변경됨',
+            'recommended_action': 'data/z3_cache.json을 갱신하고 해당 cctvip가 최신 지도 API에 존재하는지 재확인'
+        }
+    if category == 'z3_token_or_manifest':
+        return {
+            'likely_cause': 'UTIC 국도(Z3) 토큰 만료 또는 HLS manifest 발급 실패',
+            'recommended_action': 'its.go.kr 세션 기반 appUrl 재발급 후 !hls 응답을 재검증'
+        }
+    if category == 'z3_resolver_error':
+        return {
+            'likely_cause': 'UTIC 국도(Z3) Oracle 리졸버 또는 원본 프록시 응답 오류',
+            'recommended_action': 'Oracle /utic 로그의 Z3 오류 상태와 원본 HTTP 상태를 함께 확인'
+        }
+    if category == 'ntic_resolver_timeout':
+        return {
+            'likely_cause': '고속도로/NTIC 원본 또는 Oracle 프록시 경로 응답 지연',
+            'recommended_action': '같은 URL을 서버와 브라우저에서 교차 확인하고, 반복 지연 카메라는 추천 하위로 격리'
+        }
+    if category == 'ntic_stream_missing':
+        return {
+            'likely_cause': '고속도로/NTIC 카메라 ID 또는 스트림 경로 변경',
+            'recommended_action': 'NTIC 수집기 원본 목록을 갱신하고 해당 카메라 ID를 재매핑'
+        }
+    if category == 'ntic_resolver_error':
+        return {
+            'likely_cause': '고속도로/NTIC 리졸버 또는 원본 서버 HTTP 오류',
+            'recommended_action': 'Oracle /utic 응답 코드와 원본 manifest 응답을 분리해서 확인'
+        }
+
     if category == 'frame_only':
         return {
             'likely_cause': '원본 제공처가 팝업/iframe 전용 플레이어만 제공',
@@ -710,6 +793,7 @@ def update_camera_failure_registry(current_status, region_name, result):
             'last_status_code': sample.get('status_code'),
             'last_content_type': sample.get('content_type'),
             'last_url': sample.get('url'),
+            'last_checked_at': sample.get('checked_at') or now_iso,
             'diagnosis': diagnosis
         }
 
@@ -728,6 +812,32 @@ def update_camera_failure_registry(current_status, region_name, result):
         current_status['camera_failures'] = dict(ordered[:CAMERA_FAILURE_REGISTRY_LIMIT])
 
 
+def summarize_failed_samples(failed_samples):
+    breakdown = {}
+    for sample in failed_samples:
+        category = sample.get('category') or 'unknown'
+        entry = breakdown.setdefault(category, {
+            'category': category,
+            'count': 0,
+            'sample_ids': [],
+            'likely_cause': None,
+            'recommended_action': None
+        })
+        entry['count'] += 1
+        if sample.get('id') and len(entry['sample_ids']) < 5:
+            entry['sample_ids'].append(sample.get('id'))
+        if not entry['likely_cause']:
+            diagnosis = classify_failure(sample)
+            entry['likely_cause'] = diagnosis.get('likely_cause')
+            entry['recommended_action'] = diagnosis.get('recommended_action')
+
+    ordered = sorted(breakdown.values(), key=lambda item: item['count'], reverse=True)
+    return {
+        'categories': ordered,
+        'dominant': ordered[0] if ordered else None
+    }
+
+
 def test_region(region_name, cameras):
     if not cameras:
         return {
@@ -742,6 +852,7 @@ def test_region(region_name, cameras):
             'failed_ids': [],
             'passed_ids': [],
             'failed_samples': [],
+            'failure_breakdown': {'categories': [], 'dominant': None},
             'sample_strategy': {
                 'stable': 0,
                 'exploratory': 0
@@ -774,6 +885,7 @@ def test_region(region_name, cameras):
     checked = len(sample)
     status, failure_ratio = evaluate_region_health(checked, passed)
     failed = checked - passed
+    failure_breakdown = summarize_failed_samples(failed_samples)
     log(f'{region_name} result: {status} ({passed}/{checked} ok, failure_ratio={failure_ratio:.2f})')
 
     return {
@@ -788,6 +900,7 @@ def test_region(region_name, cameras):
         'failed_ids': failed_ids,
         'passed_ids': passed_ids,
         'failed_samples': failed_samples,
+        'failure_breakdown': failure_breakdown,
         'sample_strategy': {
             'stable': stable_count,
             'exploratory': exploratory_count
