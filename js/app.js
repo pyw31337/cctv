@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality16';
+const APP_BUILD_VERSION = '20260515-quality17';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -2536,6 +2536,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const shouldProxy = url && !url.includes('cctv-proxy.pyw213.workers.dev');
     const sourceFallbackId = selectedOriginalId || cctv.original_id || ((cctv.id || '').includes('_') ? cctv.id.split('_').pop() : cctv.id);
     const selectedCctvIp = getUrlParam(url, 'cctvip') || sourceFallbackId;
+    const selectedCctvId = getUrlParam(url, 'cctvid') || cctv.id || sourceFallbackId;
     const selectedKind = getUrlParam(url, 'kind');
     const selectedJejuUticStreamId = selectedSource === 'UTIC' && selectedKind === 'K' && inferRegionKey(cctv) === 'JEJU'
         ? getUrlParam(url, 'id')
@@ -2550,6 +2551,8 @@ function createVideoElement(cctv, sourceIndex = 0) {
         selectedOriginalId = selectedJejuUticStreamId;
     } else if (selectedSource === 'KBS' && selectedCctvIp) {
         url = `${KB_PROXY_BASE}?cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
+    } else if ((selectedSource === 'NTIC' || selectedKind === 'Z3') && selectedCctvIp) {
+        url = `${ORACLE_BASE}/utic?kind=Z3&cctvid=${encodeURIComponent(selectedCctvId)}&cctvip=${encodeURIComponent(selectedCctvIp)}&_t=${Date.now()}`;
     } else if (shouldProxy) {
         if (selectedSource === 'TRENDWORLD' || selectedSource === 'NOWJEJU' || selectedSource === 'HRFCO') {
             url = `${genericProxyBase}?url=${encodeURIComponent(url)}&_t=${Date.now()}`;

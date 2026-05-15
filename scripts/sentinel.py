@@ -6,7 +6,7 @@ import requests
 import sys
 import traceback
 from datetime import datetime, timedelta
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 
 import urllib3
 
@@ -237,9 +237,12 @@ def check_generic_stream(cctv):
     source = cctv.get('source', '')
     kind = get_url_param(url, 'kind')
     cctvip = get_url_param(url, 'cctvip')
+    cctvid = get_url_param(url, 'cctvid') or cctv.get('id', '')
     if source == 'KBS':
         cctvip = cctv.get('original_id') or cctvip or str(cctv.get('id', '')).split('_')[-1]
         url = f'{ORACLE_BASE}/kb?cctvip={cctvip}'
+    elif (source == 'NTIC' or kind == 'Z3') and cctvip:
+        url = f'{ORACLE_BASE}/utic?kind=Z3&cctvid={quote(cctvid)}&cctvip={quote(cctvip)}'
     elif source == 'UTIC' and kind in ['KB', 'EE', 'EEE'] and cctvip:
         url = f'{ORACLE_BASE}/kb?cctvip={cctvip}'
 
