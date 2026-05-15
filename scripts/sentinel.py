@@ -2,6 +2,7 @@ import json
 import math
 import os
 import random
+import re
 import requests
 import sys
 import traceback
@@ -19,6 +20,10 @@ CONFIG_FILE = os.path.join(BASE_DIR, 'configs', 'region_config.json')
 STATUS_FILE = os.path.join(BASE_DIR, 'data', 'status.json')
 LOG_FILE = os.path.join(BASE_DIR, 'sentinel.log')
 REQUEST_TIMEOUT = 15
+EMERGENCY_INVESTIGATE_AFTER_MINUTES = 60
+EMERGENCY_CRITICAL_AFTER_MINUTES = 120
+CAMERA_FAILURE_REGISTRY_LIMIT = 500
+DAEJEON_MP4_OFFSETS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 1]
 ORACLE_BASE = 'https://158.179.194.163.sslip.io'
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
@@ -114,6 +119,43 @@ def get_z3_cctvip(url):
         return None
 
 
+def parse_utc_timestamp(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value.replace('Z', ''), '%Y-%m-%dT%H:%M:%S')
+    except Exception:
+        return None
+
+
+def minutes_between(start_iso, end_iso):
+    start = parse_utc_timestamp(start_iso)
+    end = parse_utc_timestamp(end_iso)
+    if not start or not end:
+        return 0
+    return max(0, int((end - start).total_seconds() // 60))
+
+
+def set_probe_result(cctv, ok, reason='ok', category=None, status_code=None, url=None, content_type=None, detail=None):
+    if cctv is None:
+        return
+    cctv['_probe_result'] = {
+        'ok': bool(ok),
+        'reason': reason,
+        'category': category or ('ok' if ok else 'unknown'),
+        'status_code': status_code,
+        'url': url,
+        'content_type': content_type,
+        'detail': str(detail)[:240] if detail else None,
+        'checked_at': utc_timestamp()
+    }
+
+
+def get_probe_result(cctv):
+    probe = cctv.get('_probe_result') if isinstance(cctv, dict) else None
+    return probe if isinstance(probe, dict) else {}
+
+
 def is_unsupported_browser_stream(cctv):
     if not cctv:
         return False
@@ -162,34 +204,104 @@ def infer_region_name(cctv):
     return None
 
 
-def get_daejeon_url(stream_id, offset_minutes=2):
+def normalize_daejeon_stream_id(raw_id):
+    raw = str(raw_id or '').strip()
+    if not raw:
+        return None
+
+    match = re.match(r'DAEJEON_(CCTV\d+)$', raw, re.I)
+    if match:
+        raw = match.group(1)
+
+    match = re.match(r'CCTV(\d+)$', raw, re.I)
+    if match:
+        return f"CTV{match.group(1).zfill(4)}"
+
+    match = re.match(r'CTV(\d+)$', raw, re.I)
+    if match:
+        return f"CTV{match.group(1).zfill(4)}"
+
+    return None
+
+
+def get_daejeon_stream_id(cctv):
+    url = cctv.get('directUrl') or cctv.get('url') or ''
+    candidates = [
+        get_url_param(url, 'cctvpasswd'),
+        get_url_param(url, 'id'),
+        cctv.get('original_id'),
+        cctv.get('id')
+    ]
+    for candidate in candidates:
+        stream_id = normalize_daejeon_stream_id(candidate)
+        if stream_id:
+            return stream_id
+    return None
+
+
+def get_daejeon_media_path(cctv, stream_id):
+    url = cctv.get('directUrl') or cctv.get('url') or ''
+    cctvip = str(get_url_param(url, 'cctvip') or '')
+    if cctvip == '118' or '210.99.67.118' in url or '192.168.12.101' in url:
+        return '01'
+    if cctvip == '119' or '210.99.67.119' in url or '192.168.12.102' in url:
+        return '02'
+
+    match = re.match(r'CTV0*(\d+)$', str(stream_id or ''), re.I)
+    if match:
+        number = int(match.group(1))
+        return '01' if number < 51 else '02'
+
+    return '01'
+
+
+def get_daejeon_url(cctv, stream_id, offset_minutes=2):
     now_utc = datetime.utcnow()
     kst_time = now_utc + timedelta(hours=9) - timedelta(minutes=offset_minutes)
     timestamp = kst_time.strftime('%Y%m%d.%H%M00')
-
-    if 'DAEJEON_' in stream_id:
-        clean_id = stream_id.replace('DAEJEON_', '')
-        if clean_id.startswith('CCTV'):
-            clean_id = f"CTV{clean_id[4:].zfill(4)}"
-        stream_id_formatted = clean_id
-    else:
-        stream_id_formatted = stream_id
-
-    return f'https://tportal.daejeon.go.kr:37084/01/media/{stream_id_formatted}/{stream_id_formatted}_{timestamp}.000.mp4'
+    media_path = get_daejeon_media_path(cctv, stream_id)
+    return f'https://tportal.daejeon.go.kr:37084/{media_path}/media/{stream_id}/{stream_id}_{timestamp}.000.mp4'
 
 
 def check_daejeon_stream(cctv):
-    stream_id = cctv.get('id', '')
-    for offset in range(1, 4):
-        url = get_daejeon_url(stream_id, offset)
+    stream_id = get_daejeon_stream_id(cctv)
+    if not stream_id:
+        set_probe_result(cctv, False, reason='missing_daejeon_stream_id', category='data_error')
+        return False
+
+    last_status = None
+    last_url = None
+    for offset in DAEJEON_MP4_OFFSETS:
+        url = get_daejeon_url(cctv, stream_id, offset)
+        last_url = url
         try:
-            resp = requests.head(url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS)
-            if resp.status_code == 200:
+            resp = requests.get(
+                url,
+                timeout=REQUEST_TIMEOUT,
+                verify=False,
+                headers={**HEADERS, 'Range': 'bytes=0-1'},
+                stream=True
+            )
+            last_status = resp.status_code
+            if resp.status_code in (200, 206):
+                set_probe_result(cctv, True, reason='ok', status_code=resp.status_code, url=url, content_type=resp.headers.get('Content-Type'))
                 log(f'[OK] Daejeon {stream_id} is UP (Offset {offset}m)')
                 return True
             log(f'[FAIL] Daejeon {stream_id} (Offset {offset}m) returned {resp.status_code}')
+        except requests.Timeout as error:
+            set_probe_result(cctv, False, reason='timeout', category='timeout', url=url, detail=error)
+            log(f'[ERR] Daejeon {stream_id} timed out: {error}')
         except Exception as error:
+            set_probe_result(cctv, False, reason='request_error', category='network_error', url=url, detail=error)
             log(f'[ERR] Daejeon {stream_id} check failed: {error}')
+    set_probe_result(
+        cctv,
+        False,
+        reason='recent_mp4_not_found',
+        category='segment_missing',
+        status_code=last_status,
+        url=last_url
+    )
     return False
 
 
@@ -212,14 +324,31 @@ def check_jeju_stream(cctv):
         resp = requests.get(proxy_url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, allow_redirects=False, stream=True)
         location = resp.headers.get('Location', '')
         if resp.status_code in (301, 302, 303, 307, 308) and location.startswith('http'):
+            set_probe_result(cctv, True, reason='token_redirect_ok', status_code=resp.status_code, url=proxy_url, content_type=resp.headers.get('Content-Type'))
             log(f"[OK] Jeju {cctv.get('id')} token redirect is UP")
             return True
         content_type = resp.headers.get('Content-Type', '').lower()
         if resp.status_code == 200 and ('mpegurl' in content_type or resp.raw.read(8, decode_content=True).startswith(b'#EXTM3U')):
+            set_probe_result(cctv, True, reason='ok', status_code=resp.status_code, url=proxy_url, content_type=content_type)
             log(f"[OK] Jeju {cctv.get('id')} is UP")
             return True
+        set_probe_result(
+            cctv,
+            False,
+            reason='jeju_token_or_manifest_failed',
+            category='token_or_manifest',
+            status_code=resp.status_code,
+            url=proxy_url,
+            content_type=content_type
+        )
         log(f"[FAIL] Jeju {cctv.get('id')} returned {resp.status_code} {content_type}")
+        return False
+    except requests.Timeout as error:
+        set_probe_result(cctv, False, reason='timeout', category='timeout', url=proxy_url, detail=error)
+        log(f"[ERR] Jeju {cctv.get('id')} timed out: {error}")
+        return False
     except Exception as error:
+        set_probe_result(cctv, False, reason='request_error', category='network_error', url=proxy_url, detail=error)
         log(f"[ERR] Jeju {cctv.get('id')} check failed: {error}")
         return False
 
@@ -227,15 +356,22 @@ def check_jeju_stream(cctv):
 def check_paju_stream(cctv):
     url = cctv.get('directUrl') or cctv.get('url')
     if not url:
+        set_probe_result(cctv, False, reason='missing_url', category='data_error')
         return False
 
     try:
         resp = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, stream=True)
         if resp.status_code in (200, 302):
+            set_probe_result(cctv, True, reason='ok', status_code=resp.status_code, url=url, content_type=resp.headers.get('Content-Type'))
             log(f"[OK] Paju {cctv.get('id')} is UP")
             return True
+        set_probe_result(cctv, False, reason='http_error', category='http_error', status_code=resp.status_code, url=url, content_type=resp.headers.get('Content-Type'))
         log(f"[FAIL] Paju {cctv.get('id')} returned {resp.status_code}")
+    except requests.Timeout as error:
+        set_probe_result(cctv, False, reason='timeout', category='timeout', url=url, detail=error)
+        log(f"[ERR] Paju {cctv.get('id')} timed out: {error}")
     except Exception as error:
+        set_probe_result(cctv, False, reason='request_error', category='network_error', url=url, detail=error)
         log(f"[ERR] Paju {cctv.get('id')} check failed: {error}")
     return False
 
@@ -243,10 +379,12 @@ def check_paju_stream(cctv):
 def check_generic_stream(cctv):
     url = cctv.get('directUrl') or cctv.get('url')
     if not url:
+        set_probe_result(cctv, False, reason='missing_url', category='data_error')
         return False
 
     if url.startswith('gangneung_player.html') or 'popup' in url:
-        return True
+        set_probe_result(cctv, False, reason='iframe_only_source', category='frame_only', url=url)
+        return False
 
     source = cctv.get('source', '')
     kind = get_url_param(url, 'kind')
@@ -267,10 +405,21 @@ def check_generic_stream(cctv):
         resp = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, stream=True)
         content_type = resp.headers.get('Content-Type', '').lower()
         if resp.status_code < 400 or (resp.status_code == 404 and 'mpegurl' in content_type):
+            if 'text/html' in content_type and source not in ['YOUTUBE', 'YT_CUSTOM']:
+                set_probe_result(cctv, False, reason='html_not_direct_video', category='frame_or_bad_content', status_code=resp.status_code, url=url, content_type=content_type)
+                log(f"[FAIL] {cctv.get('id')} returned HTML instead of a direct stream")
+                return False
+            set_probe_result(cctv, True, reason='ok', status_code=resp.status_code, url=url, content_type=content_type)
             log(f"[OK] {cctv.get('id')} is UP")
             return True
+        category = 'not_found' if resp.status_code == 404 else ('auth_or_token' if resp.status_code in (401, 403) else 'http_error')
+        set_probe_result(cctv, False, reason='http_error', category=category, status_code=resp.status_code, url=url, content_type=content_type)
         log(f"[FAIL] {cctv.get('id')} returned {resp.status_code}")
+    except requests.Timeout as error:
+        set_probe_result(cctv, False, reason='timeout', category='timeout', url=url, detail=error)
+        log(f"[ERR] {cctv.get('id')} timed out: {error}")
     except Exception as error:
+        set_probe_result(cctv, False, reason='request_error', category='network_error', url=url, detail=error)
         log(f"[ERR] {cctv.get('id')} check failed: {error}")
     return False
 
@@ -284,6 +433,7 @@ def check_camera(region_name, cctv):
         return check_paju_stream(cctv)
     if is_unsupported_browser_stream(cctv):
         log(f"[UNSUPPORTED] {cctv.get('id')} uses a legacy UTIC browser plugin stream")
+        set_probe_result(cctv, False, reason='unsupported_legacy_player', category='unsupported_legacy')
         return False
     return check_generic_stream(cctv)
 
@@ -373,6 +523,140 @@ def evaluate_region_health(checked, passed):
     return 'OK', failure_ratio
 
 
+def build_failed_sample(region_name, cctv):
+    probe = get_probe_result(cctv)
+    url = probe.get('url') or cctv.get('directUrl') or cctv.get('url')
+    return {
+        'id': cctv.get('id'),
+        'name': cctv.get('name'),
+        'region': region_name,
+        'source': cctv.get('source'),
+        'reason': probe.get('reason') or 'unknown',
+        'category': probe.get('category') or 'unknown',
+        'status_code': probe.get('status_code'),
+        'content_type': probe.get('content_type'),
+        'url': url,
+        'detail': probe.get('detail'),
+        'checked_at': probe.get('checked_at') or utc_timestamp()
+    }
+
+
+def classify_failure(sample):
+    category = sample.get('category') or 'unknown'
+    status_code = sample.get('status_code')
+    source = sample.get('source') or 'UNKNOWN'
+    region = sample.get('region') or 'UNKNOWN'
+
+    if category == 'frame_only':
+        return {
+            'likely_cause': '원본 제공처가 팝업/iframe 전용 플레이어만 제공',
+            'recommended_action': '직접 HLS/MP4 주소 추출기를 추가하거나 프레임 없는 대체 카메라를 우선 추천'
+        }
+    if category == 'unsupported_legacy':
+        return {
+            'likely_cause': '구형 UTIC 전용 플레이어 기반 스트림',
+            'recommended_action': '브라우저 재생 가능한 대체 소스 매핑 또는 해당 카메라 노출순위 하향'
+        }
+    if category in ('auth_or_token', 'token_or_manifest') or status_code in (401, 403):
+        return {
+            'likely_cause': '토큰 만료, 권한 오류 또는 원본 제공처 인증 정책 변경',
+            'recommended_action': '토큰 재발급 경로와 리졸버 응답을 확인하고 최신 토큰 캐시를 갱신'
+        }
+    if category == 'segment_missing' or status_code == 404:
+        return {
+            'likely_cause': '최근 영상 조각이 아직 발행되지 않았거나 카메라 ID/경로가 변경됨',
+            'recommended_action': '최근 10분 범위의 세그먼트 존재 여부와 카메라 ID/서버 경로를 재검증'
+        }
+    if category == 'timeout':
+        return {
+            'likely_cause': '원본 서버 응답 지연 또는 네트워크 경로 지연',
+            'recommended_action': '타임아웃 재시도 간격, 지역별 대체 소스, 프록시 위치를 점검'
+        }
+    if category == 'frame_or_bad_content':
+        return {
+            'likely_cause': '직접 영상 대신 HTML/플레이어 페이지가 반환됨',
+            'recommended_action': '실제 video/hls/mp4 URL 추출 로직을 추가하거나 해당 소스를 frame-only로 분류'
+        }
+    if category == 'data_error':
+        return {
+            'likely_cause': '수집 데이터의 URL 또는 스트림 ID 누락',
+            'recommended_action': '수집기 원본 필드와 정규화 규칙을 확인'
+        }
+    if category == 'network_error':
+        return {
+            'likely_cause': '점검 서버에서 원본 제공처까지의 네트워크 오류',
+            'recommended_action': '동일 URL을 브라우저/프록시/점검 서버에서 교차 확인'
+        }
+
+    return {
+        'likely_cause': f'{region}/{source} 원본 스트림 응답 실패',
+        'recommended_action': 'HTTP 상태, 콘텐츠 타입, 브라우저 재생 결과를 함께 확인'
+    }
+
+
+def update_camera_failure_registry(current_status, region_name, result):
+    registry = current_status.get('camera_failures')
+    if not isinstance(registry, dict):
+        registry = {}
+        current_status['camera_failures'] = registry
+    now_iso = utc_timestamp()
+    passed_ids = set(result.get('passed_ids') or [])
+    failed_samples = result.get('failed_samples') or []
+
+    for camera_id in passed_ids:
+        registry.pop(camera_id, None)
+
+    for sample in failed_samples:
+        camera_id = sample.get('id')
+        if not camera_id:
+            continue
+
+        previous = registry.get(camera_id, {})
+        first_failed_at = previous.get('first_failed_at') or now_iso
+        failed_for_minutes = minutes_between(first_failed_at, now_iso)
+        failure_count = int(previous.get('failure_count') or 0) + 1
+        diagnosis = classify_failure(sample)
+
+        if failed_for_minutes >= EMERGENCY_CRITICAL_AFTER_MINUTES or failure_count >= 4:
+            emergency_level = 'critical'
+        elif failed_for_minutes >= EMERGENCY_INVESTIGATE_AFTER_MINUTES or failure_count >= 2:
+            emergency_level = 'investigate'
+        else:
+            emergency_level = 'watch'
+
+        registry[camera_id] = {
+            'id': camera_id,
+            'name': sample.get('name'),
+            'region': region_name,
+            'source': sample.get('source'),
+            'first_failed_at': first_failed_at,
+            'last_failed_at': now_iso,
+            'failed_for_minutes': failed_for_minutes,
+            'failure_count': failure_count,
+            'emergency_level': emergency_level,
+            'last_reason': sample.get('reason'),
+            'last_category': sample.get('category'),
+            'last_status_code': sample.get('status_code'),
+            'last_content_type': sample.get('content_type'),
+            'last_url': sample.get('url'),
+            'diagnosis': diagnosis
+        }
+
+        if emergency_level in ('investigate', 'critical'):
+            log(
+                f"[EMERGENCY:{emergency_level}] {region_name} {camera_id} "
+                f"failed_for={failed_for_minutes}m count={failure_count} cause={diagnosis['likely_cause']}"
+            )
+
+    if len(registry) > CAMERA_FAILURE_REGISTRY_LIMIT:
+        ordered = sorted(
+            registry.items(),
+            key=lambda item: item[1].get('last_failed_at') or '',
+            reverse=True
+        )
+        current_status['camera_failures'] = dict(ordered[:CAMERA_FAILURE_REGISTRY_LIMIT])
+
+
 def test_region(region_name, cameras):
     if not cameras:
         return {
@@ -385,6 +669,8 @@ def test_region(region_name, cameras):
             'checked_at': utc_timestamp(),
             'sample_ids': [],
             'failed_ids': [],
+            'passed_ids': [],
+            'failed_samples': [],
             'sample_strategy': {
                 'stable': 0,
                 'exploratory': 0
@@ -395,6 +681,8 @@ def test_region(region_name, cameras):
     sample, stable_count, exploratory_count = select_representative_cameras(region_name, cameras, target_size)
     sample_ids = [cam.get('id') for cam in sample if cam.get('id')]
     failed_ids = []
+    passed_ids = []
+    failed_samples = []
     passed = 0
 
     log(
@@ -406,8 +694,11 @@ def test_region(region_name, cameras):
         success = check_camera(region_name, cam)
         if success:
             passed += 1
+            if cam.get('id'):
+                passed_ids.append(cam.get('id'))
         else:
             failed_ids.append(cam.get('id'))
+            failed_samples.append(build_failed_sample(region_name, cam))
 
     checked = len(sample)
     status, failure_ratio = evaluate_region_health(checked, passed)
@@ -424,6 +715,8 @@ def test_region(region_name, cameras):
         'checked_at': utc_timestamp(),
         'sample_ids': sample_ids,
         'failed_ids': failed_ids,
+        'passed_ids': passed_ids,
+        'failed_samples': failed_samples,
         'sample_strategy': {
             'stable': stable_count,
             'exploratory': exploratory_count
@@ -482,6 +775,7 @@ def run_sentinel():
             status_entry = current_status['regions'].setdefault(region_name, {})
             status_entry.update(result)
             status_entry['active_source'] = resolve_active_source(region_name, result['status'], config)
+            update_camera_failure_registry(current_status, region_name, result)
 
         current_status['last_updated'] = utc_timestamp()
         save_json(STATUS_FILE, current_status)

@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality18';
+const APP_BUILD_VERSION = '20260515-quality19';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -421,22 +421,6 @@ function setSortMode(mode) {
     syncUrlState();
 }
 
-function toggleQualityHelp() {
-    const popover = $('#quality-help-popover');
-    const button = $('#quality-help-btn');
-    if (!popover) return;
-    const nextHidden = !popover.classList.contains('hidden');
-    popover.classList.toggle('hidden', nextHidden);
-    if (button) button.setAttribute('aria-expanded', String(!nextHidden));
-}
-
-function hideQualityHelp() {
-    const popover = $('#quality-help-popover');
-    const button = $('#quality-help-btn');
-    if (popover) popover.classList.add('hidden');
-    if (button) button.setAttribute('aria-expanded', 'false');
-}
-
 // === Event Listeners (Delegation) ===
 function setupEventListeners() {
     // Segment Control (Video/Map Toggle)
@@ -482,23 +466,6 @@ function setupEventListeners() {
             setSortMode(sortSelect.value);
         });
     }
-
-    const qualityHelpBtn = $('#quality-help-btn');
-    if (qualityHelpBtn) {
-        qualityHelpBtn.addEventListener('click', toggleQualityHelp);
-    }
-
-    const qualityHelpClose = $('#quality-help-close');
-    if (qualityHelpClose) {
-        qualityHelpClose.addEventListener('click', hideQualityHelp);
-    }
-
-    document.addEventListener('click', (event) => {
-        const popover = $('#quality-help-popover');
-        if (!popover || popover.classList.contains('hidden')) return;
-        if (event.target.closest('#quality-help-popover') || event.target.closest('#quality-help-btn')) return;
-        hideQualityHelp();
-    });
 
     // Video Layer
     $('#video-layer-close').addEventListener('click', closeVideoLayer);
@@ -1440,10 +1407,40 @@ function getCameraHealthMeta(cctv) {
     };
 }
 
+function isFrameOnlyPlaybackCandidate(cctv) {
+    const url = cctv?.directUrl || cctv?.url || '';
+    return url.includes('its.gn.go.kr/popup')
+        || url.includes('gangneung_player.html')
+        || url.includes('cctvPopup.do')
+        || url.includes('hrfco.go.kr');
+}
+
+function isDirectVideoPlaybackCandidate(cctv) {
+    const url = cctv?.directUrl || cctv?.url || '';
+    const source = cctv?.source || '';
+    const kind = getUrlParam(url, 'kind');
+    return cctv?.urlType === 'daejeon_mp4_dynamic'
+        || url.includes('.mp4')
+        || url.includes('.m3u8')
+        || url.includes('/kb?cctvip=')
+        || url.includes('/jeju?id=')
+        || url.includes('workers.dev')
+        || url.includes('sslip.io')
+        || ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'KBS', 'GITS'].includes(source)
+        || (source === 'UTIC' && ['Z3', 'EE', 'EEE', 'KB'].includes(kind));
+}
+
 function getStreamQualityScore(cctv) {
     const url = cctv.directUrl || cctv.url || '';
     const source = cctv.source || '';
     let score = SOURCE_QUALITY_SCORES[source] || 0.72;
+
+    if (isDirectVideoPlaybackCandidate(cctv)) {
+        score += 0.08;
+    }
+    if (isFrameOnlyPlaybackCandidate(cctv)) {
+        score -= 0.24;
+    }
 
     if (cctv.backup_urls && cctv.backup_urls.length > 0) {
         score += 0.04;
@@ -2963,9 +2960,9 @@ function createVideoElement(cctv, sourceIndex = 0) {
         return video;
     }
 
-    // UTIC Portal - play natively via CF Worker
+    // UTIC Portal - play natively via worker/oracle resolver.
     // Z3 kind: look up fresh stream URL from z3_cache.json (updated hourly by GitHub Actions)
-    // Other kinds: extract real m3u8 URL via /utic endpoint, fall back to iframe
+    // Other kinds: extract real m3u8 URL via /utic endpoint. If that fails, prefer frame-free alternatives.
     if (isUtic) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
@@ -3055,35 +3052,23 @@ function createVideoElement(cctv, sourceIndex = 0) {
                     hls.on(Hls.Events.ERROR, function(ev, data) {
                         if (data.fatal) {
                             hls.destroy();
-                            if (video.parentElement) fallbackToIframe(video.parentElement);
+                            if (video.parentElement) fallbackToDirectAlternative(video.parentElement);
                         }
                     });
                     video.hls = hls;
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                     video.src = streamUrl;
-                    video.onerror = () => { if (video.parentElement) fallbackToIframe(video.parentElement); };
+                    video.onerror = () => { if (video.parentElement) fallbackToDirectAlternative(video.parentElement); };
                 } else {
-                    if (video.parentElement) fallbackToIframe(video.parentElement);
+                    if (video.parentElement) fallbackToDirectAlternative(video.parentElement);
                 }
             } catch(e) {
                 console.error('[UTIC] Stream resolve failed:', e);
-                if (video.parentElement) fallbackToIframe(video.parentElement);
+                if (video.parentElement) fallbackToDirectAlternative(video.parentElement);
             }
 
-            function fallbackToIframe(wrapper) {
-                if (isZ3) {
-                    triggerFailover(wrapper);
-                    return;
-                }
-                wrapper.innerHTML = '';
-                const iframe = document.createElement('iframe');
-                iframe.src = url;
-                iframe.className = 'utic-iframe';
-                iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
-                iframe.allow = 'autoplay; fullscreen';
-                iframe.scrolling = 'no';
-                iframe.setAttribute('allowfullscreen', '');
-                wrapper.appendChild(iframe);
+            function fallbackToDirectAlternative(wrapper) {
+                triggerFailover(wrapper);
             }
         })();
 

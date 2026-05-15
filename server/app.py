@@ -496,6 +496,20 @@ def proxy_daejeon():
         num = clean_id[4:] # "08"
         stream_id = f"CTV{num.zfill(4)}"
 
+    def get_media_path(stream):
+        cctvip = request.args.get('cctvip', '')
+        if cctvip == '118':
+            return '01'
+        if cctvip == '119':
+            return '02'
+        match = re.match(r'CTV0*(\d+)$', stream, re.I)
+        if match:
+            number = int(match.group(1))
+            return '01' if number < 51 else '02'
+        return '01'
+
+    media_path = get_media_path(stream_id)
+
     # Daejeon publishes minute MP4 files with a short delay. Probe recent
     # timestamps so playback does not fail just because the newest file is late.
     now = datetime.now()
@@ -504,10 +518,10 @@ def proxy_daejeon():
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         "Range": "bytes=0-1",
     }
-    for offset in range(1, 8):
+    for offset in [2, 3, 4, 5, 6, 7, 8, 9, 10, 1]:
         target_time = now - timedelta(minutes=offset)
         timestamp = target_time.strftime("%Y%m%d.%H%M00")
-        real_url = f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
+        real_url = f"https://tportal.daejeon.go.kr:37084/{media_path}/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
         last_url = real_url
         try:
             resp = requests.get(real_url, headers=probe_headers, timeout=(2, 4), verify=False, stream=True)

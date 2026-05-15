@@ -341,7 +341,6 @@ body {
 .quality-controls {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
     padding: 5px;
     background: var(--bg-primary);
     border: 2px solid var(--border-color);
@@ -358,75 +357,22 @@ body {
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    outline: 0;
 }
 
 .quality-sort-select {
-    max-width: 118px;
-    padding: 0 26px 0 12px;
+    max-width: 112px;
+    padding: 0 12px;
     background: rgba(30, 41, 59, 0.85);
+    background-image: none;
     color-scheme: dark;
 }
 
-.quality-help-btn {
-    width: 28px;
-    height: 28px;
-    border: 0;
-    border-radius: 50%;
-    background: rgba(148, 163, 184, 0.18);
-    color: var(--text-primary);
-    font-weight: 900;
-    cursor: pointer;
-}
-
-.quality-help-popover {
-    position: fixed;
-    left: 50%;
-    bottom: 76px;
-    width: min(360px, calc(100vw - 32px));
-    padding: 16px 18px;
-    border: 1px solid rgba(34, 197, 94, 0.28);
-    border-radius: 18px;
-    background: rgba(15, 23, 42, 0.94);
-    color: var(--text-primary);
-    box-shadow: 0 18px 50px rgba(2, 6, 23, 0.45);
-    backdrop-filter: blur(18px);
-    transform: translateX(-50%);
-    z-index: 1005;
-}
-
-.quality-help-popover.hidden {
+.quality-sort-select::-ms-expand {
     display: none;
-}
-
-.quality-help-popover strong {
-    display: block;
-    margin-bottom: 8px;
-    font-size: 14px;
-}
-
-.quality-help-popover p {
-    margin: 7px 24px 0 0;
-    color: var(--text-secondary);
-    font-size: 12px;
-    line-height: 1.55;
-}
-
-.quality-help-popover b {
-    color: var(--text-primary);
-}
-
-.quality-help-close {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 26px;
-    height: 26px;
-    border: 0;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text-primary);
-    font-size: 18px;
-    cursor: pointer;
 }
 
 @media (hover: none) and (pointer: coarse) {
