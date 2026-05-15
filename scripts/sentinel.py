@@ -100,6 +100,20 @@ def get_url_param(url, key):
         return None
 
 
+def get_z3_cctvip(url):
+    cctvip = get_url_param(url, 'cctvip')
+    if cctvip:
+        return cctvip
+    try:
+        parsed = urlparse(url or '')
+        if 'cctvsec.ktict.co.kr' not in parsed.netloc:
+            return None
+        first_segment = parsed.path.strip('/').split('/', 1)[0]
+        return first_segment if first_segment.isdigit() else None
+    except Exception:
+        return None
+
+
 def is_unsupported_browser_stream(cctv):
     if not cctv:
         return False
@@ -236,7 +250,7 @@ def check_generic_stream(cctv):
 
     source = cctv.get('source', '')
     kind = get_url_param(url, 'kind')
-    cctvip = get_url_param(url, 'cctvip')
+    cctvip = get_z3_cctvip(url)
     cctvid = get_url_param(url, 'cctvid') or cctv.get('id', '')
     if source == 'KBS':
         cctvip = cctv.get('original_id') or cctvip or str(cctv.get('id', '')).split('_')[-1]
