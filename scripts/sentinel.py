@@ -19,6 +19,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, 'configs', 'region_config.json')
 STATUS_FILE = os.path.join(BASE_DIR, 'data', 'status.json')
 LOG_FILE = os.path.join(BASE_DIR, 'sentinel.log')
 REQUEST_TIMEOUT = 15
+ORACLE_BASE = 'https://158.179.194.163.sslip.io'
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
 }
@@ -217,8 +218,16 @@ def check_generic_stream(cctv):
         return True
 
     source = cctv.get('source', '')
+    kind = get_url_param(url, 'kind')
+    cctvip = get_url_param(url, 'cctvip')
+    if source == 'KBS':
+        cctvip = cctv.get('original_id') or cctvip or str(cctv.get('id', '')).split('_')[-1]
+        url = f'{ORACLE_BASE}/kb?cctvip={cctvip}'
+    elif source == 'UTIC' and kind in ['KB', 'EE', 'EEE'] and cctvip:
+        url = f'{ORACLE_BASE}/kb?cctvip={cctvip}'
+
     if source in ['NOWJEJU', 'TRENDWORLD']:
-        url = f'https://158.179.194.163.sslip.io/proxy?url={requests.utils.quote(url)}'
+        url = f'{ORACLE_BASE}/proxy?url={requests.utils.quote(url)}'
 
     try:
         resp = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, stream=True)
