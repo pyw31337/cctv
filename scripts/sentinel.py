@@ -106,6 +106,9 @@ def is_unsupported_browser_stream(cctv):
     url = cctv.get('directUrl') or cctv.get('url') or ''
     source = cctv.get('source', '')
     kind = get_url_param(url, 'kind')
+    stream_id = get_url_param(url, 'id')
+    if source == 'UTIC' and kind == 'K' and stream_id and infer_region_name(cctv) == 'JEJU':
+        return False
     return source == 'UTIC' and kind == 'K'
 
 
@@ -178,8 +181,14 @@ def check_daejeon_stream(cctv):
 
 def check_jeju_stream(cctv):
     url = cctv.get('directUrl') or cctv.get('url') or ''
+    source = cctv.get('source', '')
+    kind = get_url_param(url, 'kind')
     parsed_id = parse_qs(urlparse(url).query).get('id', [None])[0]
     stream_id = cctv.get('original_id') or parsed_id or cctv.get('id')
+
+    if not ((source == 'UTIC' and kind == 'K' and parsed_id) or source == 'JEJU' or 'jejuits.go.kr' in url):
+        return check_generic_stream(cctv)
+
     proxy_url = f"https://158.179.194.163.sslip.io/jeju?id={stream_id}"
     try:
         resp = requests.get(proxy_url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, allow_redirects=True, stream=True)
@@ -242,15 +251,15 @@ def check_generic_stream(cctv):
 
 
 def check_camera(region_name, cctv):
-    if is_unsupported_browser_stream(cctv):
-        log(f"[UNSUPPORTED] {cctv.get('id')} uses a legacy UTIC browser plugin stream")
-        return False
     if region_name == 'DAEJEON':
         return check_daejeon_stream(cctv)
     if region_name == 'JEJU':
         return check_jeju_stream(cctv)
     if region_name == 'PAJU':
         return check_paju_stream(cctv)
+    if is_unsupported_browser_stream(cctv):
+        log(f"[UNSUPPORTED] {cctv.get('id')} uses a legacy UTIC browser plugin stream")
+        return False
     return check_generic_stream(cctv)
 
 
