@@ -23,7 +23,8 @@ REQUEST_TIMEOUT = 15
 EMERGENCY_INVESTIGATE_AFTER_MINUTES = 60
 EMERGENCY_CRITICAL_AFTER_MINUTES = 120
 CAMERA_FAILURE_REGISTRY_LIMIT = 500
-DAEJEON_MP4_OFFSETS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 1]
+DAEJEON_MP4_OFFSETS = [2, 4, 6, 8, 10, 1]
+DAEJEON_REQUEST_TIMEOUT = (1.0, 1.5)
 ORACLE_BASE = 'https://158.179.194.163.sslip.io'
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
@@ -277,7 +278,7 @@ def check_daejeon_stream(cctv):
         try:
             resp = requests.get(
                 url,
-                timeout=REQUEST_TIMEOUT,
+                timeout=DAEJEON_REQUEST_TIMEOUT,
                 verify=False,
                 headers={**HEADERS, 'Range': 'bytes=0-1'},
                 stream=True

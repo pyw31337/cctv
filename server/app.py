@@ -518,13 +518,13 @@ def proxy_daejeon():
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         "Range": "bytes=0-1",
     }
-    for offset in [2, 3, 4, 5, 6, 7, 8, 9, 10, 1]:
+    for offset in [2, 4, 6, 8, 10, 1]:
         target_time = now - timedelta(minutes=offset)
         timestamp = target_time.strftime("%Y%m%d.%H%M00")
         real_url = f"https://tportal.daejeon.go.kr:37084/{media_path}/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
         last_url = real_url
         try:
-            resp = requests.get(real_url, headers=probe_headers, timeout=(1.5, 2.5), verify=False, stream=True)
+            resp = requests.get(real_url, headers=probe_headers, timeout=(1.0, 1.5), verify=False, stream=True)
             if resp.status_code in (200, 206):
                 logger.info(f"Proxying Daejeon {cctv_id} offset={offset}m -> {real_url}")
                 return flask.redirect(real_url)
