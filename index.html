@@ -27,7 +27,7 @@
     <link rel="preconnect" href="https://cctv-proxy.pyw213.workers.dev" crossorigin>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="dns-prefetch" href="//dapi.kakao.com">
-    <link rel="stylesheet" href="css/style.css?v=20260515-quality15">
+    <link rel="stylesheet" href="css/style.css?v=20260515-quality16">
 
     <!-- Kakao Maps -->
     <script type="text/javascript"
@@ -83,12 +83,22 @@
 
             <div class="quality-controls" id="quality-controls" aria-label="CCTV 추천 옵션">
                 <select id="quality-sort-select" class="quality-sort-select" title="추천 기준">
-                    <option value="recommended">추천</option>
-                    <option value="nearest">가까운 순</option>
-                    <option value="urban">시내 우선</option>
-                    <option value="stability">안정 우선</option>
-                    <option value="quality">화질 우선</option>
+                    <option value="recommended">추천순</option>
+                    <option value="nearest">가까운순</option>
+                    <option value="urban">시내우선</option>
+                    <option value="traffic">교통우선</option>
+                    <option value="stability">안정우선</option>
+                    <option value="quality">화질우선</option>
                 </select>
+                <button type="button" class="quality-help-btn" id="quality-help-btn" aria-label="품질 상태 기준 보기" aria-expanded="false">?</button>
+            </div>
+
+            <div class="quality-help-popover hidden" id="quality-help-popover" role="dialog" aria-label="품질 상태 기준">
+                <button type="button" class="quality-help-close" id="quality-help-close" aria-label="품질 도움말 닫기">×</button>
+                <strong>품질 상태 기준</strong>
+                <p><b>점검 실패</b>는 자동 샘플 점검 실패이며, 실제 재생 성공 시 재생 정상으로 보정됩니다.</p>
+                <p><b>실사용 불안정/로딩 느림</b>은 사용자 재생 성공률, 첫 화면 로딩 시간, 실패율을 반영합니다.</p>
+                <p><b>교통우선</b>은 UTIC·NTIC·국도·IC·고속도로·자동차전용도로를 먼저 추천합니다.</p>
             </div>
 
             <!-- Weather Button -->
@@ -250,7 +260,7 @@
             summaryUrl: 'https://cctv-quality.pyw31337.workers.dev/v1/summary'
         };
     </script>
-    <script src="js/app.js?v=20260515-quality15"></script>
+    <script src="js/app.js?v=20260515-quality16"></script>
 </body>
 
 </html>

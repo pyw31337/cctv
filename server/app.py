@@ -21,6 +21,8 @@ TRANSIENT_UPSTREAM_STATUSES = {502, 503, 504}
 HLS_DIR = os.environ.get('HLS_DIR', '/tmp/hls')
 IDLE_TIMEOUT = 30  # Seconds to keep stream alive without viewers
 MAX_STREAMS = 2    # Hard limit on concurrent FFmpeg processes (CPU safety)
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HEALTH_STATUS_FILE = os.environ.get('HEALTH_STATUS_FILE', os.path.join(ROOT_DIR, 'data', 'status.json'))
 
 # App initialized below with static folder config
 logging.basicConfig(level=logging.INFO)
@@ -273,6 +275,35 @@ def add_cors_headers(response):
 def serve_index():
     return send_from_directory(app.static_folder, 'index.html')
 
+@app.route('/health-status')
+def serve_health_status():
+    try:
+        with open(HEALTH_STATUS_FILE, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+        data['_served_by'] = 'oracle-proxy'
+        data['_served_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        return Response(
+            json.dumps(data, ensure_ascii=False),
+            200,
+            {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'public, max-age=120'
+            }
+        )
+    except FileNotFoundError:
+        return Response(
+            json.dumps({'regions': {}, 'last_updated': None, 'error': 'status-not-found'}),
+            404,
+            {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
+        )
+    except Exception as exc:
+        logger.error("Health status read failed: %s", exc)
+        return Response(
+            json.dumps({'regions': {}, 'last_updated': None, 'error': 'status-read-failed'}),
+            500,
+            {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
+        )
+
 @app.route('/<path:path>')
 def serve_static(path):
     return send_from_directory(app.static_folder, path)
@@ -465,16 +496,30 @@ def proxy_daejeon():
         num = clean_id[4:] # "08"
         stream_id = f"CTV{num.zfill(4)}"
 
-    # Generate Timestamp (current - 2 mins to be safe)
+    # Daejeon publishes minute MP4 files with a short delay. Probe recent
+    # timestamps so playback does not fail just because the newest file is late.
     now = datetime.now()
-    target_time = now - timedelta(minutes=2)
-    timestamp = target_time.strftime("%Y%m%d.%H%M00")
+    last_url = None
+    probe_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Range": "bytes=0-1",
+    }
+    for offset in range(1, 8):
+        target_time = now - timedelta(minutes=offset)
+        timestamp = target_time.strftime("%Y%m%d.%H%M00")
+        real_url = f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
+        last_url = real_url
+        try:
+            resp = requests.get(real_url, headers=probe_headers, timeout=(2, 4), verify=False, stream=True)
+            if resp.status_code in (200, 206):
+                logger.info(f"Proxying Daejeon {cctv_id} offset={offset}m -> {real_url}")
+                return flask.redirect(real_url)
+            logger.info(f"Daejeon {cctv_id} offset={offset}m unavailable: {resp.status_code}")
+        except requests.RequestException as exc:
+            logger.info(f"Daejeon {cctv_id} offset={offset}m probe failed: {exc}")
 
-    # https://tportal.daejeon.go.kr:37084/01/media/CTV0008/CTV0008_20260211.140500.000.mp4
-    real_url = f"https://tportal.daejeon.go.kr:37084/01/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
-    
-    logger.info(f"Proxying Daejeon {cctv_id} -> {real_url}")
-    return flask.redirect(real_url)
+    logger.warning(f"Daejeon {cctv_id} no recent MP4 found; last tried {last_url}")
+    return "Daejeon stream not ready", 502
 
 # === Jeju Proxy Logic ===
 @app.route('/jeju')

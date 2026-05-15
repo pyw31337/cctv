@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality15';
+const APP_BUILD_VERSION = '20260515-quality16';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -45,10 +45,14 @@ const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
 const ORACLE_PROXY_BASE = `${ORACLE_BASE}/proxy`;
 const JEJU_PROXY_BASE = 'https://158.179.194.163.sslip.io/jeju';
 const KB_PROXY_BASE = `${ORACLE_BASE}/kb`;
+const LIVE_HEALTH_STATUS_URL = QUALITY_CONFIG.healthStatusUrl || `${ORACLE_BASE}/health-status`;
 const MARKER_DANGER_FILTER = 'hue-rotate(145deg) saturate(1.85) contrast(1.08)';
 const MARKER_WARN_FILTER = 'hue-rotate(185deg) saturate(1.55) contrast(1.05)';
+const QUALITY_SORT_MODES = ['recommended', 'nearest', 'urban', 'traffic', 'stability', 'quality'];
 const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|동부출장소|행정복지|주민센터|사거리|삼거리|교차로|로터리|터미널|역|아파트|시장|학교|초교|초등|중학교|고교|병원|마트|상가|대로변|단지내|시내|중앙|읍내)/;
 const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권제|국도|IC|JC|TG|영업소|터널|램프|휴게소|졸음쉼터|분기점|진입로|외부|하이패스)/i;
+const TRAFFIC_CONTEXT_PATTERN = /(고속|고속도로|도시고속|자동차전용|국도|지방도|IC|JC|TG|영업소|나들목|분기점|램프|터널|휴게소|졸음쉼터|하이패스|외곽|순환|우회|간선|산업도로|대교|교량|지하차도|고가도로)/i;
+const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오름|산책|관광|해수욕장|방파제|등대|섬|계곡|정자|캠핑|휴양)/;
 
 const REGION_LABELS = {
     BUSAN: '부산',
@@ -273,25 +277,31 @@ async function loadCctvData() {
 }
 
 async function loadHealthStatus() {
-    try {
-        const cacheBucket = Math.floor(Date.now() / HEALTH_STATUS_BUCKET_MS);
-        const response = await fetch(`data/status.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+    const cacheBucket = Math.floor(Date.now() / HEALTH_STATUS_BUCKET_MS);
+    const urls = [
+        LIVE_HEALTH_STATUS_URL ? `${LIVE_HEALTH_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
+        `data/status.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+    ].filter(Boolean);
+
+    for (const url of urls) {
+        try {
+            const snapshot = await fetchJsonWithTimeout(url, 2200);
+            state.healthSnapshot = snapshot;
+            state.regionHealth = state.healthSnapshot.regions || {};
+            state.healthSnapshotStale = isStaleHealthTimestamp(snapshot.last_updated);
+            if (state.healthSnapshotStale) {
+                console.warn('Using stale health status snapshot:', snapshot.last_updated);
+            }
+            return;
+        } catch (error) {
+            console.debug('[Health] Status load skipped:', url, error.message || error);
         }
-        const snapshot = await response.json();
-        state.healthSnapshot = snapshot;
-        state.regionHealth = state.healthSnapshot.regions || {};
-        state.healthSnapshotStale = isStaleHealthTimestamp(snapshot.last_updated);
-        if (state.healthSnapshotStale) {
-            console.warn('Using stale health status snapshot:', snapshot.last_updated);
-        }
-    } catch (error) {
-        console.warn('Failed to load live health status:', error);
-        state.healthSnapshot = null;
-        state.regionHealth = {};
-        state.healthSnapshotStale = false;
     }
+
+    console.warn('Failed to load all health status sources.');
+    state.healthSnapshot = null;
+    state.regionHealth = {};
+    state.healthSnapshotStale = false;
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs) {
@@ -379,7 +389,7 @@ function restoreInitialViewState() {
 function restoreQualityPreferences() {
     try {
         const storedSortMode = localStorage.getItem(QUALITY_SORT_STORAGE_KEY);
-        if (['recommended', 'nearest', 'urban', 'stability', 'quality'].includes(storedSortMode)) {
+        if (QUALITY_SORT_MODES.includes(storedSortMode)) {
             state.sortMode = storedSortMode;
         }
         localStorage.removeItem('cctv_low_data_mode');
@@ -394,7 +404,7 @@ function renderQualityControls() {
 }
 
 function setSortMode(mode) {
-    if (!['recommended', 'nearest', 'urban', 'stability', 'quality'].includes(mode)) return;
+    if (!QUALITY_SORT_MODES.includes(mode)) return;
     state.sortMode = mode;
     try {
         localStorage.setItem(QUALITY_SORT_STORAGE_KEY, mode);
@@ -405,6 +415,22 @@ function setSortMode(mode) {
     renderVideoGrid();
     renderMapMarkers();
     syncUrlState();
+}
+
+function toggleQualityHelp() {
+    const popover = $('#quality-help-popover');
+    const button = $('#quality-help-btn');
+    if (!popover) return;
+    const nextHidden = !popover.classList.contains('hidden');
+    popover.classList.toggle('hidden', nextHidden);
+    if (button) button.setAttribute('aria-expanded', String(!nextHidden));
+}
+
+function hideQualityHelp() {
+    const popover = $('#quality-help-popover');
+    const button = $('#quality-help-btn');
+    if (popover) popover.classList.add('hidden');
+    if (button) button.setAttribute('aria-expanded', 'false');
 }
 
 // === Event Listeners (Delegation) ===
@@ -452,6 +478,23 @@ function setupEventListeners() {
             setSortMode(sortSelect.value);
         });
     }
+
+    const qualityHelpBtn = $('#quality-help-btn');
+    if (qualityHelpBtn) {
+        qualityHelpBtn.addEventListener('click', toggleQualityHelp);
+    }
+
+    const qualityHelpClose = $('#quality-help-close');
+    if (qualityHelpClose) {
+        qualityHelpClose.addEventListener('click', hideQualityHelp);
+    }
+
+    document.addEventListener('click', (event) => {
+        const popover = $('#quality-help-popover');
+        if (!popover || popover.classList.contains('hidden')) return;
+        if (event.target.closest('#quality-help-popover') || event.target.closest('#quality-help-btn')) return;
+        hideQualityHelp();
+    });
 
     // Video Layer
     $('#video-layer-close').addEventListener('click', closeVideoLayer);
@@ -928,6 +971,17 @@ function getCameraQualitySummary(cctv) {
     return state.qualitySummary.cameras[cctv.id] || null;
 }
 
+function getSourceQualitySummary(cctv) {
+    if (!cctv || !state.qualitySummary || !state.qualitySummary.sources) return null;
+    const source = cctv.source || 'UNKNOWN';
+    return state.qualitySummary.sources[source] || null;
+}
+
+function getRegionQualitySummary(regionKey) {
+    if (!regionKey || !state.qualitySummary || !state.qualitySummary.regions) return null;
+    return state.qualitySummary.regions[regionKey] || null;
+}
+
 function getQualityMetric(summary, snakeName, camelName, fallback = 0) {
     if (!summary) return fallback;
     const value = summary[snakeName] ?? summary[camelName];
@@ -964,9 +1018,50 @@ function normalizeQualitySummary(summary) {
     };
 }
 
+function getEffectiveQualitySummary(cctv, regionKey) {
+    const cameraSummary = getCameraQualitySummary(cctv);
+    const cameraMetrics = normalizeQualitySummary(cameraSummary);
+    if (cameraMetrics && cameraMetrics.samples >= 3) {
+        return {
+            scope: 'camera',
+            label: cctv?.name || '현재 CCTV',
+            summary: cameraSummary,
+            metrics: cameraMetrics,
+            weight: 1
+        };
+    }
+
+    const sourceSummary = getSourceQualitySummary(cctv);
+    const sourceMetrics = normalizeQualitySummary(sourceSummary);
+    if (sourceMetrics && sourceMetrics.samples >= 10) {
+        return {
+            scope: 'source',
+            label: `${cctv?.source || 'UNKNOWN'} 소스`,
+            summary: sourceSummary,
+            metrics: sourceMetrics,
+            weight: 0.58
+        };
+    }
+
+    const regionSummary = getRegionQualitySummary(regionKey);
+    const regionMetrics = normalizeQualitySummary(regionSummary);
+    if (regionMetrics && regionMetrics.samples >= 12) {
+        return {
+            scope: 'region',
+            label: `${getRegionLabel(regionKey)} 지역`,
+            summary: regionSummary,
+            metrics: regionMetrics,
+            weight: 0.45
+        };
+    }
+
+    return null;
+}
+
 function getQualitySummaryAdjustment(cctv) {
-    const metrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
-    if (!metrics || metrics.samples < 3) return 0;
+    const effective = getEffectiveQualitySummary(cctv, inferRegionKey(cctv));
+    if (!effective) return 0;
+    const { metrics } = effective;
 
     let adjustment = 0;
     if (metrics.successRate < 0.5) adjustment += 6;
@@ -984,48 +1079,55 @@ function getQualitySummaryAdjustment(cctv) {
         adjustment -= 1;
     }
 
-    return Math.max(-1.2, Math.min(8, adjustment));
+    return Math.max(-1.2, Math.min(8, adjustment * effective.weight));
 }
 
 function getQualitySummaryHealthMeta(cctv, regionKey) {
-    const metrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
-    if (!metrics || metrics.samples < 3) return null;
+    const effective = getEffectiveQualitySummary(cctv, regionKey);
+    if (!effective) return null;
 
-    const label = getRegionLabel(regionKey);
+    const { metrics } = effective;
+    const label = effective.label || getRegionLabel(regionKey);
     const timeText = metrics.updatedAt || state.qualitySummary?.generated_at || null;
+    const aggregate = effective.scope !== 'camera';
+    const downFailureRate = aggregate ? 0.62 : 0.55;
+    const downSuccessRate = aggregate ? 0.38 : 0.45;
+    const slowRate = aggregate ? 0.5 : 0.4;
+    const slowFirstFrameMs = aggregate ? 10000 : QUALITY_SLOW_FIRST_FRAME_MS;
 
-    if (metrics.failureRate >= 0.55 || metrics.successRate < 0.45) {
+    if (metrics.failureRate >= downFailureRate || metrics.successRate < downSuccessRate) {
         return {
             regionKey,
             status: 'QUALITY_DOWN',
             shortLabel: '실사용 불안정',
             longLabel: `${label} 실사용 재생 실패가 최근 많이 감지되었습니다`,
             tone: 'danger',
-            penalty: 7,
+            penalty: aggregate ? 4.2 : 7,
             lastUpdated: timeText
         };
     }
 
-    if (metrics.slowRate >= 0.4 || metrics.avgFirstFrameMs > QUALITY_SLOW_FIRST_FRAME_MS) {
+    if (metrics.slowRate >= slowRate || metrics.avgFirstFrameMs > slowFirstFrameMs) {
         return {
             regionKey,
             status: 'QUALITY_SLOW',
             shortLabel: '로딩 느림',
             longLabel: `${label} 실사용 기준 첫 화면 로딩이 느린 편입니다`,
             tone: 'warn',
-            penalty: 3.2,
+            penalty: aggregate ? 1.8 : 3.2,
             lastUpdated: timeText
         };
     }
 
-    if (metrics.samples >= 5 && metrics.successRate >= 0.88) {
+    if ((effective.scope === 'camera' && metrics.samples >= 5 && metrics.successRate >= 0.88)
+        || (aggregate && metrics.samples >= 20 && metrics.successRate >= 0.9)) {
         return {
             regionKey,
             status: 'QUALITY_OK',
             shortLabel: '실사용 정상',
             longLabel: `${label} 실사용 재생 성공률이 안정적입니다`,
             tone: metrics.avgFirstFrameMs > 6000 ? 'ok-soft' : 'ok',
-            penalty: metrics.avgFirstFrameMs > 6000 ? 0.4 : 0,
+            penalty: metrics.avgFirstFrameMs > 6000 ? (aggregate ? 0.2 : 0.4) : 0,
             lastUpdated: timeText
         };
     }
@@ -1291,6 +1393,31 @@ function getRoadContextPriority(cctv, distanceKm) {
     return score;
 }
 
+function getTrafficContextPriority(cctv, distanceKm) {
+    const normalizedName = String(cctv.name || '').replace(/\s+/g, '');
+    const source = cctv.source || '';
+    const url = cctv.directUrl || cctv.url || '';
+    const kind = getUrlParam(url, 'kind');
+    const looksTraffic = TRAFFIC_CONTEXT_PATTERN.test(normalizedName);
+    const looksUrban = URBAN_CONTEXT_PATTERN.test(normalizedName);
+    const looksScenic = SCENIC_CONTEXT_PATTERN.test(normalizedName);
+    const isUticRoad = source === 'UTIC';
+    const isNationalTraffic = source === 'NTIC' || kind === 'Z3';
+
+    let score = 0;
+
+    if (isNationalTraffic) score -= 7;
+    if (isUticRoad) score -= 3;
+    if (looksTraffic) score -= 4.5;
+    if (OUTSKIRT_CONTEXT_PATTERN.test(normalizedName)) score -= 2.5;
+
+    if (looksUrban) score += 1.8;
+    if (looksScenic || ['NOWJEJU', 'TRENDWORLD', 'YOUTUBE'].includes(source)) score += 3;
+    if (Number.isFinite(distanceKm) && distanceKm > 12) score += Math.min(4, (distanceKm - 12) * 0.22);
+
+    return score;
+}
+
 function getSourceResilienceAdjustment(cctv, health, distanceKm) {
     const source = cctv?.source || '';
     const jejuHealth = state.regionHealth.JEJU;
@@ -1323,6 +1450,7 @@ function getSortPriorityScore(parts) {
         healthPenalty,
         streamQuality,
         roadContextPriority,
+        trafficContextPriority = 0,
         sourceResilience,
         backupBonus,
         qualityAdjustment
@@ -1333,6 +1461,8 @@ function getSortPriorityScore(parts) {
             return distance + (healthPenalty * 0.65) + qualityAdjustment + sourceResilience - (backupBonus * 0.4);
         case 'urban':
             return distance + healthPenalty + ((1 - streamQuality) * 4) + (roadContextPriority * 1.9) + qualityAdjustment + sourceResilience - backupBonus;
+        case 'traffic':
+            return (distance * 0.72) + (healthPenalty * 0.85) + ((1 - streamQuality) * 4.5) + trafficContextPriority + (qualityAdjustment * 0.85) + sourceResilience - (backupBonus * 0.7);
         case 'stability':
             return (distance * 0.55) + (healthPenalty * 1.35) + ((1 - streamQuality) * 5.5) + (qualityAdjustment * 1.45) + roadContextPriority + sourceResilience - backupBonus;
         case 'quality':
@@ -2074,6 +2204,7 @@ function updateNearestCctvs() {
             const streamQuality = getStreamQualityScore(cctv);
             const backupBonus = cctv.backup_urls && cctv.backup_urls.length > 0 ? 0.6 : 0;
             const roadContextPriority = getRoadContextPriority(cctv, distance);
+            const trafficContextPriority = getTrafficContextPriority(cctv, distance);
             const sourceResilience = getSourceResilienceAdjustment(cctv, health, distance);
             const qualityAdjustment = getQualitySummaryAdjustment(cctv);
             const priorityScore = getSortPriorityScore({
@@ -2081,6 +2212,7 @@ function updateNearestCctvs() {
                 healthPenalty: health.penalty,
                 streamQuality,
                 roadContextPriority,
+                trafficContextPriority,
                 sourceResilience,
                 backupBonus,
                 qualityAdjustment
@@ -2092,6 +2224,7 @@ function updateNearestCctvs() {
                 _health: health,
                 _streamQuality: streamQuality,
                 _roadContextPriority: roadContextPriority,
+                _trafficContextPriority: trafficContextPriority,
                 _sourceResilience: sourceResilience,
                 _qualityAdjustment: qualityAdjustment,
                 _priorityScore: priorityScore
