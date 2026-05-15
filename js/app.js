@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality19';
+const APP_BUILD_VERSION = '20260515-quality20';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -1407,6 +1407,74 @@ function getCameraHealthMeta(cctv) {
     };
 }
 
+function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
+    const playbackHealth = cctv && cctv.id ? state.cameraPlaybackHealth.get(cctv.id) : null;
+    if (playbackHealth && isStoredPlaybackHealthFresh(playbackHealth)) {
+        if (playbackHealth.status === 'PLAYING') {
+            return {
+                tone: 'ok',
+                label: '현재 브라우저에서 재생 확인',
+                title: '방금 이 브라우저에서 영상 프레임이 확인되었습니다.'
+            };
+        }
+        if (playbackHealth.status === 'PLAYBACK_ERROR' || playbackHealth.tone === 'danger') {
+            return {
+                tone: 'danger',
+                label: '최근 재생 실패',
+                title: '최근 이 브라우저에서 영상 재생 실패가 감지되었습니다.'
+            };
+        }
+    }
+
+    const cameraMetrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
+    if (cameraMetrics && cameraMetrics.samples >= 5) {
+        if (cameraMetrics.failureRate >= 0.25 || cameraMetrics.successRate < 0.72) {
+            return {
+                tone: 'danger',
+                label: '실사용 실패 많음',
+                title: `최근 실사용 ${cameraMetrics.samples}건 기준 재생 실패율이 높습니다.`
+            };
+        }
+        if (cameraMetrics.successRate >= 0.92 && cameraMetrics.failureRate <= 0.08 && cameraMetrics.slowRate <= 0.25) {
+            return {
+                tone: cameraMetrics.avgFirstFrameMs > 6500 ? 'ok-soft' : 'ok',
+                label: '실사용 재생 검증',
+                title: `최근 실사용 ${cameraMetrics.samples}건 기준 재생 성공률이 높습니다.`
+            };
+        }
+        if (cameraMetrics.slowRate >= 0.35 || cameraMetrics.avgFirstFrameMs > QUALITY_SLOW_FIRST_FRAME_MS) {
+            return {
+                tone: 'warn',
+                label: '재생은 되나 느림',
+                title: `최근 실사용 ${cameraMetrics.samples}건 기준 첫 화면 로딩이 느립니다.`
+            };
+        }
+    }
+
+    if (health.status === 'UNSUPPORTED' || health.status === 'QUALITY_DOWN' || health.status === 'PLAYBACK_ERROR' || health.tone === 'danger') {
+        return {
+            tone: 'danger',
+            label: health.shortLabel || '연결 불안정',
+            title: health.longLabel || '현재 재생 실패 가능성이 높습니다.'
+        };
+    }
+
+    if (health.status === 'DEGRADED' || health.status === 'QUALITY_SLOW' || health.tone === 'warn') {
+        return {
+            tone: 'warn',
+            label: health.shortLabel || '주의',
+            title: health.longLabel || '재생이 느리거나 불안정할 수 있습니다.'
+        };
+    }
+
+    // Region/source-level OK is not strong enough to promise a specific camera will play.
+    return {
+        tone: 'unknown',
+        label: '아직 직접 확인 전',
+        title: '이 카메라 단위의 최근 재생 성공 근거가 아직 충분하지 않습니다.'
+    };
+}
+
 function isFrameOnlyPlaybackCandidate(cctv) {
     const url = cctv?.directUrl || cctv?.url || '';
     return url.includes('its.gn.go.kr/popup')
@@ -1843,6 +1911,7 @@ function renderSelectTrigger(panel, cctv, fallbackLabel) {
     if (!trigger) return;
 
     const health = getCameraHealthMeta(cctv);
+    const confidence = getCameraPlaybackConfidence(cctv, health);
     const label = cctv?.name || fallbackLabel || 'CCTV 선택';
     trigger.innerHTML = '';
 
@@ -1850,9 +1919,13 @@ function renderSelectTrigger(panel, cctv, fallbackLabel) {
     name.className = 'cctv-select-name';
     name.textContent = label;
 
-    trigger.append(name);
-    trigger.title = `${label} · ${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
-    trigger.setAttribute('aria-label', `${label}, ${health.shortLabel}`);
+    const dot = document.createElement('span');
+    dot.className = `cctv-status-dot tone-${confidence.tone}`;
+    dot.setAttribute('aria-hidden', 'true');
+
+    trigger.append(name, dot);
+    trigger.title = `${label} · ${confidence.label} · ${confidence.title} · ${formatRelativeTime(health.lastUpdated)}`;
+    trigger.setAttribute('aria-label', `${label}, ${confidence.label}`);
 }
 
 function getPanelCctv(panel) {
@@ -2084,6 +2157,13 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
         cleanup();
         console.warn(`[Playback] ${cctv?.name || 'CCTV'} unhealthy: ${reason}`);
         recordVideoQualityFailure(video, cctv, reason);
+        setPlaybackHealth(cctv, {
+            status: 'PLAYBACK_ERROR',
+            shortLabel: '재생 불안정',
+            longLabel: `${cctv?.name || 'CCTV'} 영상 재생 실패 감지`,
+            tone: 'danger',
+            penalty: 6
+        });
         onUnhealthy(reason);
     };
 
@@ -2411,15 +2491,23 @@ function populateSelectOptions(panel, currentIndex) {
     const cctvList = state.nearestCctvs.slice(0, PANEL_OPTION_LIMIT);
     cctvList.forEach((cctv, i) => {
         const option = document.createElement('div');
-        option.className = 'cctv-option' + (i === currentIndex ? ' selected' : '');
         const health = getCameraHealthMeta(cctv);
+        const confidence = getCameraPlaybackConfidence(cctv, health);
+        option.className = `cctv-option confidence-${confidence.tone}` + (i === currentIndex ? ' selected' : '');
         const name = document.createElement('span');
         name.className = 'cctv-option-name';
         name.textContent = cctv.name || `CCTV ${i + 1}`;
-        option.append(name);
+
+        const statusDot = document.createElement('span');
+        statusDot.className = `cctv-status-dot tone-${confidence.tone}`;
+        statusDot.title = confidence.title;
+        statusDot.setAttribute('aria-hidden', 'true');
+
+        option.append(name, statusDot);
         option.dataset.cctvIndex = i;
-        option.title = `${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
-        option.setAttribute('aria-label', `${name.textContent}, ${health.shortLabel}`);
+        option.dataset.confidence = confidence.tone;
+        option.title = `${confidence.label} · ${confidence.title} · ${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
+        option.setAttribute('aria-label', `${name.textContent}, ${confidence.label}`);
         optionsContainer.appendChild(option);
     });
 }
@@ -3355,6 +3443,15 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
             scheduleVideoHealthProbe(panel, activeCctv || cctv, newVideo);
         }, isRetryingPrimary ? 160 : 180);
     } else {
+        setPlaybackHealth(cctv, {
+            status: 'PLAYBACK_ERROR',
+            shortLabel: '재생 불안정',
+            longLabel: `${cctv.name || 'CCTV'} 연결 가능한 대체 영상 없음`,
+            tone: 'danger',
+            penalty: 6
+        });
+        const panel = wrapper.closest('.video-panel');
+        if (panel) updatePanelHealthUi(panel, cctv);
         const errPh = createErrorPlaceholder({
             message: '지금은 연결이 불안정합니다',
             detail: '잠시 후 다시 시도하거나, 문제가 계속되면 바로 제보할 수 있습니다.',
