@@ -4,6 +4,10 @@ class GigaEyesCollector:
     Provides 20 high-quality nationwide live cams.
     """
     
+    BLOCKED_STREAM_IDS = {
+        "bKcdTWp6akg",  # 대전 엑스포 한빛광장: YouTube owner marked the video private.
+    }
+
     STREAMS = [
         {"id": "gAr0P3SFLBo", "name": "서울 DDP (동대문디자인플라자)", "lat": 37.5672, "lng": 127.0105, "addr": "서울특별시 중구 을지로 281"},
         {"id": "jTQjbPOwv24", "name": "포항 호미곶 광장", "lat": 36.0764, "lng": 129.5750, "addr": "경상북도 포항시 남구 호미곶면 해맞이로 150번길 20"},
@@ -31,6 +35,8 @@ class GigaEyesCollector:
         print(f"Collecting GiGAeyes YouTube data ({len(self.STREAMS)} streams)...")
         results = []
         for s in self.STREAMS:
+            if s["id"] in self.BLOCKED_STREAM_IDS:
+                continue
             item = {
                 "id": f"GIGAEYES_{s['id']}",
                 "name": f"[YouTube] {s['name']}",

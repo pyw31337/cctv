@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality17';
+const APP_BUILD_VERSION = '20260515-quality18';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -53,6 +53,9 @@ const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|�
 const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권제|국도|IC|JC|TG|영업소|터널|램프|휴게소|졸음쉼터|분기점|진입로|외부|하이패스)/i;
 const TRAFFIC_CONTEXT_PATTERN = /(고속|고속도로|도시고속|자동차전용|국도|지방도|IC|JC|TG|영업소|나들목|분기점|램프|터널|휴게소|졸음쉼터|하이패스|외곽|순환|우회|간선|산업도로|대교|교량|지하차도|고가도로)/i;
 const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오름|산책|관광|해수욕장|방파제|등대|섬|계곡|정자|캠핑|휴양)/;
+const BLOCKED_YOUTUBE_VIDEO_IDS = new Set([
+    'bKcdTWp6akg' // [YouTube] 대전 엑스포 한빛광장: owner-side private video.
+]);
 
 const REGION_LABELS = {
     BUSAN: '부산',
@@ -265,9 +268,10 @@ async function loadCctvData() {
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        state.cctvData = await response.json();
+        const rawData = await response.json();
+        state.cctvData = rawData.filter(cctv => !shouldExcludeCctv(cctv));
         buildGeoIndex(state.cctvData);
-        console.log(`Loaded ${state.cctvData.length} CCTV entries.`);
+        console.log(`Loaded ${state.cctvData.length} CCTV entries.`, rawData.length !== state.cctvData.length ? `(excluded ${rawData.length - state.cctvData.length})` : '');
     } catch (error) {
         console.error('Failed to load CCTV data:', error);
         state.cctvData = [];
@@ -897,6 +901,98 @@ function getUrlParam(url, key) {
     }
 }
 
+function getYouTubeVideoId(url) {
+    if (!url) return null;
+
+    try {
+        const parsed = new URL(url, window.location.origin);
+        const host = parsed.hostname.replace(/^www\./, '');
+        if (host === 'youtu.be') return parsed.pathname.replace(/^\//, '').split('/')[0] || null;
+        if (host.endsWith('youtube.com')) {
+            if (parsed.searchParams.get('v')) return parsed.searchParams.get('v');
+            const embedMatch = parsed.pathname.match(/\/embed\/([^/?#]+)/);
+            if (embedMatch) return embedMatch[1];
+            const shortsMatch = parsed.pathname.match(/\/shorts\/([^/?#]+)/);
+            if (shortsMatch) return shortsMatch[1];
+        }
+    } catch {
+        const match = String(url).match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{6,})/);
+        if (match) return match[1];
+    }
+
+    return null;
+}
+
+function shouldExcludeCctv(cctv) {
+    if (!cctv) return true;
+
+    const url = cctv.directUrl || cctv.url || '';
+    const videoId = getYouTubeVideoId(url);
+    if (videoId && BLOCKED_YOUTUBE_VIDEO_IDS.has(videoId)) return true;
+
+    return false;
+}
+
+function normalizeDaejeonStreamId(rawId) {
+    const raw = String(rawId || '').trim();
+    if (!raw) return null;
+
+    const daejeonMatch = raw.match(/DAEJEON_(CCTV\d+)/i);
+    const cctvMatch = raw.match(/^CCTV(\d+)$/i) || (daejeonMatch ? daejeonMatch[1].match(/^CCTV(\d+)$/i) : null);
+    if (cctvMatch) return `CTV${cctvMatch[1].padStart(4, '0')}`;
+
+    const ctvMatch = raw.match(/^CTV(\d+)$/i);
+    if (ctvMatch) return `CTV${ctvMatch[1].padStart(4, '0')}`;
+
+    return null;
+}
+
+function getDaejeonStreamId(cctv, url, selectedOriginalId) {
+    const candidates = [
+        getUrlParam(url, 'cctvpasswd'),
+        getUrlParam(url, 'id'),
+        selectedOriginalId,
+        cctv && cctv.original_id,
+        cctv && cctv.id
+    ];
+
+    for (const candidate of candidates) {
+        const streamId = normalizeDaejeonStreamId(candidate);
+        if (streamId) return streamId;
+    }
+
+    return null;
+}
+
+function getDaejeonMediaPath(url, cctvIp, streamId) {
+    const ip = String(cctvIp || getUrlParam(url, 'cctvip') || '');
+    if (ip === '118' || url.includes('210.99.67.118') || url.includes('192.168.12.101')) return '01';
+    if (ip === '119' || url.includes('210.99.67.119') || url.includes('192.168.12.102')) return '02';
+
+    const numMatch = String(streamId || '').match(/CTV0*(\d+)/i);
+    if (numMatch) {
+        const num = Number(numMatch[1]);
+        if (Number.isFinite(num)) return num < 51 ? '01' : '02';
+    }
+
+    return '01';
+}
+
+function isDaejeonDirectMp4Candidate(cctv, url, selectedSource, selectedKind, selectedCctvIp, selectedOriginalId) {
+    if (!cctv || !url) return false;
+    if (sourceLooksLikeDaejeon(selectedSource, selectedKind, cctv, url)) {
+        return !!getDaejeonStreamId(cctv, url, selectedOriginalId);
+    }
+    return false;
+
+    function sourceLooksLikeDaejeon(source, kind, item, itemUrl) {
+        if (item.urlType === 'daejeon_mp4_dynamic' || source === 'DAEJEON_ITS') return true;
+        if (source === 'UTIC' && kind === 'E' && inferRegionKey(item) === 'DAEJEON') return true;
+        if (source === 'UTIC' && selectedCctvIp && ['118', '119'].includes(String(selectedCctvIp))) return true;
+        return itemUrl.includes('traffic.daejeon.go.kr') || itemUrl.includes('tportal.daejeon.go.kr');
+    }
+}
+
 async function resolveJejuPlaybackUrl(url) {
     if (!url || !url.includes('/jeju')) return url;
 
@@ -1361,6 +1457,9 @@ function getStreamQualityScore(cctv) {
     }
     if (source === 'JEJU' || url.includes('158.179.194.163.sslip.io/jeju')) {
         score += 0.08;
+    }
+    if (source === 'UTIC' && getUrlParam(url, 'kind') === 'E' && inferRegionKey(cctv) === 'DAEJEON') {
+        score += 0.1;
     }
     if (url.includes('openDataCctvStream.jsp') || url.includes('utic.go.kr/jsp')) {
         score -= 0.08;
@@ -2572,12 +2671,14 @@ function createVideoElement(cctv, sourceIndex = 0) {
         handleStreamFailover(wrapper, cctv, sourceIndex + 1);
     };
 
-    // Handle Daejeon dynamic MP4 URLs (client-side generation to bypass oracle block)
-    if (cctv.urlType === 'daejeon_mp4_dynamic' && sourceIndex === 0) {
+    // Handle Daejeon traffic-center MP4 snapshots directly instead of embedding the UTIC legacy frame.
+    if (isDaejeonDirectMp4Candidate(cctv, url, selectedSource, selectedKind, selectedCctvIp, selectedOriginalId)) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
         if (is43) video.dataset.aspectRatio = '4:3';
 
+        const streamId = getDaejeonStreamId(cctv, url, selectedOriginalId);
+        const mediaPath = getDaejeonMediaPath(url, selectedCctvIp, streamId);
         const getDaejeonUrl = (offsetMins) => {
             const now = new Date();
             const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
@@ -2590,30 +2691,67 @@ function createVideoElement(cctv, sourceIndex = 0) {
             const min = String(kst.getMinutes()).padStart(2, '0');
             const sec = '00';
             const timestamp = `${yyyy}${mm}${dd}.${hh}${min}${sec}`;
-            let streamId = cctv.original_id || cctv.id.replace('DAEJEON_', '');
-            if (streamId.startsWith('CCTV')) {
-                const num = streamId.substring(4);
-                streamId = `CTV${num.padStart(4, '0')}`;
-            }
-            return `https://tportal.daejeon.go.kr:37084/01/media/${streamId}/${streamId}_${timestamp}.000.mp4`;
+            return `https://tportal.daejeon.go.kr:37084/${mediaPath}/media/${streamId}/${streamId}_${timestamp}.000.mp4`;
         };
 
-        const url2min = getDaejeonUrl(2);
-        video.src = url2min;
         video.muted = true;
         video.autoplay = true;
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
-        video.onerror = () => {
-            if (video.src === url2min) {
-                console.log(`Daejeon ${cctv.name}: -2m failed, trying -3m`);
-                video.src = getDaejeonUrl(3);
-            } else {
-                // If -3m also fails, try Failover
-                triggerFailover(video.parentElement);
+        const offsets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 1];
+        let attemptIndex = 0;
+        let refreshCycle = 0;
+        let candidateTimer = null;
+
+        const clearCandidateTimer = () => {
+            if (candidateTimer) {
+                clearTimeout(candidateTimer);
+                candidateTimer = null;
             }
         };
+
+        const armCandidateTimer = () => {
+            clearCandidateTimer();
+            candidateTimer = setTimeout(() => {
+                if (video.readyState >= 2) return;
+                tryNextDaejeonUrl();
+            }, 2800);
+        };
+
+        const tryNextDaejeonUrl = () => {
+            clearCandidateTimer();
+            if (attemptIndex >= offsets.length) {
+                if (!video.parentElement) return;
+                if (refreshCycle < 1) {
+                    refreshCycle += 1;
+                    attemptIndex = 0;
+                    setTimeout(tryNextDaejeonUrl, 1200);
+                    return;
+                }
+                triggerFailover(video.parentElement);
+                return;
+            }
+            const offset = offsets[attemptIndex];
+            attemptIndex += 1;
+            video.src = getDaejeonUrl(offset);
+            video.load();
+            armCandidateTimer();
+            video.play().catch(() => {});
+        };
+
+        video.addEventListener('loadeddata', clearCandidateTimer);
+        video.addEventListener('playing', clearCandidateTimer);
+        video.addEventListener('canplay', clearCandidateTimer);
+        video._daejeonCleanup = clearCandidateTimer;
+        video.onerror = tryNextDaejeonUrl;
+        video.onended = () => {
+            clearCandidateTimer();
+            attemptIndex = 0;
+            refreshCycle = 0;
+            setTimeout(tryNextDaejeonUrl, 700);
+        };
+        tryNextDaejeonUrl();
         armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
         return video;
     }
@@ -3306,6 +3444,10 @@ function cleanupVideo(container) {
         if (typeof video._watchdogCleanup === 'function') {
             video._watchdogCleanup();
             video._watchdogCleanup = null;
+        }
+        if (typeof video._daejeonCleanup === 'function') {
+            video._daejeonCleanup();
+            video._daejeonCleanup = null;
         }
         if (video.hls) {
             video.hls.destroy();
