@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality20';
+const APP_BUILD_VERSION = '20260515-quality21';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -49,10 +49,10 @@ const LIVE_HEALTH_STATUS_URL = QUALITY_CONFIG.healthStatusUrl || `${ORACLE_BASE}
 const MARKER_DANGER_FILTER = 'hue-rotate(145deg) saturate(1.85) contrast(1.08)';
 const MARKER_WARN_FILTER = 'hue-rotate(185deg) saturate(1.55) contrast(1.05)';
 const QUALITY_SORT_MODES = ['recommended', 'nearest', 'urban', 'traffic', 'stability', 'quality'];
-const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|동부출장소|행정복지|주민센터|사거리|삼거리|교차로|로터리|터미널|역|아파트|시장|학교|초교|초등|중학교|고교|병원|마트|상가|대로변|단지내|시내|중앙|읍내)/;
+const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|동부출장소|행정복지|주민센터|세무서|법원|경찰서|소방서|보건소|사거리|삼거리|네거리|교차로|로터리|터미널|역|아파트|시장|학교|초교|초등|중학교|고교|병원|마트|상가|대로변|단지내|시내|중앙|읍내)/;
 const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권제|국도|IC|JC|TG|영업소|터널|램프|휴게소|졸음쉼터|분기점|진입로|외부|하이패스)/i;
 const TRAFFIC_CONTEXT_PATTERN = /(고속|고속도로|도시고속|자동차전용|국도|지방도|IC|JC|TG|영업소|나들목|분기점|램프|터널|휴게소|졸음쉼터|하이패스|외곽|순환|우회|간선|산업도로|대교|교량|지하차도|고가도로)/i;
-const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오름|산책|관광|해수욕장|방파제|등대|섬|계곡|정자|캠핑|휴양)/;
+const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오름|산책|관광|해수욕장|방파제|등대|섬|계곡|정자|캠핑|휴양|하천|강변|왕숙천|중랑천|탄천|한강|호수)/;
 const BLOCKED_YOUTUBE_VIDEO_IDS = new Set([
     'bKcdTWp6akg' // [YouTube] 대전 엑스포 한빛광장: owner-side private video.
 ]);
@@ -1451,6 +1451,14 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
         }
     }
 
+    if (isAggregateOnlyHealthWarning(cctv, health)) {
+        return {
+            tone: 'unknown',
+            label: '직접 확인 전',
+            title: '소스 단위 점검은 불안정하지만, 이 카메라는 브라우저 재생 리졸버로 별도 확인합니다.'
+        };
+    }
+
     if (health.status === 'UNSUPPORTED' || health.status === 'QUALITY_DOWN' || health.status === 'PLAYBACK_ERROR' || health.tone === 'danger') {
         return {
             tone: 'danger',
@@ -1473,6 +1481,69 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
         label: '아직 직접 확인 전',
         title: '이 카메라 단위의 최근 재생 성공 근거가 아직 충분하지 않습니다.'
     };
+}
+
+function isKbResolverPlaybackCandidate(cctv) {
+    const url = cctv?.directUrl || cctv?.url || '';
+    const kind = getUrlParam(url, 'kind');
+    const cctvip = getUrlParam(url, 'cctvip');
+    return cctv?.source === 'UTIC' && ['EE', 'EEE', 'KB'].includes(kind) && !!cctvip;
+}
+
+function hasCameraSpecificPlaybackProblem(cctv) {
+    const playbackHealth = cctv && cctv.id ? state.cameraPlaybackHealth.get(cctv.id) : null;
+    if (playbackHealth && isStoredPlaybackHealthFresh(playbackHealth)) {
+        return playbackHealth.status === 'PLAYBACK_ERROR' || playbackHealth.tone === 'danger';
+    }
+
+    const cameraMetrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
+    if (cameraMetrics && cameraMetrics.samples >= 3) {
+        return cameraMetrics.failureRate >= 0.25 || cameraMetrics.successRate < 0.72;
+    }
+
+    return false;
+}
+
+function isProxyResolverBackedCandidate(cctv) {
+    const url = cctv?.directUrl || cctv?.url || '';
+    const source = cctv?.source || '';
+    const kind = getUrlParam(url, 'kind');
+    return isKbResolverPlaybackCandidate(cctv)
+        || isJejuUticProxyable(cctv)
+        || cctv?.urlType === 'daejeon_mp4_dynamic'
+        || (source === 'UTIC' && kind === 'Z3' && !!getUrlParam(url, 'cctvip'));
+}
+
+function isAggregateOnlyHealthWarning(cctv, health) {
+    if (!health || !cctv || !isProxyResolverBackedCandidate(cctv)) return false;
+    if (hasCameraSpecificPlaybackProblem(cctv)) return false;
+    return ['DOWN', 'DEGRADED', 'QUALITY_DOWN', 'QUALITY_SLOW'].includes(health.status);
+}
+
+function getRankingHealthPenalty(cctv, health, distanceKm) {
+    const basePenalty = Number(health?.penalty || 0);
+    if (basePenalty <= 0) return 0;
+    if (!cctv) return basePenalty;
+
+    const playbackHealth = cctv.id ? state.cameraPlaybackHealth.get(cctv.id) : null;
+    if (playbackHealth && isStoredPlaybackHealthFresh(playbackHealth) && playbackHealth.status === 'PLAYING') {
+        return 0;
+    }
+
+    if (health?.status === 'UNSUPPORTED' || health?.status === 'PLAYBACK_ERROR' || hasCameraSpecificPlaybackProblem(cctv)) {
+        return basePenalty;
+    }
+
+    if (!isProxyResolverBackedCandidate(cctv)) return basePenalty;
+    if (!Number.isFinite(distanceKm)) return Math.min(basePenalty, 2.8);
+
+    // Source-wide checks can be noisy for mixed UTIC subtypes. Nearby cameras
+    // with a fresh resolver should stay discoverable until camera-level evidence
+    // proves that this exact camera is broken.
+    if (distanceKm <= 1) return Math.min(basePenalty, 0.35);
+    if (distanceKm <= 2.5) return Math.min(basePenalty, 0.75);
+    if (distanceKm <= 5) return Math.min(basePenalty, 1.4);
+    return Math.min(basePenalty, 2.8);
 }
 
 function isFrameOnlyPlaybackCandidate(cctv) {
@@ -1540,6 +1611,7 @@ function getRoadContextPriority(cctv, distanceKm) {
     const normalizedName = String(cctv.name || '').replace(/\s+/g, '');
     const source = cctv.source || '';
     const looksUrban = URBAN_CONTEXT_PATTERN.test(normalizedName);
+    const looksScenic = SCENIC_CONTEXT_PATTERN.test(normalizedName) || source === 'KBS';
     const looksOutskirt = source === 'NTIC' || OUTSKIRT_CONTEXT_PATTERN.test(normalizedName);
 
     let score = 0;
@@ -1552,6 +1624,10 @@ function getRoadContextPriority(cctv, distanceKm) {
         score -= 1.2;
     } else if (!looksOutskirt && distanceKm < 1.2) {
         score -= 0.5;
+    }
+
+    if (looksScenic && !looksUrban) {
+        score += Number.isFinite(distanceKm) && distanceKm < 3 ? 1.6 : 0.8;
     }
 
     return score;
@@ -2383,9 +2459,10 @@ function updateNearestCctvs() {
             const trafficContextPriority = getTrafficContextPriority(cctv, distance);
             const sourceResilience = getSourceResilienceAdjustment(cctv, health, distance);
             const qualityAdjustment = getQualitySummaryAdjustment(cctv);
+            const rankingHealthPenalty = getRankingHealthPenalty(cctv, health, distance);
             const priorityScore = getSortPriorityScore({
                 distance,
-                healthPenalty: health.penalty,
+                healthPenalty: rankingHealthPenalty,
                 streamQuality,
                 roadContextPriority,
                 trafficContextPriority,
@@ -2403,6 +2480,7 @@ function updateNearestCctvs() {
                 _trafficContextPriority: trafficContextPriority,
                 _sourceResilience: sourceResilience,
                 _qualityAdjustment: qualityAdjustment,
+                _rankingHealthPenalty: rankingHealthPenalty,
                 _priorityScore: priorityScore
             };
         })
