@@ -512,7 +512,7 @@ def proxy_daejeon():
 
     # Daejeon publishes minute MP4 files with a short delay. Probe recent
     # timestamps so playback does not fail just because the newest file is late.
-    now = datetime.now()
+    now = datetime.utcnow() + timedelta(hours=9)
     last_url = None
     probe_headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -524,7 +524,7 @@ def proxy_daejeon():
         real_url = f"https://tportal.daejeon.go.kr:37084/{media_path}/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
         last_url = real_url
         try:
-            resp = requests.get(real_url, headers=probe_headers, timeout=(2, 4), verify=False, stream=True)
+            resp = requests.get(real_url, headers=probe_headers, timeout=(1.5, 2.5), verify=False, stream=True)
             if resp.status_code in (200, 206):
                 logger.info(f"Proxying Daejeon {cctv_id} offset={offset}m -> {real_url}")
                 return flask.redirect(real_url)
