@@ -191,7 +191,15 @@ def check_jeju_stream(cctv):
 
     proxy_url = f"https://158.179.194.163.sslip.io/jeju?id={stream_id}"
     try:
-        resp = requests.get(proxy_url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, allow_redirects=True, stream=True)
+        # The Oracle server can resolve Jeju tokens reliably, but its egress to
+        # media*.jejuits.go.kr:7001 is often slower than real browsers. Treat a
+        # valid redirect as resolver-healthy and let browser telemetry judge
+        # actual playback speed.
+        resp = requests.get(proxy_url, timeout=REQUEST_TIMEOUT, verify=False, headers=HEADERS, allow_redirects=False, stream=True)
+        location = resp.headers.get('Location', '')
+        if resp.status_code in (301, 302, 303, 307, 308) and location.startswith('http'):
+            log(f"[OK] Jeju {cctv.get('id')} token redirect is UP")
+            return True
         content_type = resp.headers.get('Content-Type', '').lower()
         if resp.status_code == 200 and ('mpegurl' in content_type or resp.raw.read(8, decode_content=True).startswith(b'#EXTM3U')):
             log(f"[OK] Jeju {cctv.get('id')} is UP")
