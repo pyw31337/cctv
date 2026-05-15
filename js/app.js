@@ -11,7 +11,7 @@ const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 �
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality13';
+const APP_BUILD_VERSION = '20260515-quality14';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -28,7 +28,6 @@ const QUALITY_TELEMETRY_DAILY_LIMIT = 20;
 const QUALITY_TELEMETRY_QUEUE_LIMIT = 12;
 const QUALITY_SLOW_FIRST_FRAME_MS = 8000;
 const QUALITY_SORT_STORAGE_KEY = 'cctv_quality_sort_mode';
-const LOW_DATA_MODE_STORAGE_KEY = 'cctv_low_data_mode';
 const TELEMETRY_SAMPLE_STORAGE_KEY = 'cctv_quality_sample_v1';
 const TELEMETRY_DAILY_STORAGE_KEY = 'cctv_quality_daily_v1';
 const NEAREST_RESULT_LIMIT = 100;
@@ -201,8 +200,7 @@ const state = {
     serviceBannerTimer: null,
     serviceBannerCountdownTimer: null,
     serviceBannerDismissedKey: null,
-    sortMode: 'recommended',
-    lowDataMode: false
+    sortMode: 'recommended'
 };
 
 let map = null;
@@ -384,37 +382,15 @@ function restoreQualityPreferences() {
         if (['recommended', 'nearest', 'urban', 'stability', 'quality'].includes(storedSortMode)) {
             state.sortMode = storedSortMode;
         }
-        state.lowDataMode = localStorage.getItem(LOW_DATA_MODE_STORAGE_KEY) === 'true';
+        localStorage.removeItem('cctv_low_data_mode');
     } catch {
         state.sortMode = 'recommended';
-        state.lowDataMode = false;
     }
-
-    if (isMobileQualityControlsHidden()) {
-        state.lowDataMode = false;
-    }
-}
-
-function isMobileQualityControlsHidden() {
-    if (!window.matchMedia) return false;
-    return window.matchMedia('(hover: none) and (pointer: coarse)').matches
-        || window.matchMedia('(max-width: 820px)').matches
-        || window.matchMedia('(max-height: 520px) and (max-width: 1100px)').matches;
 }
 
 function renderQualityControls() {
     const sortSelect = $('#quality-sort-select');
     if (sortSelect) sortSelect.value = state.sortMode;
-
-    const lowDataToggle = $('#low-data-toggle');
-    if (lowDataToggle) {
-        lowDataToggle.classList.toggle('active', state.lowDataMode);
-        lowDataToggle.setAttribute('aria-pressed', String(state.lowDataMode));
-        lowDataToggle.textContent = state.lowDataMode ? '저속 ON' : '저속';
-        lowDataToggle.title = state.lowDataMode
-            ? '저속 모드 사용 중: 첫 번째 영상만 자동 재생합니다'
-            : '저속 모드: 첫 번째 영상만 자동 재생합니다';
-    }
 }
 
 function setSortMode(mode) {
@@ -429,16 +405,6 @@ function setSortMode(mode) {
     renderVideoGrid();
     renderMapMarkers();
     syncUrlState();
-}
-
-function setLowDataMode(enabled) {
-    state.lowDataMode = Boolean(enabled);
-    try {
-        localStorage.setItem(LOW_DATA_MODE_STORAGE_KEY, String(state.lowDataMode));
-    } catch {}
-
-    renderQualityControls();
-    renderVideoGrid();
 }
 
 // === Event Listeners (Delegation) ===
@@ -484,13 +450,6 @@ function setupEventListeners() {
     if (sortSelect) {
         sortSelect.addEventListener('change', () => {
             setSortMode(sortSelect.value);
-        });
-    }
-
-    const lowDataToggle = $('#low-data-toggle');
-    if (lowDataToggle) {
-        lowDataToggle.addEventListener('click', () => {
-            setLowDataMode(!state.lowDataMode);
         });
     }
 
@@ -1248,8 +1207,10 @@ function getCameraHealthMeta(cctv) {
         return {
             regionKey,
             status: 'DOWN',
-            shortLabel: (usingFallback ? '대체 소스' : '최근 장애') + staleSuffix,
-            longLabel: usingFallback ? `${getRegionLabel(regionKey)} 대체 소스 사용 중${staleSuffix}` : `${getRegionLabel(regionKey)} 최근 장애 감지${staleSuffix}`,
+            shortLabel: (usingFallback ? '대체 권장' : '점검 실패') + staleSuffix,
+            longLabel: usingFallback
+                ? `${getRegionLabel(regionKey)} 자동 점검에서 원본 소스 실패가 감지되어 대체 소스를 우선 권장합니다${staleSuffix}`
+                : `${getRegionLabel(regionKey)} 자동 점검 샘플이 실패했습니다. 현재 영상이 재생되면 화면의 실제 재생 상태가 우선입니다${staleSuffix}`,
             tone: usingFallback ? 'warn' : 'danger',
             penalty: usingFallback ? 4.2 : 8,
             lastUpdated
@@ -2127,8 +2088,7 @@ function updateNearestCctvs() {
 function renderVideoGrid() {
     const grid = $('#video-grid');
     const panels = grid.querySelectorAll('.video-panel');
-    const visiblePanelCount = state.lowDataMode ? 1 : panels.length;
-    grid.classList.toggle('low-data-mode', state.lowDataMode);
+    const visiblePanelCount = panels.length;
 
     panels.forEach((panel, index) => {
         const cctv = state.nearestCctvs[index];
@@ -2147,20 +2107,7 @@ function renderVideoGrid() {
 
         // Clear wrapper content
         cleanupVideo(wrapper);
-        panel.classList.toggle('panel-suspended', state.lowDataMode && index >= visiblePanelCount);
-
-        if (index >= visiblePanelCount) {
-            const ph = document.createElement('div');
-            ph.className = 'video-placeholder suspended';
-            ph.textContent = '저속 모드에서는 첫 번째 영상만 자동 재생합니다. 필요하면 저속 모드를 끄거나 목록에서 직접 선택해 주세요.';
-            wrapper.appendChild(ph);
-            delete panel.dataset.cctvId;
-            panel.dataset.slotIndex = index;
-            removePanelHealthBadge(panel);
-            renderSelectTrigger(panel, null, `CCTV ${index + 1}`);
-            populateSelectOptions(panel, index);
-            return;
-        }
+        panel.classList.remove('panel-suspended');
 
         if (cctv) {
             // Create and insert video element
