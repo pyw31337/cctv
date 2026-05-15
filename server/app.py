@@ -648,7 +648,7 @@ def proxy_utic():
                     else:
                         logger.error(f"Z3: cctvip={cctvip} not found after its.go.kr refresh")
 
-            if hls_resp.status_code != 200:
+            if hls_resp.status_code >= 400:
                 logger.error(f"Z3 !hls error {hls_resp.status_code} for {cctvip}")
                 return f"Z3 HLS fetch failed: {hls_resp.status_code}", 502
 
