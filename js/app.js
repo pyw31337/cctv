@@ -12,9 +12,10 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260518-marker-health1';
+const APP_BUILD_VERSION = '20260518-marker-health2';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
+const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
 const PLAYBACK_HEALTH_PROBLEM_TTL_MS = 45 * 60 * 1000;
 const PLAYBACK_HEALTH_MAX_ENTRIES = 160;
@@ -1388,6 +1389,11 @@ function hydrateStoredPlaybackHealth() {
         if (!raw) return;
 
         const parsed = JSON.parse(raw);
+        if (parsed?.version !== PLAYBACK_HEALTH_SCHEMA_VERSION) {
+            window.localStorage.removeItem(PLAYBACK_HEALTH_STORAGE_KEY);
+            return;
+        }
+
         const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
         let restoredCount = 0;
         let needsPrune = false;
@@ -1438,7 +1444,7 @@ function persistStoredPlaybackHealth() {
             .slice(0, PLAYBACK_HEALTH_MAX_ENTRIES);
 
         window.localStorage.setItem(PLAYBACK_HEALTH_STORAGE_KEY, JSON.stringify({
-            version: 1,
+            version: PLAYBACK_HEALTH_SCHEMA_VERSION,
             savedAt: now,
             entries
         }));
