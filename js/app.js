@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260515-quality23';
+const APP_BUILD_VERSION = '20260518-retry-fallback1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -41,6 +41,9 @@ const GEO_CANDIDATE_TARGET = 220;
 const PLAYBACK_STARTUP_TIMEOUT_MS = 12000;
 const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 18000;
 const PLAYBACK_STALL_TIMEOUT_MS = 9000;
+const DAEJEON_MP4_STALL_RECOVERY_MS = 14000;
+const MANUAL_RETRY_PRIMARY_ATTEMPTS = 3;
+const MANUAL_RETRY_FALLBACK_RADIUS_KM = 12;
 const DYNAMIC_BACKUP_RADIUS_KM = 8;
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
 const ORACLE_PROXY_BASE = `${ORACLE_BASE}/proxy`;
@@ -2347,6 +2350,22 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
         onUnhealthy(reason);
     };
 
+    const recoverStall = (reason) => {
+        if (typeof options.onStallRecovery !== 'function') return false;
+
+        stallStartedAt = null;
+        lastProgressAt = Date.now();
+        lastCurrentTime = Number(video.currentTime || 0);
+
+        try {
+            options.onStallRecovery(reason);
+            return true;
+        } catch (error) {
+            console.warn(`[Playback] ${cctv?.name || 'CCTV'} stall recovery failed:`, error);
+            return false;
+        }
+    };
+
     function markHealthy() {
         if (video.readyState >= 2 && video.videoWidth > 0) {
             hasStarted = true;
@@ -2403,10 +2422,14 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
                 return;
             }
             if (!video.paused && Date.now() - lastProgressAt > stallTimeoutMs) {
-                fail('playback-stalled');
+                if (!recoverStall('playback-stalled')) {
+                    fail('playback-stalled');
+                }
             }
         } else if (stallStartedAt && Date.now() - stallStartedAt > stallTimeoutMs) {
-            fail('network-stalled');
+            if (!hasStarted || !recoverStall('network-stalled')) {
+                fail('network-stalled');
+            }
         }
     }, 1800);
 
@@ -2622,6 +2645,7 @@ function renderVideoGrid() {
         // Clear wrapper content
         cleanupVideo(wrapper);
         panel.classList.remove('panel-suspended');
+        resetPanelRetryState(panel);
 
         if (cctv) {
             // Create and insert video element
@@ -2660,6 +2684,160 @@ function renderVideoGrid() {
 
     // Attach event listeners (delegated)
     initPanelControls();
+}
+
+function getManualRetryCount(panel) {
+    if (!panel || !panel.dataset) return 0;
+    const count = Number(panel.dataset.manualRetryCount || 0);
+    return Number.isFinite(count) ? Math.max(0, count) : 0;
+}
+
+function setManualRetryCount(panel, count) {
+    if (!panel || !panel.dataset) return;
+    panel.dataset.manualRetryCount = String(Math.max(0, Number(count) || 0));
+}
+
+function resetPanelRetryState(panel) {
+    if (!panel || !panel.dataset) return;
+    setManualRetryCount(panel, 0);
+    panel._preparedRetryFallback = null;
+    delete panel.dataset.preparedRetryFallbackId;
+    delete panel.dataset.retrySourceId;
+}
+
+function getManualRetryFallbackDistance(sourceCctv, candidate) {
+    const sourceLat = Number(sourceCctv?.lat);
+    const sourceLng = Number(sourceCctv?.lng);
+    const candidateLat = Number(candidate?.lat);
+    const candidateLng = Number(candidate?.lng);
+
+    if (Number.isFinite(sourceLat) && Number.isFinite(sourceLng)
+        && Number.isFinite(candidateLat) && Number.isFinite(candidateLng)) {
+        return getDistance(sourceLat, sourceLng, candidateLat, candidateLng);
+    }
+
+    const candidateDistance = Number(candidate?.distance);
+    if (Number.isFinite(candidateDistance)) return candidateDistance;
+
+    if (Number.isFinite(candidateLat) && Number.isFinite(candidateLng)
+        && Number.isFinite(Number(state.center?.lat)) && Number.isFinite(Number(state.center?.lng))) {
+        return getDistance(state.center.lat, state.center.lng, candidateLat, candidateLng);
+    }
+
+    return Number.POSITIVE_INFINITY;
+}
+
+function isManualRetryFallbackCandidate(candidate, sourceCctv) {
+    if (!candidate || !candidate.id || candidate.id === sourceCctv?.id) return false;
+    if (isUnsupportedBrowserStream(candidate) || shouldIsolateProblemCamera(candidate)) return false;
+    if (!isDirectVideoPlaybackCandidate(candidate) || isFrameOnlyPlaybackCandidate(candidate)) return false;
+    return Boolean(candidate.directUrl || candidate.url);
+}
+
+function scoreManualRetryFallback(candidate, sourceCctv) {
+    const health = candidate._health || getCameraHealthMeta(candidate);
+    const confidence = getCameraPlaybackConfidence(candidate, health);
+    const distance = getManualRetryFallbackDistance(sourceCctv, candidate);
+    const streamQuality = candidate._streamQuality || getStreamQualityScore(candidate);
+    const qualityAdjustment = candidate._qualityAdjustment || getQualitySummaryAdjustment(candidate);
+    const distancePenalty = Number.isFinite(distance)
+        ? distance + Math.max(0, distance - MANUAL_RETRY_FALLBACK_RADIUS_KM) * 0.75
+        : 80;
+    const toneAdjustment = {
+        ok: -3.5,
+        'ok-soft': -1.8,
+        unknown: 0.8,
+        warn: 4.5,
+        danger: 30
+    }[confidence.tone] ?? 1.5;
+    const playbackBonus = health.status === 'PLAYING' ? -5 : 0;
+    const backupBonus = candidate.backup_urls && candidate.backup_urls.length > 0 ? -0.8 : 0;
+
+    return distancePenalty
+        + ((health.penalty || 0) * 1.5)
+        + ((1 - streamQuality) * 8)
+        + qualityAdjustment
+        + toneAdjustment
+        + playbackBonus
+        + backupBonus;
+}
+
+function findManualRetryFallback(sourceCctv) {
+    if (!sourceCctv) return null;
+
+    const lat = Number.isFinite(Number(sourceCctv.lat)) ? Number(sourceCctv.lat) : Number(state.center?.lat);
+    const lng = Number.isFinite(Number(sourceCctv.lng)) ? Number(sourceCctv.lng) : Number(state.center?.lng);
+    const nearby = Number.isFinite(lat) && Number.isFinite(lng)
+        ? getNearbyCandidates(lat, lng, GEO_CANDIDATE_TARGET)
+        : state.cctvData;
+    const merged = [];
+    const seen = new Set();
+
+    [...state.nearestCctvs, ...nearby].forEach(candidate => {
+        if (!candidate || !candidate.id || seen.has(candidate.id)) return;
+        seen.add(candidate.id);
+        merged.push(candidate);
+    });
+
+    const scored = merged
+        .filter(candidate => isManualRetryFallbackCandidate(candidate, sourceCctv))
+        .map(candidate => ({
+            candidate,
+            distance: getManualRetryFallbackDistance(sourceCctv, candidate),
+            score: scoreManualRetryFallback(candidate, sourceCctv)
+        }))
+        .sort((a, b) => a.score - b.score || a.distance - b.distance);
+
+    const local = scored.find(item => Number.isFinite(item.distance) && item.distance <= MANUAL_RETRY_FALLBACK_RADIUS_KM);
+    return (local || scored[0])?.candidate || null;
+}
+
+function prepareManualRetryFallback(panel, sourceCctv) {
+    if (!panel || !sourceCctv) return null;
+    const cached = panel._preparedRetryFallback;
+    if (cached?.sourceId === sourceCctv.id && isManualRetryFallbackCandidate(cached.cctv, sourceCctv)) {
+        return cached.cctv;
+    }
+
+    const fallback = findManualRetryFallback(sourceCctv);
+    panel._preparedRetryFallback = fallback
+        ? { sourceId: sourceCctv.id, cctv: fallback }
+        : null;
+    if (fallback) {
+        panel.dataset.preparedRetryFallbackId = fallback.id;
+        panel.dataset.retrySourceId = sourceCctv.id;
+    } else {
+        delete panel.dataset.preparedRetryFallbackId;
+        delete panel.dataset.retrySourceId;
+    }
+    return fallback;
+}
+
+function switchToPreparedRetryFallback(panel, sourceCctv) {
+    if (!panel || !sourceCctv) return false;
+    let fallback = prepareManualRetryFallback(panel, sourceCctv);
+    if (!fallback) return false;
+
+    let fallbackIndex = state.nearestCctvs.findIndex(item => item.id === fallback.id);
+    if (fallbackIndex === -1) {
+        const distance = Number.isFinite(Number(fallback.distance))
+            ? Number(fallback.distance)
+            : getManualRetryFallbackDistance({ lat: state.center.lat, lng: state.center.lng }, fallback);
+        state.nearestCctvs = [
+            { ...fallback, distance, _health: getCameraHealthMeta(fallback) },
+            ...state.nearestCctvs.filter(item => item.id !== fallback.id)
+        ].slice(0, NEAREST_RESULT_LIMIT);
+        fallbackIndex = 0;
+        fallback = state.nearestCctvs[0];
+    }
+
+    recordQualityEvent(sourceCctv, 'fallback', {
+        sourceIndex: MANUAL_RETRY_PRIMARY_ATTEMPTS + 1,
+        usedFallback: true,
+        reason: 'manual-retry-fallback'
+    });
+    attachStreamToPanel(panel, fallback, fallbackIndex);
+    return true;
 }
 
 function populateSelectOptions(panel, currentIndex) {
@@ -2802,6 +2980,8 @@ function initPanelControls() {
 }
 
 function attachStreamToPanel(panel, cctv, cctvIndex) {
+    resetPanelRetryState(panel);
+
     // Use Wrapper
     let wrapper = panel.querySelector('.video-content-wrapper');
     if (!wrapper) {
@@ -2970,11 +3150,20 @@ function createVideoElement(cctv, sourceIndex = 0) {
         let attemptIndex = 0;
         let refreshCycle = 0;
         let candidateTimer = null;
+        let refreshTimer = null;
 
         const clearCandidateTimer = () => {
             if (candidateTimer) {
                 clearTimeout(candidateTimer);
                 candidateTimer = null;
+            }
+        };
+
+        const clearDaejeonTimers = () => {
+            clearCandidateTimer();
+            if (refreshTimer) {
+                clearTimeout(refreshTimer);
+                refreshTimer = null;
             }
         };
 
@@ -2987,13 +3176,13 @@ function createVideoElement(cctv, sourceIndex = 0) {
         };
 
         const tryNextDaejeonUrl = () => {
-            clearCandidateTimer();
+            clearDaejeonTimers();
             if (attemptIndex >= offsets.length) {
                 if (!video.parentElement) return;
                 if (refreshCycle < 1) {
                     refreshCycle += 1;
                     attemptIndex = 0;
-                    setTimeout(tryNextDaejeonUrl, 1200);
+                    refreshTimer = setTimeout(tryNextDaejeonUrl, 1200);
                     return;
                 }
                 triggerFailover(video.parentElement);
@@ -3010,16 +3199,24 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.addEventListener('loadeddata', clearCandidateTimer);
         video.addEventListener('playing', clearCandidateTimer);
         video.addEventListener('canplay', clearCandidateTimer);
-        video._daejeonCleanup = clearCandidateTimer;
+        video._daejeonCleanup = clearDaejeonTimers;
         video.onerror = tryNextDaejeonUrl;
         video.onended = () => {
-            clearCandidateTimer();
+            clearDaejeonTimers();
             attemptIndex = 0;
             refreshCycle = 0;
-            setTimeout(tryNextDaejeonUrl, 700);
+            refreshTimer = setTimeout(tryNextDaejeonUrl, 700);
         };
         tryNextDaejeonUrl();
-        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
+        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
+            stallTimeoutMs: DAEJEON_MP4_STALL_RECOVERY_MS,
+            onStallRecovery: () => {
+                clearDaejeonTimers();
+                attemptIndex = 0;
+                refreshCycle = 0;
+                tryNextDaejeonUrl();
+            }
+        });
         return video;
     }
 
@@ -3641,20 +3838,42 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
             scheduleVideoHealthProbe(panel, activeCctv || cctv, newVideo);
         }, isRetryingPrimary ? 160 : 180);
     } else {
+        const panel = wrapper.closest('.video-panel');
+        const retryCount = getManualRetryCount(panel);
+        const preparedFallback = panel ? prepareManualRetryFallback(panel, cctv) : null;
         setPlaybackHealth(cctv, {
             status: 'PLAYBACK_ERROR',
             shortLabel: '재생 불안정',
-            longLabel: `${cctv.name || 'CCTV'} 연결 가능한 대체 영상 없음`,
+            longLabel: preparedFallback
+                ? `${cctv.name || 'CCTV'} 연결 실패, ${preparedFallback.name || '대체 CCTV'} 대체 후보 준비`
+                : `${cctv.name || 'CCTV'} 연결 가능한 대체 영상 없음`,
             tone: 'danger',
             penalty: 6
         });
-        const panel = wrapper.closest('.video-panel');
         if (panel) updatePanelHealthUi(panel, cctv);
+        const nextRetryNumber = Math.min(MANUAL_RETRY_PRIMARY_ATTEMPTS, retryCount + 1);
+        const retryLabel = retryCount >= MANUAL_RETRY_PRIMARY_ATTEMPTS && preparedFallback
+            ? '다른 영상 보기'
+            : `다시 시도 (${nextRetryNumber}/${MANUAL_RETRY_PRIMARY_ATTEMPTS})`;
+        const retryDetail = preparedFallback
+            ? (retryCount >= MANUAL_RETRY_PRIMARY_ATTEMPTS
+                ? `${preparedFallback.name || '대체 CCTV'} 영상으로 전환합니다.`
+                : `${MANUAL_RETRY_PRIMARY_ATTEMPTS}회 재시도 후에도 안되면 ${preparedFallback.name || '대체 CCTV'} 영상으로 바로 전환합니다.`)
+            : '잠시 후 다시 시도하거나, 문제가 계속되면 바로 제보할 수 있습니다.';
         const errPh = createErrorPlaceholder({
             message: '지금은 연결이 불안정합니다',
-            detail: '잠시 후 다시 시도하거나, 문제가 계속되면 바로 제보할 수 있습니다.',
-            retryLabel: '다시 시도',
+            detail: retryDetail,
+            retryLabel,
             retryFn: () => {
+                const activePanel = panel || wrapper.closest('.video-panel');
+                const nextRetryCount = getManualRetryCount(activePanel) + 1;
+                setManualRetryCount(activePanel, nextRetryCount);
+                prepareManualRetryFallback(activePanel, cctv);
+
+                if (nextRetryCount > MANUAL_RETRY_PRIMARY_ATTEMPTS
+                    && switchToPreparedRetryFallback(activePanel, cctv)) {
+                    return;
+                }
                 handleStreamFailover(wrapper, cctv, 0);
             },
             cctv

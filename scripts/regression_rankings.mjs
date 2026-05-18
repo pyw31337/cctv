@@ -30,7 +30,8 @@ function loadAppHarness() {
       updateNearestCctvs,
       inferRegionKey,
       getCameraHealthMeta,
-      getCameraPlaybackConfidence
+      getCameraPlaybackConfidence,
+      findManualRetryFallback
     };
   `;
   const sandbox = {
@@ -163,9 +164,13 @@ harness.updateNearestCctvs();
 const isolatedTopNames = names(harness.state.nearestCctvs, 8);
 const isolatedHealth = harness.getCameraHealthMeta(failingGuriCamera);
 const isolatedConfidence = harness.getCameraPlaybackConfidence(failingGuriCamera, isolatedHealth);
+const retryFallback = harness.findManualRetryFallback(failingGuriCamera);
 assert(isolatedHealth.status === 'CAMERA_CRITICAL', 'camera failure registry should override aggregate health');
 assert(isolatedConfidence.tone === 'danger', 'critical camera failure should render a red selector dot');
 assert(!isolatedTopNames.includes('세무서4'), `critical camera should be isolated from top 8, got ${JSON.stringify(isolatedTopNames)}`);
+assert(retryFallback && retryFallback.id !== failingGuriCamera.id, 'manual retry fallback should choose a different playable nearby camera');
+assert(!['세무서4'].includes(retryFallback.name), `manual retry fallback should avoid failed camera, got ${retryFallback.name}`);
 console.log(`[OK] critical camera isolation: ${isolatedTopNames.join(', ')}`);
+console.log(`[OK] manual retry fallback: ${failingGuriCamera.name} -> ${retryFallback.name}`);
 
 console.log('[OK] ranking regressions passed');
