@@ -769,6 +769,20 @@ def classify_failure(sample):
     }
 
 
+def is_retired_daejeon_hls_data_error(entry):
+    """Drop old false positives from before Daejeon HLS was checked generically."""
+    if not isinstance(entry, dict):
+        return False
+    last_url = entry.get('last_url') or ''
+    return (
+        entry.get('region') == 'DAEJEON'
+        and entry.get('source') == 'UTIC'
+        and entry.get('last_reason') == 'missing_daejeon_stream_id'
+        and entry.get('last_category') == 'data_error'
+        and 'cctvlo.geumriver.go.kr' in last_url
+    )
+
+
 def update_camera_failure_registry(current_status, region_name, result):
     registry = current_status.get('camera_failures')
     if not isinstance(registry, dict):
@@ -777,6 +791,10 @@ def update_camera_failure_registry(current_status, region_name, result):
     now_iso = utc_timestamp()
     passed_ids = set(result.get('passed_ids') or [])
     failed_samples = result.get('failed_samples') or []
+
+    for camera_id, entry in list(registry.items()):
+        if is_retired_daejeon_hls_data_error(entry):
+            registry.pop(camera_id, None)
 
     for camera_id in passed_ids:
         registry.pop(camera_id, None)
