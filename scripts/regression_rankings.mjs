@@ -31,6 +31,7 @@ function loadAppHarness() {
       inferRegionKey,
       getCameraHealthMeta,
       getCameraPlaybackConfidence,
+      getCameraDisplayHealthMeta,
       findManualRetryFallback,
       getCctvReservationKeys
     };
@@ -120,6 +121,15 @@ const byId = new Map(cctvData.map((item) => [item.id, item]));
 assert(harness.inferRegionKey(byId.get('L901466')) === 'UTIC_DIRECT', 'L901466 should use UTIC_DIRECT health bucket');
 assert(harness.inferRegionKey(byId.get('E902483')) === 'UTIC_Z3', 'E902483 should use UTIC_Z3 health bucket');
 assert(harness.inferRegionKey(byId.get('L380002')) === 'JEJU', 'Jeju UTIC K streams should remain in JEJU bucket');
+
+const z3Sample = byId.get('E902483');
+const z3Health = harness.getCameraHealthMeta(z3Sample);
+const z3Confidence = harness.getCameraPlaybackConfidence(z3Sample, z3Health);
+const z3DisplayHealth = harness.getCameraDisplayHealthMeta(z3Sample, z3Health);
+assert(z3Health.status === 'DOWN', 'synthetic UTIC_Z3 aggregate health should remain DOWN');
+assert(z3Confidence.tone === 'unknown', 'aggregate-only UTIC_Z3 DOWN should not promise a per-camera failure');
+assert(z3DisplayHealth.tone === 'unknown', 'map marker display should not turn aggregate-only UTIC_Z3 DOWN red');
+
 const gitsSample = cctvData.find((item) => item.source === 'GITS' || String(item.id || '').startsWith('GITS_'));
 if (gitsSample) {
   assert(harness.inferRegionKey(gitsSample) === 'GITS', 'GITS cameras should remain in GITS bucket');
@@ -175,6 +185,7 @@ const retryFallbackReserved = new Set(harness.getCctvReservationKeys(retryFallba
 const nextRetryFallback = harness.findManualRetryFallback(failingGuriCamera, retryFallbackReserved);
 assert(isolatedHealth.status === 'CAMERA_CRITICAL', 'camera failure registry should override aggregate health');
 assert(isolatedConfidence.tone === 'danger', 'critical camera failure should render a red selector dot');
+assert(harness.getCameraDisplayHealthMeta(failingGuriCamera, isolatedHealth).tone === 'danger', 'camera-specific critical failures should still render red markers');
 assert(!isolatedTopNames.includes('세무서4'), `critical camera should be isolated from top 8, got ${JSON.stringify(isolatedTopNames)}`);
 assert(retryFallback && retryFallback.id !== failingGuriCamera.id, 'manual retry fallback should choose a different playable nearby camera');
 assert(!['세무서4'].includes(retryFallback.name), `manual retry fallback should avoid failed camera, got ${retryFallback.name}`);

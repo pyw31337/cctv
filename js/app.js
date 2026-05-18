@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260518-world-tour4';
+const APP_BUILD_VERSION = '20260518-marker-health1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -1639,6 +1639,25 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
     };
 }
 
+function getCameraDisplayHealthMeta(cctv, health = getCameraHealthMeta(cctv)) {
+    const confidence = getCameraPlaybackConfidence(cctv, health);
+    const statusByTone = {
+        danger: 'DISPLAY_DANGER',
+        warn: 'DISPLAY_WARN',
+        ok: 'DISPLAY_OK',
+        'ok-soft': 'DISPLAY_OK_SOFT',
+        unknown: 'DISPLAY_UNKNOWN'
+    };
+
+    return {
+        ...health,
+        status: statusByTone[confidence.tone] || health.status || 'DISPLAY_UNKNOWN',
+        shortLabel: confidence.label || health.shortLabel || '상태 미확인',
+        longLabel: confidence.title || health.longLabel || '현재 재생 상태를 확인 중입니다.',
+        tone: confidence.tone || health.tone || 'unknown'
+    };
+}
+
 function isKbResolverPlaybackCandidate(cctv) {
     const url = cctv?.directUrl || cctv?.url || '';
     const kind = getUrlParam(url, 'kind');
@@ -1980,12 +1999,23 @@ function renderServiceStatusBanner() {
         return;
     }
 
-    const entries = currentRegionKeys
-        .map(regionKey => [regionKey, state.healthSnapshot.regions[regionKey]])
-        .filter(([, value]) => value);
-    const downRegions = entries.filter(([, value]) => value.status === 'DOWN');
-    const degradedRegions = entries.filter(([, value]) => value.status === 'DEGRADED');
-    const lastUpdatedText = formatRelativeTime(state.healthSnapshot.last_updated);
+    const visibleHealth = state.nearestCctvs.slice(0, 4)
+        .map(cctv => {
+            const health = getCameraHealthMeta(cctv);
+            const displayHealth = getCameraDisplayHealthMeta(cctv, health);
+            return {
+                cctv,
+                health,
+                displayHealth,
+                regionKey: health.regionKey || inferRegionKey(cctv)
+            };
+        });
+    const downRegions = visibleHealth.filter(item => item.displayHealth.tone === 'danger');
+    const degradedRegions = visibleHealth.filter(item => item.displayHealth.tone === 'warn');
+    const newestAffectedTimestamp = [...downRegions, ...degradedRegions]
+        .map(item => item.displayHealth.lastUpdated || item.health.lastUpdated)
+        .find(Boolean);
+    const lastUpdatedText = formatRelativeTime(newestAffectedTimestamp || state.healthSnapshot.last_updated);
 
     let tone = null;
     let title = '';
@@ -1998,11 +2028,11 @@ function renderServiceStatusBanner() {
     } else if (downRegions.length > 0) {
         tone = 'danger';
         title = '현재 지역 장애';
-        body = `${downRegions.slice(0, 3).map(([regionKey]) => getRegionLabel(regionKey)).join(', ')} 연결이 불안정합니다. 대체 소스를 우선 추천합니다.`;
+        body = `${[...new Set(downRegions.slice(0, 3).map(item => getRegionLabel(item.regionKey)))].join(', ')} 연결이 불안정합니다. 대체 소스를 우선 추천합니다.`;
     } else if (degradedRegions.length > 0) {
         tone = 'warn';
         title = '현재 지역 점검 중';
-        body = `${degradedRegions.slice(0, 3).map(([regionKey]) => getRegionLabel(regionKey)).join(', ')} 품질이 일시적으로 흔들릴 수 있습니다.`;
+        body = `${[...new Set(degradedRegions.slice(0, 3).map(item => getRegionLabel(item.regionKey)))].join(', ')} 품질이 일시적으로 흔들릴 수 있습니다.`;
     }
 
     if (!tone) {
@@ -4162,6 +4192,7 @@ function renderMapMarkers() {
         let lat = cctv.lat;
         let lng = cctv.lng;
         const health = cctv._health || getCameraHealthMeta(cctv);
+        const displayHealth = getCameraDisplayHealthMeta(cctv, health);
 
         // Check for overlap and apply offset
         // User Request: "마커 위치도 ... 살짝 옆으로 비껴서 넣어주고"
@@ -4178,7 +4209,7 @@ function renderMapMarkers() {
             placedPositions.push({ lat, lng, count: 0 });
         }
 
-        const markerTitle = `${cctv.name} · ${health.shortLabel}`;
+        const markerTitle = `${cctv.name} · ${displayHealth.shortLabel}`;
         const markerOptions = {
             position: new kakao.maps.LatLng(lat, lng),
             map: map,
@@ -4190,7 +4221,7 @@ function renderMapMarkers() {
             const imageOption = { offset: new kakao.maps.Point(16, 16) }; // Center
             markerOptions.image = new kakao.maps.MarkerImage(YOUTUBE_MARKER_SRC, imageSize, imageOption);
         } else {
-            const healthMarkerImage = createHealthMarkerImage(health);
+            const healthMarkerImage = createHealthMarkerImage(displayHealth);
             if (healthMarkerImage) markerOptions.image = healthMarkerImage;
         }
 
