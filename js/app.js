@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260518-retry-fallback1';
+const APP_BUILD_VERSION = '20260518-retry-fallback2';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -2734,6 +2734,48 @@ function isManualRetryFallbackCandidate(candidate, sourceCctv) {
     return Boolean(candidate.directUrl || candidate.url);
 }
 
+function getCctvReservationKeys(cctv) {
+    if (!cctv) return [];
+    const keys = [];
+    const id = cctv.id || '';
+    const source = cctv.source || '';
+    const originalId = cctv.original_id || '';
+    const url = cctv.directUrl || cctv.url || '';
+
+    if (id) keys.push(`id:${id}`);
+    if (originalId) keys.push(`origin:${source}:${originalId}`);
+    if (url) keys.push(`url:${url}`);
+
+    return keys;
+}
+
+function hasReservedCctvKey(cctv, reservedKeys) {
+    if (!reservedKeys || reservedKeys.size === 0) return false;
+    return getCctvReservationKeys(cctv).some(key => reservedKeys.has(key));
+}
+
+function addCctvReservationKeys(reservedKeys, cctv) {
+    getCctvReservationKeys(cctv).forEach(key => reservedKeys.add(key));
+}
+
+function getManualRetryReservedKeys(currentPanel) {
+    const reservedKeys = new Set();
+    const panels = document.querySelectorAll ? document.querySelectorAll('.video-panel') : [];
+
+    panels.forEach(panel => {
+        if (panel === currentPanel) return;
+
+        const activeCctv = getPanelCctv(panel);
+        addCctvReservationKeys(reservedKeys, activeCctv);
+
+        const prepared = panel._preparedRetryFallback?.cctv
+            || findCctvById(panel.dataset?.preparedRetryFallbackId);
+        addCctvReservationKeys(reservedKeys, prepared);
+    });
+
+    return reservedKeys;
+}
+
 function scoreManualRetryFallback(candidate, sourceCctv) {
     const health = candidate._health || getCameraHealthMeta(candidate);
     const confidence = getCameraPlaybackConfidence(candidate, health);
@@ -2762,7 +2804,7 @@ function scoreManualRetryFallback(candidate, sourceCctv) {
         + backupBonus;
 }
 
-function findManualRetryFallback(sourceCctv) {
+function findManualRetryFallback(sourceCctv, reservedKeys = new Set()) {
     if (!sourceCctv) return null;
 
     const lat = Number.isFinite(Number(sourceCctv.lat)) ? Number(sourceCctv.lat) : Number(state.center?.lat);
@@ -2781,6 +2823,7 @@ function findManualRetryFallback(sourceCctv) {
 
     const scored = merged
         .filter(candidate => isManualRetryFallbackCandidate(candidate, sourceCctv))
+        .filter(candidate => !hasReservedCctvKey(candidate, reservedKeys))
         .map(candidate => ({
             candidate,
             distance: getManualRetryFallbackDistance(sourceCctv, candidate),
@@ -2794,12 +2837,15 @@ function findManualRetryFallback(sourceCctv) {
 
 function prepareManualRetryFallback(panel, sourceCctv) {
     if (!panel || !sourceCctv) return null;
+    const reservedKeys = getManualRetryReservedKeys(panel);
     const cached = panel._preparedRetryFallback;
-    if (cached?.sourceId === sourceCctv.id && isManualRetryFallbackCandidate(cached.cctv, sourceCctv)) {
+    if (cached?.sourceId === sourceCctv.id
+        && isManualRetryFallbackCandidate(cached.cctv, sourceCctv)
+        && !hasReservedCctvKey(cached.cctv, reservedKeys)) {
         return cached.cctv;
     }
 
-    const fallback = findManualRetryFallback(sourceCctv);
+    const fallback = findManualRetryFallback(sourceCctv, reservedKeys);
     panel._preparedRetryFallback = fallback
         ? { sourceId: sourceCctv.id, cctv: fallback }
         : null;
