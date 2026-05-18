@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260518-stability1';
+const APP_BUILD_VERSION = '20260518-world-tour1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -22,6 +22,7 @@ const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const QUALITY_SUMMARY_FALLBACK_URL = 'data/quality_summary.json';
+const WORLD_TOUR_DATA_URL = `data/world_tour_cams.json?v=${APP_BUILD_VERSION}`;
 const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
 const QUALITY_SUMMARY_TIMEOUT_MS = 1800;
 const QUALITY_TELEMETRY_SAMPLE_RATE = 0.35;
@@ -208,6 +209,8 @@ const state = {
     qualitySummary: null,
     qualitySummaryLoaded: false,
     qualityTelemetryQueue: [],
+    worldTourCams: null,
+    selectedWorldTourId: null,
     geoIndex: new Map(),
     markers: [], // Array to store Kakao map markers
     mapInitialized: false,
@@ -538,6 +541,7 @@ function switchMode(mode) {
 
     // Move Indicator
     updateSegmentIndicator();
+    updateContextActionButton();
 
     // Map Initialization (Lazy)
     if (mode === 'map' && !state.mapInitialized) {
@@ -548,6 +552,34 @@ function switchMode(mode) {
     }
 
     syncUrlState();
+}
+
+function updateContextActionButton() {
+    const btn = $('#weather-btn');
+    if (!btn) return;
+
+    const isWorldTour = state.mode === 'map';
+    btn.classList.toggle('world-tour-btn', isWorldTour);
+    btn.title = isWorldTour ? '세계 관광 라이브' : '주간 날씨';
+    btn.setAttribute('aria-label', isWorldTour ? '세계 관광 라이브' : '주간 날씨');
+    btn.innerHTML = isWorldTour ? `
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M2 12h20" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            <path d="m10 9 5 3-5 3z" />
+        </svg>
+    ` : `
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+        </svg>
+    `;
+
+    if ($('#weather-layer')?.classList.contains('active')) {
+        closeWeather();
+    }
 }
 
 function updateSegmentIndicator() {
@@ -4246,28 +4278,139 @@ function toggleWeather() {
     const isOpen = layer.classList.contains('active');
 
     if (isOpen) {
-        // Close weather
-        layer.classList.remove('active');
-        btn.classList.remove('active');
-        $('#dim-overlay').classList.remove('active');
+        closeWeather();
     } else {
         // Close search first
         $('#search-results').classList.remove('active');
 
-        // Open weather
         layer.classList.add('active');
         btn.classList.add('active');
         $('#dim-overlay').classList.add('active');
 
-        $('#weather-title').innerHTML = `<span style="color: var(--accent)">${state.keyword}</span> 주간 날씨`;
-        fetchWeather();
+        if (state.mode === 'map') {
+            openWorldTourPanel();
+        } else {
+            openWeatherPanel();
+        }
     }
 }
 
 function closeWeather() {
-    $('#weather-layer').classList.remove('active');
-    $('#weather-btn').classList.remove('active');
-    $('#dim-overlay').classList.remove('active');
+    const layer = $('#weather-layer');
+    const content = layer?.querySelector('.weather-content');
+    layer?.classList.remove('active', 'world-tour-layer');
+    content?.classList.remove('world-tour-content');
+    $('#weather-btn')?.classList.remove('active');
+    $('#dim-overlay')?.classList.remove('active');
+    const list = $('#weather-list');
+    if (list) list.innerHTML = '';
+}
+
+function openWeatherPanel() {
+    const layer = $('#weather-layer');
+    const content = layer?.querySelector('.weather-content');
+    layer?.classList.remove('world-tour-layer');
+    content?.classList.remove('world-tour-content');
+    $('#weather-title').innerHTML = `<span style="color: var(--accent)">${state.keyword}</span> 주간 날씨`;
+    fetchWeather();
+}
+
+async function openWorldTourPanel() {
+    const layer = $('#weather-layer');
+    const content = layer?.querySelector('.weather-content');
+    layer?.classList.add('world-tour-layer');
+    content?.classList.add('world-tour-content');
+    $('#weather-title').textContent = '세계 관광 라이브';
+    await renderWorldTourCams();
+}
+
+async function loadWorldTourCams() {
+    if (Array.isArray(state.worldTourCams)) return state.worldTourCams;
+
+    const response = await fetch(WORLD_TOUR_DATA_URL, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`World tour data failed: ${response.status}`);
+    const payload = await response.json();
+    state.worldTourCams = (payload.items || [])
+        .filter(item => item && item.videoId)
+        .sort((a, b) => (Number(b.priority || 0) - Number(a.priority || 0)) || String(a.title).localeCompare(String(b.title)));
+    return state.worldTourCams;
+}
+
+function getWorldTourEmbedUrl(cam) {
+    if (cam.embedUrl) return cam.embedUrl;
+    return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
+}
+
+async function renderWorldTourCams(selectedId = state.selectedWorldTourId) {
+    const list = $('#weather-list');
+    list.innerHTML = '<div style="padding:20px;color:var(--text-secondary);">세계 관광 라이브를 불러오는 중...</div>';
+
+    try {
+        const cams = await loadWorldTourCams();
+        if (!cams.length) {
+            list.innerHTML = '<div style="padding:20px;">등록된 관광지 영상이 없습니다.</div>';
+            return;
+        }
+
+        const selected = cams.find(cam => cam.id === selectedId) || cams[0];
+        state.selectedWorldTourId = selected.id;
+
+        list.innerHTML = `
+            <div class="world-tour-shell">
+                <section class="world-tour-hero">
+                    <div class="world-tour-video">
+                        <iframe
+                            src="${getWorldTourEmbedUrl(selected)}"
+                            title="${selected.title}"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowfullscreen
+                        ></iframe>
+                    </div>
+                    <div class="world-tour-meta">
+                        <span class="world-tour-kicker">${selected.region || 'World'} live cam</span>
+                        <h3>${selected.title}</h3>
+                        <p>${selected.subtitle || `${selected.city}, ${selected.country}`}</p>
+                        <div class="world-tour-pills">
+                            <span>${selected.city}</span>
+                            <span>${selected.country}</span>
+                            <span>${selected.channel}</span>
+                        </div>
+                        <div class="world-tour-actions">
+                            <button type="button" class="world-tour-map-btn" data-id="${selected.id}">지도에서 보기</button>
+                            <a class="world-tour-open-btn" href="${selected.sourceUrl}" target="_blank" rel="noopener">원본 열기</a>
+                        </div>
+                    </div>
+                </section>
+                <div class="world-tour-grid">
+                    ${cams.map(cam => `
+                        <button type="button" class="world-tour-card ${cam.id === selected.id ? 'active' : ''}" data-id="${cam.id}">
+                            <span class="world-tour-card-title">${cam.title}</span>
+                            <span class="world-tour-card-sub">${cam.city} · ${cam.country}</span>
+                            <span class="world-tour-card-tag">${cam.region}</span>
+                        </button>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+
+        list.querySelectorAll('.world-tour-card').forEach(card => {
+            card.addEventListener('click', () => renderWorldTourCams(card.dataset.id));
+        });
+        list.querySelector('.world-tour-map-btn')?.addEventListener('click', () => {
+            const cam = state.worldTourCams.find(item => item.id === state.selectedWorldTourId);
+            focusWorldTourCamOnMap(cam);
+        });
+    } catch (error) {
+        console.error('[WorldTour] failed to load:', error);
+        list.innerHTML = '<div style="padding:20px;">세계 관광 라이브를 불러올 수 없습니다.</div>';
+    }
+}
+
+function focusWorldTourCamOnMap(cam) {
+    if (!cam || !map || !window.kakao) return;
+    const position = new kakao.maps.LatLng(cam.lat, cam.lng);
+    map.setLevel(Math.min(map.getLevel(), 5));
+    map.panTo(position);
 }
 
 async function fetchWeather() {
@@ -4519,7 +4662,7 @@ function closeVideoLayer() {
 function closeAllOverlays() {
     $('#search-results').classList.remove('active');
     $('#dim-overlay').classList.remove('active');
-    $('#weather-layer').classList.remove('active');
+    closeWeather();
 }
 
 // === Utilities ===
