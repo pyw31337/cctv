@@ -307,11 +307,32 @@ def get_daejeon_url(cctv, stream_id, offset_minutes=2):
     return f'https://tportal.daejeon.go.kr:37084/{media_path}/media/{stream_id}/{stream_id}_{timestamp}.000.mp4'
 
 
+def is_daejeon_mp4_candidate(cctv):
+    url = cctv.get('directUrl') or cctv.get('url') or ''
+    source = cctv.get('source', '')
+    kind = get_url_param(url, 'kind')
+    cctvip = get_url_param(url, 'cctvip')
+
+    if cctv.get('urlType') == 'daejeon_mp4_dynamic' or source == 'DAEJEON_ITS':
+        return True
+    if source == 'UTIC' and kind == 'E' and infer_region_name(cctv) == 'DAEJEON':
+        return True
+    if source == 'UTIC' and cctvip in ('118', '119') and get_daejeon_stream_id(cctv):
+        return True
+    if 'traffic.daejeon.go.kr' in url or 'tportal.daejeon.go.kr' in url:
+        return bool(get_daejeon_stream_id(cctv))
+
+    return False
+
+
 def check_daejeon_stream(cctv):
     stream_id = get_daejeon_stream_id(cctv)
     if not stream_id:
-        set_probe_result(cctv, False, reason='missing_daejeon_stream_id', category='data_error')
-        return False
+        # Some Daejeon-adjacent river cameras are ordinary HLS streams
+        # (for example cctvlo.geumriver.go.kr) and do not have CTV/CCTV ids.
+        # They should be checked as generic HLS instead of counted as broken
+        # Daejeon timestamp-MP4 streams.
+        return check_generic_stream(cctv)
 
     last_status = None
     last_url = None
@@ -531,7 +552,7 @@ def check_generic_stream(cctv):
 
 
 def check_camera(region_name, cctv):
-    if region_name == 'DAEJEON':
+    if region_name == 'DAEJEON' and is_daejeon_mp4_candidate(cctv):
         return check_daejeon_stream(cctv)
     if region_name == 'JEJU':
         return check_jeju_stream(cctv)

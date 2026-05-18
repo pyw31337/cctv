@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260518-retry-fallback2';
+const APP_BUILD_VERSION = '20260518-stability1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -42,6 +42,8 @@ const PLAYBACK_STARTUP_TIMEOUT_MS = 12000;
 const JEJU_PLAYBACK_STARTUP_TIMEOUT_MS = 18000;
 const PLAYBACK_STALL_TIMEOUT_MS = 9000;
 const DAEJEON_MP4_STALL_RECOVERY_MS = 14000;
+const STABLE_HLS_STARTUP_TIMEOUT_MS = 22000;
+const STABLE_HLS_STALL_TIMEOUT_MS = 14000;
 const MANUAL_RETRY_PRIMARY_ATTEMPTS = 3;
 const MANUAL_RETRY_FALLBACK_RADIUS_KM = 12;
 const DYNAMIC_BACKUP_RADIUS_KM = 8;
@@ -1605,6 +1607,7 @@ function isProxyResolverBackedCandidate(cctv) {
     return isKbResolverPlaybackCandidate(cctv)
         || isJejuUticProxyable(cctv)
         || cctv?.urlType === 'daejeon_mp4_dynamic'
+        || (source === 'UTIC' && kind === 'E' && inferRegionKey(cctv) === 'DAEJEON')
         || (source === 'UTIC' && kind === 'Z3' && !!getUrlParam(url, 'cctvip'));
 }
 
@@ -1666,6 +1669,7 @@ function isDirectVideoPlaybackCandidate(cctv) {
     const source = cctv?.source || '';
     const kind = getUrlParam(url, 'kind');
     return cctv?.urlType === 'daejeon_mp4_dynamic'
+        || isDaejeonDirectMp4Candidate(cctv, url, source, kind, getUrlParam(url, 'cctvip'), cctv?.original_id)
         || url.includes('.mp4')
         || url.includes('.m3u8')
         || url.includes('/kb?cctvip=')
@@ -1679,6 +1683,15 @@ function isDirectVideoPlaybackCandidate(cctv) {
 function getStreamQualityScore(cctv) {
     const url = cctv.directUrl || cctv.url || '';
     const source = cctv.source || '';
+    const kind = getUrlParam(url, 'kind');
+    const daejeonDirectMp4Candidate = isDaejeonDirectMp4Candidate(
+        cctv,
+        url,
+        source,
+        kind,
+        getUrlParam(url, 'cctvip'),
+        cctv.original_id
+    );
     let score = SOURCE_QUALITY_SCORES[source] || 0.72;
 
     if (isDirectVideoPlaybackCandidate(cctv)) {
@@ -1695,16 +1708,22 @@ function getStreamQualityScore(cctv) {
     if (cctv.urlType === 'daejeon_mp4_dynamic') {
         score += 0.08;
     }
+    if (daejeonDirectMp4Candidate) {
+        score += 0.12;
+    }
     if (url.includes('.m3u8') || url.includes('/kb?cctvip=') || url.includes('workers.dev')) {
         score += 0.06;
     }
     if (source === 'JEJU' || url.includes('158.179.194.163.sslip.io/jeju')) {
         score += 0.08;
     }
-    if (source === 'UTIC' && getUrlParam(url, 'kind') === 'E' && inferRegionKey(cctv) === 'DAEJEON') {
-        score += 0.1;
+    if (source === 'UTIC' && kind === 'E' && inferRegionKey(cctv) === 'DAEJEON' && !daejeonDirectMp4Candidate) {
+        score -= 0.04;
     }
-    if (url.includes('openDataCctvStream.jsp') || url.includes('utic.go.kr/jsp')) {
+    if (url.includes('cctvlo.geumriver.go.kr')) {
+        score -= 0.22;
+    }
+    if ((url.includes('openDataCctvStream.jsp') || url.includes('utic.go.kr/jsp')) && !daejeonDirectMp4Candidate) {
         score -= 0.08;
     }
     if (url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html') || url.includes('cctvPopup.do')) {
@@ -2389,6 +2408,9 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
     }
 
     function failFast() {
+        if (options.ignoreTransientErrors && video.dataset.allowTransientErrors === 'true') {
+            return;
+        }
         fail('video-error');
     }
 
@@ -2446,6 +2468,9 @@ function handlePanelVideoHealthEvent(event) {
     if (!panel || !cctv) return;
 
     if (event.type === 'error') {
+        if (video.dataset.allowTransientErrors === 'true') {
+            return;
+        }
         recordVideoQualityFailure(video, cctv, 'video-error');
         setPlaybackHealth(cctv, {
             status: 'PLAYBACK_ERROR',
@@ -3236,15 +3261,21 @@ function createVideoElement(cctv, sourceIndex = 0) {
             }
             const offset = offsets[attemptIndex];
             attemptIndex += 1;
+            video.dataset.allowTransientErrors = 'true';
             video.src = getDaejeonUrl(offset);
             video.load();
             armCandidateTimer();
             video.play().catch(() => {});
         };
 
-        video.addEventListener('loadeddata', clearCandidateTimer);
-        video.addEventListener('playing', clearCandidateTimer);
-        video.addEventListener('canplay', clearCandidateTimer);
+        const markDaejeonPlayable = () => {
+            delete video.dataset.allowTransientErrors;
+            clearCandidateTimer();
+        };
+
+        video.addEventListener('loadeddata', markDaejeonPlayable);
+        video.addEventListener('playing', markDaejeonPlayable);
+        video.addEventListener('canplay', markDaejeonPlayable);
         video._daejeonCleanup = clearDaejeonTimers;
         video.onerror = tryNextDaejeonUrl;
         video.onended = () => {
@@ -3255,6 +3286,8 @@ function createVideoElement(cctv, sourceIndex = 0) {
         };
         tryNextDaejeonUrl();
         armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
+            ignoreTransientErrors: true,
+            startupTimeoutMs: STABLE_HLS_STARTUP_TIMEOUT_MS,
             stallTimeoutMs: DAEJEON_MP4_STALL_RECOVERY_MS,
             onStallRecovery: () => {
                 clearDaejeonTimers();
@@ -3629,6 +3662,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         const isJejuHlsSource = selectedSource === 'JEJU';
         const failFastHlsSource = ['JEJU', 'NOWJEJU'].includes(selectedSource);
+        const hlsStartupTimeoutMs = isJejuHlsSource
+            ? JEJU_PLAYBACK_STARTUP_TIMEOUT_MS
+            : (failFastHlsSource ? PLAYBACK_STARTUP_TIMEOUT_MS : STABLE_HLS_STARTUP_TIMEOUT_MS);
+        const hlsStallTimeoutMs = failFastHlsSource ? PLAYBACK_STALL_TIMEOUT_MS : STABLE_HLS_STALL_TIMEOUT_MS;
         const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
@@ -3693,7 +3730,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 return;
             }
 
-            if (isJejuHls && data.fatal && isRecoverable && recoveryAttempts < 2) {
+            if (data.fatal && isRecoverable && recoveryAttempts < (isJejuHls ? 2 : 3)) {
                 recoveryAttempts += 1;
                 setTimeout(() => {
                     if (!video.parentElement) return;
@@ -3729,8 +3766,8 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         video.hls = hls;
         armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
-            startupTimeoutMs: selectedSource === 'JEJU' ? JEJU_PLAYBACK_STARTUP_TIMEOUT_MS : PLAYBACK_STARTUP_TIMEOUT_MS,
-            stallTimeoutMs: PLAYBACK_STALL_TIMEOUT_MS
+            startupTimeoutMs: hlsStartupTimeoutMs,
+            stallTimeoutMs: hlsStallTimeoutMs
         });
         return video;
     }
