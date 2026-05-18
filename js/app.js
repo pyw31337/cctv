@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260518-world-tour3';
+const APP_BUILD_VERSION = '20260518-world-tour4';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -77,6 +77,9 @@ const WORLD_TOUR_REGION_COLORS = {
 const WORLD_TOUR_SOURCE_LABELS = {
     earthcam: 'EarthCam',
     skyline: 'Skyline',
+    cctvworld: 'CCTV World',
+    tabi: 'TabiCam',
+    webcamera24: 'WebCamera24',
     youtube: 'YouTube',
     external: 'External'
 };
@@ -4365,7 +4368,7 @@ async function loadWorldTourCams() {
     if (!response.ok) throw new Error(`World tour data failed: ${response.status}`);
     const payload = await response.json();
     state.worldTourCams = (payload.items || [])
-        .filter(item => item && (item.videoId || item.embedUrl || item.sourceUrl))
+        .filter(item => item && (item.videoId || item.embedUrl))
         .sort((a, b) => (Number(b.priority || 0) - Number(a.priority || 0)) || String(a.title).localeCompare(String(b.title)));
     return state.worldTourCams;
 }
