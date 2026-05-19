@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260519-world-map-shell1';
+const APP_BUILD_VERSION = '20260519-world-mobile-shell1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4447,6 +4447,24 @@ function getWorldTourSourceLabel(cam) {
     return WORLD_TOUR_SOURCE_LABELS[sourceType] || cam?.channel || 'External';
 }
 
+function formatWorldTourHashTag(value, compact = false) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    return `#${compact ? text.replace(/\s+/g, '') : text}`;
+}
+
+function renderWorldTourHashTags(cam) {
+    const tags = [
+        formatWorldTourHashTag(cam?.city, true),
+        formatWorldTourHashTag(cam?.country),
+        formatWorldTourHashTag(getWorldTourSourceLabel(cam), true)
+    ].filter(Boolean);
+
+    return tags.length
+        ? `<div class="world-tour-tags">${tags.map(tag => `<span>${escapeWorldTourHtml(tag)}</span>`).join('')}</div>`
+        : '';
+}
+
 function canPlayWorldTourInApp(cam) {
     return Boolean(cam?.videoId || cam?.embedUrl);
 }
@@ -4570,7 +4588,6 @@ function renderWorldTourSections(cams, selectedId) {
 }
 
 function renderWorldTourBottomMenu(cams, visibleCams, selected) {
-    const sourceLabel = getWorldTourSourceLabel(selected);
     const openLink = selected.sourceUrl
         ? `<a class="world-tour-open-btn" href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본 열기</a>`
         : '';
@@ -4581,11 +4598,7 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
                 <span class="world-tour-kicker">${escapeWorldTourHtml(getWorldTourRegionLabel(selected.region))} live cam</span>
                 <h3>${escapeWorldTourHtml(selected.title)}</h3>
                 <p>${escapeWorldTourHtml(selected.subtitle || `${selected.city}, ${selected.country}`)}</p>
-                <div class="world-tour-pills">
-                    <span>${escapeWorldTourHtml(selected.city)}</span>
-                    <span>${escapeWorldTourHtml(selected.country)}</span>
-                    <span>${escapeWorldTourHtml(sourceLabel)}</span>
-                </div>
+                ${renderWorldTourHashTags(selected)}
                 <div class="world-tour-actions">
                     ${renderWorldTourModeSwitch()}
                     ${openLink}
@@ -4630,11 +4643,7 @@ function renderWorldTourVideoHero(selected) {
                 <span class="world-tour-kicker">${escapeWorldTourHtml(getWorldTourRegionLabel(selected.region))} live cam</span>
                 <h3>${escapeWorldTourHtml(selected.title)}</h3>
                 <p>${escapeWorldTourHtml(selected.subtitle || `${selected.city}, ${selected.country}`)}</p>
-                <div class="world-tour-pills">
-                    <span>${escapeWorldTourHtml(selected.city)}</span>
-                    <span>${escapeWorldTourHtml(selected.country)}</span>
-                    <span>${escapeWorldTourHtml(sourceLabel)}</span>
-                </div>
+                ${renderWorldTourHashTags(selected)}
                 <div class="world-tour-actions">
                     ${renderWorldTourModeSwitch()}
                     <a class="world-tour-open-btn" href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본 열기</a>
@@ -4811,9 +4820,11 @@ async function initWorldTourMap(selected, visibleCams) {
 
         worldTourLeafletMap = L.map(mapEl, {
             worldCopyJump: true,
-            zoomControl: true,
+            zoomControl: false,
             attributionControl: true
         });
+
+        L.control.zoom({ position: 'topright' }).addTo(worldTourLeafletMap);
 
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 18,
@@ -4823,9 +4834,12 @@ async function initWorldTourMap(selected, visibleCams) {
         const mappableCams = visibleCams
             .filter(cam => Number.isFinite(Number(cam.lat)) && Number.isFinite(Number(cam.lng)));
         const bounds = L.latLngBounds(mappableCams.map(cam => [Number(cam.lat), Number(cam.lng)]));
-        if (bounds.isValid()) {
+        if (state.worldTourRegion === 'All') {
+            const mobileWorldZoom = window.innerWidth <= 600 ? 1 : 2;
+            worldTourLeafletMap.setView([18, 8], mobileWorldZoom);
+        } else if (bounds.isValid()) {
             worldTourLeafletMap.fitBounds(bounds.pad(0.18), {
-                maxZoom: state.worldTourRegion === 'All' ? 3 : 6
+                maxZoom: 6
             });
         } else {
             worldTourLeafletMap.setView([Number(selected.lat), Number(selected.lng)], 4);
