@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260519-world-mobile-title1';
+const APP_BUILD_VERSION = '20260519-world-open-icon1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4591,7 +4591,25 @@ function renderWorldTourSections(cams, selectedId) {
 
 function renderWorldTourBottomMenu(cams, visibleCams, selected) {
     const openLink = selected.sourceUrl
-        ? `<a class="world-tour-open-btn" href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본 열기</a>`
+        ? `
+            <a
+                class="world-tour-open-btn"
+                href="${escapeWorldTourHtml(selected.sourceUrl)}"
+                target="_blank"
+                rel="noopener"
+                aria-label="원본 열기"
+                title="원본 열기"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    aria-hidden="true" focusable="false">
+                    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+                    <path d="M5 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
+                    <path d="M9 10a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" />
+                    <path d="M8 16l-2.091 3.486a1 1 0 0 0 .857 1.514h10.468a1 1 0 0 0 .857 -1.514l-2.091 -3.486" />
+                </svg>
+            </a>
+        `
         : '';
     const selectedIndex = Math.max(0, visibleCams.findIndex(cam => cam.id === selected.id));
     const nearbyCams = getWorldTourNearbyCams(selected, visibleCams, 2);
