@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260519-world-mobile-toggle1';
+const APP_BUILD_VERSION = '20260519-world-scrollfix1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -245,6 +245,8 @@ const state = {
     selectedWorldTourId: null,
     worldTourRegion: 'All',
     worldTourViewMode: 'map',
+    worldTourCardScrollLeft: 0,
+    worldTourRegionScrollLeft: 0,
     geoIndex: new Map(),
     markers: [], // Array to store Kakao map markers
     mapInitialized: false,
@@ -4688,6 +4690,14 @@ function renderWorldTourMapHero(selected, visibleCams) {
 async function renderWorldTourCams(selectedId = state.selectedWorldTourId, options = {}) {
     const list = $('#weather-list');
     if (!list) return;
+    const previousCardRail = list.querySelector('.world-tour-card-rail');
+    const previousRegionTabs = list.querySelector('.world-tour-region-tabs');
+    const nextCardScrollLeft = Number.isFinite(Number(options.cardScrollLeft))
+        ? Number(options.cardScrollLeft)
+        : previousCardRail?.scrollLeft ?? state.worldTourCardScrollLeft ?? 0;
+    const nextRegionScrollLeft = Number.isFinite(Number(options.regionScrollLeft))
+        ? Number(options.regionScrollLeft)
+        : previousRegionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft ?? 0;
     list.innerHTML = '<div style="padding:20px;color:var(--text-secondary);">세계 관광 라이브를 불러오는 중...</div>';
 
     try {
@@ -4728,7 +4738,13 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
 
         list.querySelectorAll('.world-tour-card').forEach(card => {
             card.addEventListener('click', () => {
-                renderWorldTourCams(card.dataset.id, { viewMode: state.worldTourViewMode });
+                const cardRail = list.querySelector('.world-tour-card-rail');
+                const regionTabs = list.querySelector('.world-tour-region-tabs');
+                renderWorldTourCams(card.dataset.id, {
+                    viewMode: state.worldTourViewMode,
+                    cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
+                });
             });
         });
         list.querySelectorAll('.world-tour-region-tab').forEach(tab => {
@@ -4736,18 +4752,51 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 const region = tab.dataset.worldRegion || 'All';
                 const nextVisibleCams = region === 'All' ? cams : cams.filter(cam => cam.region === region);
                 const nextSelected = nextVisibleCams.find(cam => cam.id === state.selectedWorldTourId) || nextVisibleCams[0] || cams[0];
-                renderWorldTourCams(nextSelected.id, { region, viewMode: state.worldTourViewMode });
+                const regionTabs = list.querySelector('.world-tour-region-tabs');
+                renderWorldTourCams(nextSelected.id, {
+                    region,
+                    viewMode: state.worldTourViewMode,
+                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+                    cardScrollLeft: 0
+                });
             });
         });
         list.querySelectorAll('.world-tour-mode-option').forEach(button => {
             button.addEventListener('click', () => {
                 const viewMode = button.dataset.worldTourView === 'map' ? 'map' : 'video';
-                renderWorldTourCams(state.selectedWorldTourId, { viewMode });
+                const cardRail = list.querySelector('.world-tour-card-rail');
+                const regionTabs = list.querySelector('.world-tour-region-tabs');
+                renderWorldTourCams(state.selectedWorldTourId, {
+                    viewMode,
+                    cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
+                });
             });
         });
         list.querySelectorAll('.world-tour-nearby-item').forEach(item => {
             item.addEventListener('click', () => renderWorldTourCams(item.dataset.id, { viewMode: 'map' }));
         });
+
+        const cardRail = list.querySelector('.world-tour-card-rail');
+        const regionTabs = list.querySelector('.world-tour-region-tabs');
+        if (cardRail) {
+            requestAnimationFrame(() => {
+                cardRail.scrollLeft = nextCardScrollLeft;
+                state.worldTourCardScrollLeft = cardRail.scrollLeft;
+            });
+            cardRail.addEventListener('scroll', () => {
+                state.worldTourCardScrollLeft = cardRail.scrollLeft;
+            }, { passive: true });
+        }
+        if (regionTabs) {
+            requestAnimationFrame(() => {
+                regionTabs.scrollLeft = nextRegionScrollLeft;
+                state.worldTourRegionScrollLeft = regionTabs.scrollLeft;
+            });
+            regionTabs.addEventListener('scroll', () => {
+                state.worldTourRegionScrollLeft = regionTabs.scrollLeft;
+            }, { passive: true });
+        }
 
         if (state.worldTourViewMode === 'map') {
             requestAnimationFrame(() => initWorldTourMap(selected, visibleCams));
