@@ -1,23 +1,34 @@
 import concurrent.futures
+import datetime as dt
 import html
 import json
 import re
 import time
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.error import HTTPError
+from urllib.parse import quote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data/world_tour_cams.json'
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36'}
 REGION_BY_COUNTRY = {
     'United States': 'North America', 'Canada': 'North America', 'Mexico': 'North America',
+    'Panama': 'North America', 'Greenland': 'North America',
     'France': 'Europe', 'Italy': 'Europe', 'United Kingdom': 'Europe', 'Spain': 'Europe', 'Greece': 'Europe',
     'Germany': 'Europe', 'Switzerland': 'Europe', 'Netherlands': 'Europe', 'Norway': 'Europe', 'Finland': 'Europe',
     'Denmark': 'Europe', 'Czech Republic': 'Europe', 'Austria': 'Europe', 'Hungary': 'Europe', 'Ireland': 'Europe',
-    'Portugal': 'Europe', 'Turkey': 'Asia', 'Japan': 'Asia', 'South Korea': 'Asia', 'Taiwan': 'Asia', 'China': 'Asia',
-    'Thailand': 'Asia', 'Indonesia': 'Asia', 'Israel': 'Asia', 'Australia': 'Oceania', 'New Zealand': 'Oceania',
-    'Brazil': 'South America', 'South Africa': 'Africa', 'Kenya': 'Africa'
+    'Portugal': 'Europe', 'Belgium': 'Europe', 'Bulgaria': 'Europe', 'Croatia': 'Europe', 'Estonia': 'Europe',
+    'Iceland': 'Europe', 'Latvia': 'Europe', 'Liechtenstein': 'Europe', 'Lithuania': 'Europe', 'Montenegro': 'Europe',
+    'Poland': 'Europe', 'Romania': 'Europe', 'Russia': 'Europe', 'San Marino': 'Europe', 'Slovakia': 'Europe',
+    'Sweden': 'Europe', 'Ukraine': 'Europe', 'Vatican': 'Europe', 'Belarus': 'Europe',
+    'Turkey': 'Asia', 'Japan': 'Asia', 'South Korea': 'Asia', 'Taiwan': 'Asia', 'China': 'Asia',
+    'Thailand': 'Asia', 'Indonesia': 'Asia', 'Israel': 'Asia', 'India': 'Asia', 'Malaysia': 'Asia',
+    'Maldives': 'Asia', 'Philippines': 'Asia', 'Saudi Arabia': 'Asia', 'Singapore': 'Asia', 'Vietnam': 'Asia',
+    'Georgia': 'Asia', 'Australia': 'Oceania', 'New Zealand': 'Oceania',
+    'Brazil': 'South America', 'Chile': 'South America',
+    'South Africa': 'Africa', 'Kenya': 'Africa', 'Cape Verde': 'Africa', 'Egypt': 'Africa',
+    'Mauritius': 'Africa', 'Morocco': 'Africa'
 }
 COUNTRY_BY_SLUG = {
     'usa': 'United States', 'japan': 'Japan', 'south-korea': 'South Korea', 'italy': 'Italy', 'france': 'France',
@@ -25,11 +36,21 @@ COUNTRY_BY_SLUG = {
     'united-kingdom': 'United Kingdom', 'brazil': 'Brazil', 'germany': 'Germany', 'switzerland': 'Switzerland',
     'netherlands': 'Netherlands', 'china': 'China', 'taiwan': 'Taiwan', 'mexico': 'Mexico', 'norway': 'Norway',
     'finland': 'Finland', 'south-africa': 'South Africa', 'new-zealand': 'New Zealand', 'indonesia': 'Indonesia',
-    'turkey': 'Turkey', 'israel': 'Israel', 'kenya': 'Kenya', 'denmark': 'Denmark'
+    'turkey': 'Turkey', 'israel': 'Israel', 'kenya': 'Kenya', 'denmark': 'Denmark', 'austria': 'Austria',
+    'belarus': 'Belarus', 'belgium': 'Belgium', 'bulgaria': 'Bulgaria', 'cape-verde': 'Cape Verde',
+    'chile': 'Chile', 'croatia': 'Croatia', 'czech': 'Czech Republic', 'egypt': 'Egypt', 'estonia': 'Estonia',
+    'georgia': 'Georgia', 'greenland': 'Greenland', 'hungary': 'Hungary', 'iceland': 'Iceland', 'india': 'India',
+    'ireland': 'Ireland', 'latvia': 'Latvia', 'liechtenstein': 'Liechtenstein', 'lithuania': 'Lithuania',
+    'malaysia': 'Malaysia', 'maldives': 'Maldives', 'mauritius': 'Mauritius', 'montenegro': 'Montenegro',
+    'morocco': 'Morocco', 'panama': 'Panama', 'philippines': 'Philippines', 'poland': 'Poland',
+    'portugal': 'Portugal', 'romania': 'Romania', 'russia': 'Russia', 'san-marino': 'San Marino',
+    'saudi-arabia': 'Saudi Arabia', 'singapore': 'Singapore', 'slovakia': 'Slovakia', 'sweden': 'Sweden',
+    'ukraine': 'Ukraine', 'vatican': 'Vatican', 'vietnam': 'Vietnam'
 }
-HARD_NEGATIVE_TITLE = re.compile(r'(트로피컬\s*머피|바오밥\s*레스토랑|스키드\s*로우|캠핑\s*프리베|트럭\s*대기열|Kensington|Skid Row|Sloppy|Murphy|Truck Queue|Camping Prive)', re.I)
-NEGATIVE_TITLE = re.compile(r'(고양이|독수리|새 모이|피더|동물|Alligator|Spoonbill|Osprey|Otter|Eagle|Cat|Feeder|카지노)', re.I)
+HARD_NEGATIVE_TITLE = re.compile(r'(트로피컬\s*머피|바오밥\s*레스토랑|스키드\s*로우|캠핑\s*프리베|트럭\s*대기열|송골매|둥지|코끼리|Kensington|Skid Row|Sloppy|Murphy|Truck Queue|Camping Prive|Falcon|Nest|Elephant)', re.I)
+NEGATIVE_TITLE = re.compile(r'(고양이|독수리|새 모이|피더|동물|야생동물|Alligator|Spoonbill|Osprey|Otter|Eagle|Cat|Feeder|Wildlife|Zoo|Bird|Animal|Penguin|카지노)', re.I)
 POSITIVE_TITLE = re.compile(r'(타임|광장|해변|비치|항구|하버|공항|타워|브리지|대교|성|궁|공원|강|시티|도시|스카이라인|라이브|역|거리|마켓|파노라마|폭포|산|리조트|마리나|해안|도쿄|오사카|서울|부산|뉴욕|파리|런던|로마|베니스|교토|후지|시부야|Times|Square|Beach|Harbour|Harbor|Airport|Tower|Bridge|Castle|Park|River|Skyline|City|Panorama|Falls|Mountain|Resort|Marina)', re.I)
+UNSTABLE_TITLE = re.compile(r'(private video|deleted video|video unavailable|비공개|삭제|사용할 수 없는)', re.I)
 
 CCTV_WORLD_META = {
     'gyeongbokgung': ('경복궁', '서울 대표 고궁과 광화문 일대', 'Seoul', 'South Korea', 37.5796, 126.9770, 86),
@@ -93,6 +114,10 @@ def fetch_text(url, timeout=18):
     return urllib.request.urlopen(req, timeout=timeout).read().decode('utf-8', 'replace')
 
 
+def fetch_json(url, timeout=12):
+    return json.loads(fetch_text(url, timeout=timeout))
+
+
 def slugify(text):
     value = re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
     return value or str(abs(hash(text)))
@@ -125,6 +150,10 @@ def existing_playable_items():
     payload = json.loads(DATA_PATH.read_text())
     items = []
     for item in payload.get('items', []):
+        if item.get('sourceType') == 'webcamera24' and HARD_NEGATIVE_TITLE.search(item.get('title', '')):
+            continue
+        if item.get('sourceType') == 'webcamera24' and NEGATIVE_TITLE.search(item.get('title', '')) and not POSITIVE_TITLE.search(item.get('title', '')):
+            continue
         if item.get('videoId') or item.get('embedUrl'):
             item.setdefault('sourceType', 'youtube' if item.get('videoId') else 'external')
             items.append(item)
@@ -201,13 +230,10 @@ def collect_tabi():
 
 def webcamera_links():
     list_urls = [
+        'https://webcamera24.com/ko/all-webcams/',
         'https://webcamera24.com/ko/popular/',
         'https://webcamera24.com/ko/latest/',
-        *[f'https://webcamera24.com/ko/countries/{slug}/' for slug in [
-            'usa', 'japan', 'south-korea', 'italy', 'france', 'spain', 'greece', 'thailand', 'australia', 'canada',
-            'united-kingdom', 'brazil', 'germany', 'switzerland', 'netherlands', 'china', 'taiwan', 'mexico',
-            'norway', 'finland', 'south-africa', 'new-zealand', 'indonesia', 'turkey'
-        ]]
+        *[f'https://webcamera24.com/ko/countries/{slug}/' for slug in sorted(COUNTRY_BY_SLUG)]
     ]
     links = []
     seen = set()
@@ -221,7 +247,22 @@ def webcamera_links():
             if link not in seen:
                 seen.add(link)
                 links.append(link)
-    return links
+    return prioritize_webcamera_links(links)
+
+
+def prioritize_webcamera_links(links):
+    def score(link):
+        slug = urlparse(link).path.strip('/').split('/')[-1].replace('-', ' ')
+        value = 0
+        if POSITIVE_TITLE.search(slug):
+            value -= 20
+        if re.search(r'(city|town|square|beach|harbour|harbor|airport|bridge|street|traffic|panorama|skyline|river|mountain|port|bay)', slug, re.I):
+            value -= 12
+        if NEGATIVE_TITLE.search(slug):
+            value += 80
+        return value
+
+    return sorted(links, key=score)
 
 
 def parse_webcamera24(url):
@@ -271,19 +312,19 @@ def parse_webcamera24(url):
         return None
 
 
-def collect_webcamera24(limit=95):
+def collect_webcamera24(limit=190):
     links = webcamera_links()
     items = []
     country_counts = {}
     region_counts = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        for item in executor.map(parse_webcamera24, links[:360]):
+        for item in executor.map(parse_webcamera24, links[:1500]):
             if not item:
                 continue
-            country_cap = 10 if item['country'] in {'United States', 'Japan'} else 8
+            country_cap = 16 if item['country'] in {'United States', 'Japan', 'Italy', 'Spain'} else 11
             if country_counts.get(item['country'], 0) >= country_cap:
                 continue
-            if region_counts.get(item['region'], 0) >= 28:
+            if region_counts.get(item['region'], 0) >= 72:
                 continue
             country_counts[item['country']] = country_counts.get(item['country'], 0) + 1
             region_counts[item['region']] = region_counts.get(item['region'], 0) + 1
@@ -292,6 +333,46 @@ def collect_webcamera24(limit=95):
             if len(items) >= limit:
                 break
     return items
+
+
+def validate_youtube_item(item):
+    video_id = item.get('videoId')
+    if not video_id:
+        item['playbackStatus'] = 'verified' if item.get('embedUrl') else 'unchecked'
+        return item
+
+    oembed_url = 'https://www.youtube.com/oembed?format=json&url=' + quote(
+        f'https://www.youtube.com/watch?v={video_id}',
+        safe=''
+    )
+
+    try:
+        meta = fetch_json(oembed_url, timeout=10)
+        title = str(meta.get('title') or '')
+        if UNSTABLE_TITLE.search(title):
+            return None
+        item['playbackStatus'] = 'verified'
+        item['lastCheckedAt'] = dt.date.today().isoformat()
+        item['stabilityScore'] = max(75, int(float(item.get('priority') or 60)))
+        return item
+    except HTTPError as error:
+        if error.code in {400, 401, 403, 404}:
+            return None
+        item['playbackStatus'] = 'unchecked'
+        item['lastCheckedAt'] = dt.date.today().isoformat()
+        item['stabilityScore'] = min(65, int(float(item.get('priority') or 60)))
+        return item
+    except Exception:
+        item['playbackStatus'] = 'unchecked'
+        item['lastCheckedAt'] = dt.date.today().isoformat()
+        item['stabilityScore'] = min(65, int(float(item.get('priority') or 60)))
+        return item
+
+
+def validate_items(items):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
+        validated = [item for item in executor.map(validate_youtube_item, items) if item]
+    return validated
 
 
 def main():
@@ -307,10 +388,10 @@ def main():
             video_seen.add(item['videoId'])
         key = item.get('id') or slugify(item.get('title', ''))
         by_key[key] = item
-    items = list(by_key.values())
+    items = validate_items(list(by_key.values()))
     items.sort(key=lambda item: (-(float(item.get('priority') or 0)), item.get('region', ''), item.get('title', '')))
     payload = {
-        'updated_at': '2026-05-18',
+        'updated_at': dt.date.today().isoformat(),
         'description': 'Curated public world tourist live/webcam directory. Only in-app playable YouTube/embed streams are included; source-site-only players are excluded.',
         'items': items
     }
@@ -319,6 +400,7 @@ def main():
     print('items', len(items))
     print('sources', dict(Counter(i.get('sourceType', 'youtube') for i in items)))
     print('external_only', sum(1 for i in items if not (i.get('videoId') or i.get('embedUrl'))))
+    print('playback', dict(Counter(i.get('playbackStatus', 'unknown') for i in items)))
 
 if __name__ == '__main__':
     main()
