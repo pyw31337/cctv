@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260519-world-global-refresh1';
+const APP_BUILD_VERSION = '20260520-mobile-sort-panel1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -57,6 +57,15 @@ const LIVE_HEALTH_STATUS_URL = QUALITY_CONFIG.healthStatusUrl || `${ORACLE_BASE}
 const MARKER_DANGER_FILTER = 'hue-rotate(145deg) saturate(1.85) contrast(1.08)';
 const MARKER_WARN_FILTER = 'hue-rotate(185deg) saturate(1.55) contrast(1.05)';
 const QUALITY_SORT_MODES = ['recommended', 'nearest', 'urban', 'traffic', 'stability', 'quality'];
+const QUALITY_SORT_LABELS = {
+    recommended: '추천순',
+    nearest: '가까운순',
+    urban: '시내우선',
+    traffic: '교통우선',
+    stability: '안정우선',
+    quality: '화질우선'
+};
+const SEARCH_HISTORY_PANEL_ITEM_LIMIT = 5;
 const WORLD_TOUR_REGIONS = ['All', 'North America', 'Europe', 'Asia', 'Oceania', 'South America', 'Africa'];
 const WORLD_TOUR_REGION_LABELS = {
     All: 'All',
@@ -454,8 +463,9 @@ function restoreQualityPreferences() {
 }
 
 function renderQualityControls() {
-    const sortSelect = $('#quality-sort-select');
-    if (sortSelect) sortSelect.value = state.sortMode;
+    $$('[data-quality-sort-select]').forEach(sortSelect => {
+        sortSelect.value = state.sortMode;
+    });
 }
 
 function setSortMode(mode) {
@@ -465,6 +475,7 @@ function setSortMode(mode) {
         localStorage.setItem(QUALITY_SORT_STORAGE_KEY, mode);
     } catch {}
 
+    renderQualityControls();
     updateNearestCctvs();
     renderServiceStatusBanner();
     renderVideoGrid();
@@ -511,12 +522,11 @@ function setupEventListeners() {
     $('#weather-btn').addEventListener('click', toggleWeather);
     $('#weather-close').addEventListener('click', closeWeather);
 
-    const sortSelect = $('#quality-sort-select');
-    if (sortSelect) {
+    $$('[data-quality-sort-select]').forEach(sortSelect => {
         sortSelect.addEventListener('change', () => {
             setSortMode(sortSelect.value);
         });
-    }
+    });
 
     // Video Layer
     $('#video-layer-close').addEventListener('click', closeVideoLayer);
@@ -551,6 +561,13 @@ function setupEventListeners() {
         }
 
         selectSearchResult(item);
+    });
+
+    $('#search-results').addEventListener('change', (e) => {
+        const sortSelect = e.target.closest('[data-quality-sort-select]');
+        if (sortSelect) {
+            setSortMode(sortSelect.value);
+        }
     });
 
     // Mobile Keyboard Handling
@@ -634,16 +651,39 @@ function updateSegmentIndicator() {
 }
 
 // === Search ===
+function shouldUseCompactSearchPanel() {
+    return window.matchMedia && window.matchMedia('(max-width: 399px)').matches;
+}
+
+function renderSearchSortPanel() {
+    return `
+        <div class="search-sort-panel" aria-label="CCTV 추천 정렬">
+            <select class="quality-sort-select search-sort-select" title="추천 기준" data-quality-sort-select>
+                ${QUALITY_SORT_MODES.map(mode => `
+                    <option value="${mode}" ${state.sortMode === mode ? 'selected' : ''}>${QUALITY_SORT_LABELS[mode]}</option>
+                `).join('')}
+            </select>
+        </div>
+    `;
+}
+
 function showSearchHistory() {
     // Close weather popup when opening search
     closeWeather();
 
     const resultsEl = $('#search-results');
+    const compactPanel = shouldUseCompactSearchPanel();
     // Filter out undefined or invalid items
-    const history = getSearchHistory().filter(item => item && item.name && item.name !== 'undefined');
-    const bookmarks = getBookmarks().filter(item => item && item.name && item.name !== 'undefined');
+    const history = getSearchHistory().filter(item => item && item.name && item.name !== 'undefined')
+        .slice(0, compactPanel ? SEARCH_HISTORY_PANEL_ITEM_LIMIT : undefined);
+    const bookmarks = getBookmarks().filter(item => item && item.name && item.name !== 'undefined')
+        .slice(0, compactPanel ? SEARCH_HISTORY_PANEL_ITEM_LIMIT : undefined);
 
     let html = '';
+    if (compactPanel) {
+        html += renderSearchSortPanel();
+        html += '<div class="search-history-scroll" aria-label="북마크 및 최근 검색">';
+    }
 
     // Bookmarks Section (always show)
     html += `<div class="search-section-title">
@@ -664,9 +704,14 @@ function showSearchHistory() {
         html += '<div class="search-section-empty">최근 검색 주소가 없습니다</div>';
     }
 
+    if (compactPanel) {
+        html += '</div>';
+    }
+
     resultsEl.innerHTML = html;
     resultsEl.classList.add('active');
     $('#dim-overlay').classList.add('active');
+    renderQualityControls();
 }
 
 function renderSearchItem(item, isBookmarked) {
