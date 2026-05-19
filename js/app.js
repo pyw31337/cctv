@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260519-world-railpolish1';
+const APP_BUILD_VERSION = '20260519-world-title-nav1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4593,12 +4593,36 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
     const openLink = selected.sourceUrl
         ? `<a class="world-tour-open-btn" href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본 열기</a>`
         : '';
+    const selectedIndex = Math.max(0, visibleCams.findIndex(cam => cam.id === selected.id));
+    const nearbyCams = getWorldTourNearbyCams(selected, visibleCams, 2);
+    const previousCam = nearbyCams[1] || (visibleCams.length
+        ? visibleCams[(selectedIndex - 1 + visibleCams.length) % visibleCams.length]
+        : null);
+    const nextCam = nearbyCams[0] || (visibleCams.length
+        ? visibleCams[(selectedIndex + 1) % visibleCams.length]
+        : null);
 
     return `
         <section class="world-tour-bottom-menu" aria-label="세계 관광 라이브 선택 메뉴">
             <div class="world-tour-selected-summary">
                 <span class="world-tour-kicker">${escapeWorldTourHtml(getWorldTourRegionLabel(selected.region))} live cam</span>
-                <h3>${escapeWorldTourHtml(selected.title)}</h3>
+                <div class="world-tour-title-row">
+                    <h3>${escapeWorldTourHtml(selected.title)}</h3>
+                    <div class="world-tour-title-nav" aria-label="인근 관광 라이브 이동">
+                        <button
+                            type="button"
+                            class="world-tour-title-nav-btn"
+                            data-world-tour-neighbor="${escapeWorldTourHtml(previousCam?.id || selected.id)}"
+                            aria-label="이전 관광 라이브"
+                        >&lt;</button>
+                        <button
+                            type="button"
+                            class="world-tour-title-nav-btn"
+                            data-world-tour-neighbor="${escapeWorldTourHtml(nextCam?.id || selected.id)}"
+                            aria-label="다음 관광 라이브"
+                        >&gt;</button>
+                    </div>
+                </div>
                 <p>${escapeWorldTourHtml(selected.subtitle || `${selected.city}, ${selected.country}`)}</p>
                 ${renderWorldTourHashTags(selected)}
                 <div class="world-tour-actions">
@@ -4731,6 +4755,17 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 const cardRail = list.querySelector('.world-tour-card-rail');
                 const regionTabs = list.querySelector('.world-tour-region-tabs');
                 renderWorldTourCams(card.dataset.id, {
+                    viewMode: state.worldTourViewMode,
+                    cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
+                });
+            });
+        });
+        list.querySelectorAll('.world-tour-title-nav-btn').forEach(button => {
+            button.addEventListener('click', () => {
+                const cardRail = list.querySelector('.world-tour-card-rail');
+                const regionTabs = list.querySelector('.world-tour-region-tabs');
+                renderWorldTourCams(button.dataset.worldTourNeighbor, {
                     viewMode: state.worldTourViewMode,
                     cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
                     regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft

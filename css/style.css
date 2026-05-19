@@ -1385,7 +1385,15 @@ body.world-tour-active #pwa-install-prompt {
     background: rgba(2, 6, 23, 0.34);
 }
 
-.world-tour-selected-summary h3 {
+.world-tour-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.world-tour-title-row h3 {
+    flex: 1 1 auto;
     overflow: hidden;
     margin: 0;
     color: #f8fafc;
@@ -1394,6 +1402,36 @@ body.world-tour-active #pwa-install-prompt {
     letter-spacing: -0.04em;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.world-tour-title-nav {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+}
+
+.world-tour-title-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: var(--radius-full);
+    background: rgba(15, 23, 42, 0.72);
+    color: #d1fae5;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.world-tour-title-nav-btn:hover {
+    border-color: rgba(52, 211, 153, 0.48);
+    background: rgba(20, 83, 45, 0.36);
+    color: #86efac;
 }
 
 .world-tour-selected-summary p {
@@ -2189,8 +2227,14 @@ body.world-tour-active #pwa-install-prompt {
         border-radius: 16px;
     }
 
-    .world-tour-selected-summary h3 {
+    .world-tour-title-row h3 {
         font-size: 18px;
+    }
+
+    .world-tour-title-nav-btn {
+        width: 26px;
+        height: 26px;
+        font-size: 14px;
     }
 
     .world-tour-selected-summary p {
@@ -2337,8 +2381,18 @@ body.world-tour-active #pwa-install-prompt {
         display: none;
     }
 
-    .world-tour-selected-summary h3 {
+    .world-tour-title-row h3 {
         font-size: 16px;
+    }
+
+    .world-tour-title-nav {
+        gap: 3px;
+    }
+
+    .world-tour-title-nav-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 13px;
     }
 
     .world-tour-region-tab {
