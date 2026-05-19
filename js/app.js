@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260519-world-mobile-maponly1';
+const APP_BUILD_VERSION = '20260519-world-mobile-toggle1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4469,12 +4469,6 @@ function canPlayWorldTourInApp(cam) {
     return Boolean(cam?.videoId || cam?.embedUrl);
 }
 
-function isWorldTourMobileLayout() {
-    return typeof window !== 'undefined'
-        && typeof window.matchMedia === 'function'
-        && window.matchMedia('(max-width: 600px), (max-height: 520px)').matches;
-}
-
 function getWorldTourRegionCounts(cams) {
     return cams.reduce((counts, cam) => {
         const region = cam.region || 'Other';
@@ -4541,22 +4535,20 @@ function renderWorldTourCard(cam, selectedId) {
 }
 
 function renderWorldTourModeSwitch() {
-    if (isWorldTourMobileLayout()) return '';
-
     return `
         <div class="world-tour-mode-switch" role="tablist" aria-label="관광 라이브 보기 방식">
-            <button
-                type="button"
-                class="world-tour-mode-option ${state.worldTourViewMode === 'video' ? 'active' : ''}"
-                data-world-tour-view="video"
-                aria-selected="${state.worldTourViewMode === 'video'}"
-            >영상</button>
             <button
                 type="button"
                 class="world-tour-mode-option ${state.worldTourViewMode === 'map' ? 'active' : ''}"
                 data-world-tour-view="map"
                 aria-selected="${state.worldTourViewMode === 'map'}"
-            >지도</button>
+            >지도보기</button>
+            <button
+                type="button"
+                class="world-tour-mode-option ${state.worldTourViewMode === 'video' ? 'active' : ''}"
+                data-world-tour-view="video"
+                aria-selected="${state.worldTourViewMode === 'video'}"
+            >영상보기</button>
         </div>
     `;
 }
@@ -4711,9 +4703,6 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         if (options.viewMode) {
             state.worldTourViewMode = options.viewMode;
         }
-        if (isWorldTourMobileLayout()) {
-            state.worldTourViewMode = 'map';
-        }
 
         let visibleCams = getWorldTourVisibleCams(cams);
         if (!visibleCams.length) {
@@ -4739,8 +4728,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
 
         list.querySelectorAll('.world-tour-card').forEach(card => {
             card.addEventListener('click', () => {
-                const viewMode = isWorldTourMobileLayout() ? 'map' : state.worldTourViewMode;
-                renderWorldTourCams(card.dataset.id, { viewMode });
+                renderWorldTourCams(card.dataset.id, { viewMode: state.worldTourViewMode });
             });
         });
         list.querySelectorAll('.world-tour-region-tab').forEach(tab => {
@@ -4748,13 +4736,12 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 const region = tab.dataset.worldRegion || 'All';
                 const nextVisibleCams = region === 'All' ? cams : cams.filter(cam => cam.region === region);
                 const nextSelected = nextVisibleCams.find(cam => cam.id === state.selectedWorldTourId) || nextVisibleCams[0] || cams[0];
-                const viewMode = isWorldTourMobileLayout() ? 'map' : state.worldTourViewMode;
-                renderWorldTourCams(nextSelected.id, { region, viewMode });
+                renderWorldTourCams(nextSelected.id, { region, viewMode: state.worldTourViewMode });
             });
         });
         list.querySelectorAll('.world-tour-mode-option').forEach(button => {
             button.addEventListener('click', () => {
-                const viewMode = isWorldTourMobileLayout() || button.dataset.worldTourView === 'map' ? 'map' : 'video';
+                const viewMode = button.dataset.worldTourView === 'map' ? 'map' : 'video';
                 renderWorldTourCams(state.selectedWorldTourId, { viewMode });
             });
         });

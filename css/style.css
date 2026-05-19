@@ -1115,21 +1115,12 @@ body.world-tour-active #pwa-install-prompt {
     right: max(14px, env(safe-area-inset-right));
     z-index: 1400;
     padding: 0;
+    justify-content: flex-end;
     pointer-events: none;
 }
 
 .world-tour-layer .weather-header h2 {
-    display: inline-flex;
-    align-items: center;
-    min-height: 38px;
-    padding: 0 14px;
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    border-radius: var(--radius-full);
-    background: rgba(2, 6, 23, 0.84);
-    color: #f8fafc;
-    box-shadow: 0 16px 40px rgba(2, 6, 23, 0.28);
-    backdrop-filter: blur(16px);
-    pointer-events: auto;
+    display: none;
 }
 
 .world-tour-layer .weather-header button {
@@ -2201,10 +2192,20 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .world-tour-mode-switch {
-        display: none;
+        display: inline-flex;
+        flex: 0 1 auto;
+        min-width: 0;
+    }
+
+    .world-tour-mode-option {
+        min-width: 58px;
+        height: 30px;
+        padding: 0 9px;
+        font-size: 11px;
     }
 
     .world-tour-open-btn {
+        flex: 0 0 auto;
         min-height: 32px;
         padding: 0 11px;
         font-size: 12px;
@@ -2216,6 +2217,20 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .world-tour-video-shell .world-tour-hero {
+        display: block;
+        inset: 0 0 min(45dvh, 270px);
+        padding: 0;
+    }
+
+    .world-tour-video-shell .world-tour-video {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        border-radius: 0;
+    }
+
+    .world-tour-video-shell .world-tour-video::before,
+    .world-tour-video-shell .world-tour-meta {
         display: none;
     }
 
@@ -2340,7 +2355,9 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .world-tour-selected-summary {
-        display: none;
+        display: flex;
+        padding: 8px;
+        gap: 5px;
     }
 
     .world-tour-card-rail .world-tour-card {
