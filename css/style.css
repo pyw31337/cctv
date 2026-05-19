@@ -2271,7 +2271,7 @@ body.world-tour-active #pwa-install-prompt {
         bottom: 0;
         grid-template-columns: 1fr;
         gap: 10px;
-        max-height: min(45dvh, 270px);
+        max-height: min(54dvh, 340px);
         padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
         border-right: 0;
         border-bottom: 0;
@@ -2280,27 +2280,30 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .world-tour-selected-summary {
-        gap: 6px;
-        padding: 10px;
-        border-radius: 16px;
+        gap: 8px;
+        padding: 14px;
+        border-radius: 18px;
     }
 
     .world-tour-title-row h3 {
-        font-size: 18px;
-    }
-
-    .world-tour-title-nav-btn {
-        width: 26px;
-        height: 26px;
-        font-size: 14px;
+        display: -webkit-box;
+        font-size: 20px;
+        line-height: 1.08;
+        text-overflow: unset;
+        white-space: normal;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
     }
 
     .world-tour-selected-summary p {
-        display: none;
+        display: -webkit-box;
+        white-space: normal;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
     }
 
     .world-tour-selected-summary .world-tour-tags {
-        gap: 6px;
+        gap: 7px;
     }
 
     .world-tour-selected-summary .world-tour-tags span {
@@ -2308,10 +2311,16 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .world-tour-selected-summary .world-tour-actions {
-        gap: 6px;
-        flex-wrap: nowrap;
+        gap: 7px;
+        flex-wrap: wrap;
         align-items: center;
-        justify-content: flex-end;
+        justify-content: flex-start;
+    }
+
+    .world-tour-video-shell .world-tour-hero {
+        display: block;
+        inset: 0 0 min(54dvh, 340px);
+        padding: 0;
     }
 
     .world-tour-mode-switch {
@@ -2337,12 +2346,6 @@ body.world-tour-active #pwa-install-prompt {
     .world-tour-card-rail .world-tour-card {
         flex-basis: min(76vw, 260px);
         min-height: 82px;
-    }
-
-    .world-tour-video-shell .world-tour-hero {
-        display: block;
-        inset: 0 0 min(45dvh, 270px);
-        padding: 0;
     }
 
     .world-tour-video-shell .world-tour-video {
@@ -2403,6 +2406,39 @@ body.world-tour-active #pwa-install-prompt {
     }
 }
 
+@media (max-width: 430px) {
+    .world-tour-selected-summary {
+        padding: 12px;
+    }
+
+    .world-tour-title-row {
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .world-tour-title-row h3 {
+        font-size: 18px;
+    }
+
+    .world-tour-title-nav-btn {
+        width: 26px;
+        height: 26px;
+        font-size: 14px;
+    }
+
+    .world-tour-selected-summary .world-tour-tags {
+        gap: 5px 7px;
+    }
+
+    .world-tour-selected-summary .world-tour-tags span {
+        font-size: 10.5px;
+    }
+
+    .world-tour-selected-summary p {
+        font-size: 12px;
+    }
+}
+
 @media (max-width: 360px) {
     .world-tour-layer .weather-header {
         top: max(8px, env(safe-area-inset-top));
@@ -2423,20 +2459,15 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .world-tour-bottom-menu {
-        max-height: min(48dvh, 230px);
+        max-height: min(58dvh, 330px);
         gap: 8px;
         padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
         border-radius: 18px 18px 0 0;
     }
 
     .world-tour-selected-summary {
-        padding: 8px;
-        gap: 5px;
-    }
-
-    .world-tour-selected-summary .world-tour-kicker,
-    .world-tour-selected-summary .world-tour-tags {
-        display: none;
+        padding: 10px;
+        gap: 6px;
     }
 
     .world-tour-title-row h3 {
@@ -2451,6 +2482,33 @@ body.world-tour-active #pwa-install-prompt {
         width: 24px;
         height: 24px;
         font-size: 13px;
+    }
+
+    .world-tour-selected-summary p {
+        font-size: 11px;
+        line-height: 1.35;
+        -webkit-line-clamp: 2;
+    }
+
+    .world-tour-selected-summary .world-tour-kicker {
+        font-size: 10px;
+    }
+
+    .world-tour-selected-summary .world-tour-actions {
+        gap: 6px;
+    }
+
+    .world-tour-mode-option {
+        min-width: 53px;
+        height: 28px;
+        padding: 0 8px;
+        font-size: 10.5px;
+    }
+
+    .world-tour-open-btn {
+        min-height: 30px;
+        padding: 0 10px;
+        font-size: 11px;
     }
 
     .world-tour-region-tab {
