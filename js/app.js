@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260519-world-scrollfix1';
+const APP_BUILD_VERSION = '20260519-world-widevideo1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4641,16 +4641,6 @@ function renderWorldTourVideoHero(selected) {
                     </div>
                 </div>
             `}
-            <div class="world-tour-meta">
-                <span class="world-tour-kicker">${escapeWorldTourHtml(getWorldTourRegionLabel(selected.region))} live cam</span>
-                <h3>${escapeWorldTourHtml(selected.title)}</h3>
-                <p>${escapeWorldTourHtml(selected.subtitle || `${selected.city}, ${selected.country}`)}</p>
-                ${renderWorldTourHashTags(selected)}
-                <div class="world-tour-actions">
-                    ${renderWorldTourModeSwitch()}
-                    <a class="world-tour-open-btn" href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본 열기</a>
-                </div>
-            </div>
         </section>
     `;
 }
