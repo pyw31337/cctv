@@ -1065,6 +1065,16 @@ body {
     visibility: visible;
 }
 
+body.world-tour-active {
+    overflow: hidden;
+}
+
+.weather-layer.world-tour-layer {
+    align-items: stretch;
+    justify-content: stretch;
+    background: #07111f;
+}
+
 .weather-content {
     background: var(--bg-secondary);
     border-radius: var(--radius-md);
@@ -1076,14 +1086,56 @@ body {
 }
 
 .weather-content.world-tour-content {
-    width: min(1120px, 94vw);
-    max-width: 1120px;
-    max-height: 86vh;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    overflow: hidden;
+    border-radius: 0;
     background:
         radial-gradient(circle at top left, rgba(20, 184, 166, 0.18), transparent 34%),
         radial-gradient(circle at bottom right, rgba(59, 130, 246, 0.16), transparent 36%),
         rgba(15, 23, 42, 0.98);
     border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.world-tour-layer .weather-header {
+    position: absolute;
+    top: max(14px, env(safe-area-inset-top));
+    left: max(14px, env(safe-area-inset-left));
+    right: max(14px, env(safe-area-inset-right));
+    z-index: 12;
+    padding: 0;
+    pointer-events: none;
+}
+
+.world-tour-layer .weather-header h2 {
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
+    padding: 0 14px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: var(--radius-full);
+    background: rgba(2, 6, 23, 0.74);
+    color: #f8fafc;
+    box-shadow: 0 16px 40px rgba(2, 6, 23, 0.28);
+    backdrop-filter: blur(16px);
+    pointer-events: auto;
+}
+
+.world-tour-layer .weather-header button {
+    background: rgba(2, 6, 23, 0.78);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    color: #f8fafc;
+    box-shadow: 0 16px 40px rgba(2, 6, 23, 0.28);
+    backdrop-filter: blur(16px);
+    pointer-events: auto;
+}
+
+.world-tour-layer .weather-list {
+    height: 100%;
+    padding: 0;
+    overflow: hidden;
 }
 
 .weather-header {
@@ -1224,6 +1276,155 @@ body {
     padding: 0 8px 14px;
 }
 
+.world-tour-map-shell,
+.world-tour-video-shell {
+    position: relative;
+    height: 100%;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.world-tour-map-stage {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: #07111f;
+}
+
+.world-tour-map-stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(180deg, rgba(2, 6, 23, 0.28), transparent 22%),
+        linear-gradient(0deg, rgba(2, 6, 23, 0.72), transparent 46%);
+    z-index: 1;
+}
+
+.world-tour-map-card {
+    position: absolute;
+    top: max(68px, calc(env(safe-area-inset-top) + 64px));
+    left: max(16px, env(safe-area-inset-left));
+    z-index: 3;
+    width: min(360px, calc(100% - 32px));
+    padding: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 22px;
+    background: rgba(2, 6, 23, 0.76);
+    color: #f8fafc;
+    box-shadow: 0 22px 70px rgba(2, 6, 23, 0.34);
+    backdrop-filter: blur(18px);
+}
+
+.world-tour-map-card > span {
+    color: #86efac;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.world-tour-map-card > strong {
+    display: block;
+    margin-top: 6px;
+    font-size: clamp(20px, 2.8vw, 30px);
+    line-height: 1.05;
+    letter-spacing: -0.05em;
+}
+
+.world-tour-map-card > p {
+    margin: 8px 0 0;
+    color: #cbd5e1;
+    font-size: 13px;
+}
+
+.world-tour-bottom-menu {
+    position: absolute;
+    left: max(16px, env(safe-area-inset-left));
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    z-index: 4;
+    display: grid;
+    grid-template-columns: minmax(240px, 0.36fr) minmax(0, 1fr);
+    gap: 14px;
+    max-height: min(34vh, 320px);
+    padding: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 10% 10%, rgba(52, 211, 153, 0.14), transparent 42%),
+        rgba(15, 23, 42, 0.88);
+    box-shadow: 0 24px 80px rgba(2, 6, 23, 0.38);
+    backdrop-filter: blur(20px);
+    overflow: hidden;
+}
+
+.world-tour-selected-summary {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid rgba(52, 211, 153, 0.18);
+    border-radius: 20px;
+    background: rgba(2, 6, 23, 0.34);
+}
+
+.world-tour-selected-summary h3 {
+    overflow: hidden;
+    margin: 0;
+    color: #f8fafc;
+    font-size: clamp(18px, 2.2vw, 26px);
+    line-height: 1.08;
+    letter-spacing: -0.04em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.world-tour-selected-summary p {
+    overflow: hidden;
+    margin: 0;
+    color: #cbd5e1;
+    font-size: 13px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.world-tour-bottom-main {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden;
+}
+
+.world-tour-card-rail {
+    display: flex;
+    gap: 10px;
+    min-height: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 2px 4px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+}
+
+.world-tour-card-rail .world-tour-card {
+    flex: 0 0 clamp(190px, 22vw, 260px);
+    min-height: 92px;
+}
+
+.world-tour-video-shell .world-tour-hero {
+    position: absolute;
+    inset: 54px 12px calc(min(34vh, 320px) + 34px);
+    padding: 0;
+}
+
 .world-tour-hero {
     display: grid;
     grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.75fr);
@@ -1336,12 +1537,24 @@ body {
     box-shadow: 0 22px 70px rgba(0, 0, 0, 0.36);
 }
 
+.world-tour-map-stage .world-tour-map-wrap {
+    position: absolute;
+    inset: 0;
+    min-height: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
 .world-tour-map {
     position: relative;
     width: 100%;
     height: 100%;
     min-height: 420px;
     background: #08111f;
+}
+
+.world-tour-map-stage .world-tour-map {
+    min-height: 0;
 }
 
 .world-tour-map-loading {
@@ -1481,6 +1694,11 @@ body {
     padding: 0 8px;
     overflow-x: auto;
     scrollbar-width: none;
+}
+
+.world-tour-bottom-menu .world-tour-region-tabs {
+    flex-shrink: 0;
+    padding: 0;
 }
 
 .world-tour-region-tabs::-webkit-scrollbar {
@@ -1629,6 +1847,12 @@ body {
     margin: 0;
     color: var(--text-secondary);
     font-size: 12px;
+}
+
+.world-tour-nearby-row {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
 }
 
 .world-tour-nearby-item {
@@ -1879,9 +2103,74 @@ body {
     }
 
     .weather-content.world-tour-content {
-        width: calc(100% - 16px);
-        max-height: 88vh;
-        border-radius: 18px;
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        border-radius: 0;
+    }
+
+    .world-tour-layer .weather-header {
+        top: max(10px, env(safe-area-inset-top));
+        left: max(10px, env(safe-area-inset-left));
+        right: max(10px, env(safe-area-inset-right));
+    }
+
+    .world-tour-layer .weather-header h2 {
+        min-height: 34px;
+        max-width: calc(100vw - 72px);
+        padding: 0 11px;
+        font-size: 13px;
+    }
+
+    .world-tour-layer .weather-header button {
+        width: 34px;
+        height: 34px;
+    }
+
+    .world-tour-map-card {
+        display: none;
+    }
+
+    .world-tour-bottom-menu {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        grid-template-columns: 1fr;
+        gap: 10px;
+        max-height: 43dvh;
+        padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+        border-right: 0;
+        border-bottom: 0;
+        border-left: 0;
+        border-radius: 22px 22px 0 0;
+    }
+
+    .world-tour-selected-summary {
+        gap: 6px;
+        padding: 10px;
+        border-radius: 16px;
+    }
+
+    .world-tour-selected-summary h3 {
+        font-size: 18px;
+    }
+
+    .world-tour-selected-summary p,
+    .world-tour-selected-summary .world-tour-pills {
+        display: none;
+    }
+
+    .world-tour-selected-summary .world-tour-actions {
+        gap: 6px;
+    }
+
+    .world-tour-card-rail .world-tour-card {
+        flex-basis: min(76vw, 260px);
+        min-height: 82px;
+    }
+
+    .world-tour-video-shell .world-tour-hero {
+        inset: 54px 8px 44dvh;
     }
 
     .world-tour-hero {
@@ -1920,6 +2209,39 @@ body {
     .world-tour-card {
         min-height: 86px;
         padding: 12px;
+    }
+}
+
+@media (max-height: 520px) {
+    .world-tour-map-card {
+        display: none;
+    }
+
+    .world-tour-bottom-menu {
+        grid-template-columns: minmax(0, 1fr);
+        max-height: 46dvh;
+        padding: 9px;
+        border-radius: 20px;
+    }
+
+    .world-tour-selected-summary {
+        display: none;
+    }
+
+    .world-tour-card-rail .world-tour-card {
+        flex-basis: min(220px, 48vw);
+        min-height: 76px;
+        padding: 10px;
+    }
+
+    .world-tour-layer .weather-header h2 {
+        min-height: 32px;
+        font-size: 12px;
+    }
+
+    .world-tour-layer .weather-header button {
+        width: 32px;
+        height: 32px;
     }
 }
 
