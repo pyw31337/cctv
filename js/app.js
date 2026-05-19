@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260519-world-title-nav1';
+const APP_BUILD_VERSION = '20260519-world-marker-video1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4701,6 +4701,24 @@ function renderWorldTourMapHero(selected, visibleCams) {
     `;
 }
 
+function createWorldTourMarkerPopup(cam) {
+    const popup = document.createElement('div');
+    popup.className = 'world-tour-marker-popup';
+    popup.innerHTML = `
+        <strong>${escapeWorldTourHtml(cam.title)}</strong>
+        <span>${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
+        <button type="button" class="world-tour-marker-video-btn">영상보기</button>
+    `;
+
+    popup.querySelector('.world-tour-marker-video-btn')?.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        renderWorldTourCams(cam.id, { viewMode: 'video' });
+    });
+
+    return popup;
+}
+
 async function renderWorldTourCams(selectedId = state.selectedWorldTourId, options = {}) {
     const list = $('#weather-list');
     if (!list) return;
@@ -4936,12 +4954,14 @@ async function initWorldTourMap(selected, visibleCams) {
             }).addTo(worldTourLeafletMap);
 
             marker
-                .bindTooltip(escapeWorldTourHtml(cam.title), {
-                    direction: 'top',
-                    offset: [0, -8],
-                    className: 'world-tour-leaflet-tooltip'
+                .bindPopup(createWorldTourMarkerPopup(cam), {
+                    closeButton: false,
+                    autoPan: true,
+                    offset: [0, -6],
+                    className: 'world-tour-leaflet-popup'
                 })
-                .on('click', () => renderWorldTourCams(cam.id, { viewMode: 'map' }));
+                .on('mouseover', () => marker.openPopup())
+                .on('click', () => marker.openPopup());
 
             worldTourLeafletMarkers.push(marker);
         });
