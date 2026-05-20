@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-world-favorites1';
+const APP_BUILD_VERSION = '20260520-world-quality1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4562,7 +4562,10 @@ async function loadWorldTourCams() {
     const payload = await response.json();
     state.worldTourCams = (payload.items || [])
         .filter(item => item && (item.videoId || item.embedUrl))
-        .sort((a, b) => (Number(b.priority || 0) - Number(a.priority || 0)) || String(a.title).localeCompare(String(b.title)));
+        .sort((a, b) => (
+            Number(b.qualityScore || b.stabilityScore || b.priority || 0)
+            - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
+        ) || String(a.title).localeCompare(String(b.title)));
     pruneWorldTourFavorites(state.worldTourCams);
     return state.worldTourCams;
 }

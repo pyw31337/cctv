@@ -33,7 +33,7 @@ REGION_BY_COUNTRY = {
     'Turkey': 'Asia', 'Japan': 'Asia', 'South Korea': 'Asia', 'Taiwan': 'Asia', 'China': 'Asia',
     'Thailand': 'Asia', 'Indonesia': 'Asia', 'Israel': 'Asia', 'India': 'Asia', 'Malaysia': 'Asia',
     'Maldives': 'Asia', 'Philippines': 'Asia', 'Saudi Arabia': 'Asia', 'Singapore': 'Asia', 'Vietnam': 'Asia',
-    'Georgia': 'Asia', 'Australia': 'Oceania', 'New Zealand': 'Oceania',
+    'Georgia': 'Asia', 'Hong Kong': 'Asia', 'United Arab Emirates': 'Asia', 'Australia': 'Oceania', 'New Zealand': 'Oceania',
     'Brazil': 'South America', 'Chile': 'South America',
     'South Africa': 'Africa', 'Kenya': 'Africa', 'Cape Verde': 'Africa', 'Egypt': 'Africa', 'Namibia': 'Africa',
     'Mauritius': 'Africa', 'Morocco': 'Africa'
@@ -59,7 +59,20 @@ HARD_NEGATIVE_TITLE = re.compile(r'(트로피컬\s*머피|바오밥\s*레스토�
 NEGATIVE_TITLE = re.compile(r'(고양이|독수리|새 모이|피더|동물|야생동물|Alligator|Spoonbill|Osprey|Otter|Eagle|Cat|Feeder|Wildlife|Zoo|Bird|Animal|Penguin|카지노)', re.I)
 POSITIVE_TITLE = re.compile(r'(타임|광장|해변|비치|항구|하버|공항|타워|브리지|대교|성|궁|공원|강|시티|도시|스카이라인|라이브|역|거리|마켓|파노라마|폭포|산|리조트|마리나|해안|도쿄|오사카|서울|부산|뉴욕|파리|런던|로마|베니스|교토|후지|시부야|Times|Square|Beach|Harbour|Harbor|Airport|Tower|Bridge|Castle|Park|River|Skyline|City|Panorama|Falls|Mountain|Resort|Marina)', re.I)
 UNSTABLE_TITLE = re.compile(r'(private video|deleted video|video unavailable|비공개|삭제|사용할 수 없는)', re.I)
-YOUTUBE_SEARCH_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_LIMIT', '160'))
+YOUTUBE_SEARCH_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_LIMIT', '420'))
+YOUTUBE_SEARCH_PER_QUERY_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_PER_QUERY_LIMIT', '48'))
+YOUTUBE_SEARCH_QUERIES = [
+    'live cam',
+    'tourist live webcam',
+    'city live webcam',
+    'city square live cam',
+    'beach live cam',
+    'harbour live webcam',
+    'airport live webcam',
+    'skyline live cam',
+    'mountain live webcam',
+    'traffic city live webcam',
+]
 YTDLP_BIN = shutil.which(os.getenv('YTDLP_BIN', 'yt-dlp'))
 YOUTUBE_SEARCH_NEGATIVE = re.compile(
     r'(around the world|top live cams|rolling cam|camera feeds|middle east|smooth jazz|relaxing music|'
@@ -68,10 +81,41 @@ YOUTUBE_SEARCH_NEGATIVE = re.compile(
     r'forest|feeder|animal|falcon|casino|skid row|kensington|truck queue)',
     re.I
 )
+SOURCE_QUALITY_BONUS = {
+    'youtube': 7,
+    'cctvworld': 6,
+    'tabi': 4,
+    'webcamera24': 2,
+    'youtube-search': 0,
+    'external': -8,
+}
 YOUTUBE_LOCATION_HINTS = [
     (('shibuya', '渋谷'), '시부야 스크램블', 'Tokyo', 'Japan', 'Asia', 35.6595, 139.7005),
     (('shinjuku', '新宿'), '신주쿠', 'Tokyo', 'Japan', 'Asia', 35.6938, 139.7034),
+    (('akihabara', '秋葉原'), '아키하바라', 'Tokyo', 'Japan', 'Asia', 35.6984, 139.7730),
+    (('ginza', '銀座'), '긴자', 'Tokyo', 'Japan', 'Asia', 35.6717, 139.7650),
+    (('asakusa', '浅草'), '아사쿠사', 'Tokyo', 'Japan', 'Asia', 35.7148, 139.7967),
+    (('tokyo tower',), '도쿄타워', 'Tokyo', 'Japan', 'Asia', 35.6586, 139.7454),
+    (('dotonbori', 'dōtonbori', '道頓堀'), '오사카 도톤보리', 'Osaka', 'Japan', 'Asia', 34.6687, 135.5013),
+    (('kyoto', 'gion', '祇園'), '교토 기온', 'Kyoto', 'Japan', 'Asia', 35.0037, 135.7788),
+    (('sapporo', 'susukino'), '삿포로 스스키노', 'Sapporo', 'Japan', 'Asia', 43.0555, 141.3539),
+    (('fukuoka', 'tenjin'), '후쿠오카 텐진', 'Fukuoka', 'Japan', 'Asia', 33.5904, 130.4017),
     (('hongdae', '홍대'), '홍대입구', 'Seoul', 'South Korea', 'Asia', 37.5563, 126.9236),
+    (('myeongdong', '명동'), '명동', 'Seoul', 'South Korea', 'Asia', 37.5636, 126.9834),
+    (('gangnam', '강남'), '강남대로', 'Seoul', 'South Korea', 'Asia', 37.4979, 127.0276),
+    (('haeundae', '해운대'), '해운대', 'Busan', 'South Korea', 'Asia', 35.1587, 129.1604),
+    (('gwangalli', '광안리'), '광안리', 'Busan', 'South Korea', 'Asia', 35.1532, 129.1187),
+    (('jeju', '제주'), '제주', 'Jeju', 'South Korea', 'Asia', 33.4996, 126.5312),
+    (('taipei', 'taipei 101'), '타이베이 101', 'Taipei', 'Taiwan', 'Asia', 25.0330, 121.5654),
+    (('hong kong', 'victoria harbour', 'victoria harbor'), '홍콩 빅토리아 하버', 'Hong Kong', 'Hong Kong', 'Asia', 22.2940, 114.1694),
+    (('singapore', 'marina bay'), '싱가포르 마리나 베이', 'Singapore', 'Singapore', 'Asia', 1.2834, 103.8607),
+    (('bangkok',), '방콕', 'Bangkok', 'Thailand', 'Asia', 13.7563, 100.5018),
+    (('phuket', 'patong'), '푸켓 파통', 'Phuket', 'Thailand', 'Asia', 7.8964, 98.2964),
+    (('bali', 'denpasar', 'kuta'), '발리', 'Bali', 'Indonesia', 'Asia', -8.6500, 115.2167),
+    (('kuala lumpur',), '쿠알라룸푸르', 'Kuala Lumpur', 'Malaysia', 'Asia', 3.1478, 101.6953),
+    (('dubai', 'burj khalifa'), '두바이', 'Dubai', 'United Arab Emirates', 'Asia', 25.2048, 55.2708),
+    (('jerusalem', 'western wall'), '예루살렘 통곡의 벽', 'Jerusalem', 'Israel', 'Asia', 31.7767, 35.2345),
+    (('maldives', 'male '), '몰디브', 'Maldives', 'Maldives', 'Asia', 4.1755, 73.5093),
     (('davao', 'agdao', 'bankerohan'), '다바오 시티', 'Davao City', 'Philippines', 'Asia', 7.1907, 125.4553),
     (('koh samui', 'lamai', 'bophut', 'chaweng'), '코사무이', 'Koh Samui', 'Thailand', 'Asia', 9.5120, 100.0136),
     (('venice beach',), '베니스 비치', 'Los Angeles', 'United States', 'North America', 33.9850, -118.4695),
@@ -81,6 +125,14 @@ YOUTUBE_LOCATION_HINTS = [
     (('coney island',), '코니 아일랜드', 'New York', 'United States', 'North America', 40.5749, -73.9850),
     (('bryant park',), '브라이언트 파크', 'New York', 'United States', 'North America', 40.7536, -73.9832),
     (('times square',), '타임스퀘어', 'New York', 'United States', 'North America', 40.7580, -73.9855),
+    (('statue of liberty',), '자유의 여신상', 'New York', 'United States', 'North America', 40.6892, -74.0445),
+    (('niagara',), '나이아가라 폭포', 'Niagara Falls', 'Canada', 'North America', 43.0828, -79.0742),
+    (('grand canyon',), '그랜드 캐니언', 'Arizona', 'United States', 'North America', 36.1069, -112.1129),
+    (('yellowstone',), '옐로스톤', 'Wyoming', 'United States', 'North America', 44.4280, -110.5885),
+    (('san francisco', 'golden gate'), '샌프란시스코', 'San Francisco', 'United States', 'North America', 37.8199, -122.4783),
+    (('seattle', 'space needle'), '시애틀', 'Seattle', 'United States', 'North America', 47.6205, -122.3493),
+    (('chicago',), '시카고', 'Chicago', 'United States', 'North America', 41.8781, -87.6298),
+    (('washington dc', 'white house'), '워싱턴 DC', 'Washington', 'United States', 'North America', 38.8977, -77.0365),
     (('las vegas airport', 'vegas airport'), '라스베이거스 공항', 'Las Vegas', 'United States', 'North America', 36.0840, -115.1537),
     (('las vegas strip',), '라스베이거스 스트립', 'Las Vegas', 'United States', 'North America', 36.1147, -115.1728),
     (('hollywood beach',), '할리우드 비치', 'Hollywood', 'United States', 'North America', 26.0112, -80.1169),
@@ -88,15 +140,43 @@ YOUTUBE_LOCATION_HINTS = [
     (('mori point', 'pacifica'), '퍼시피카 모리 포인트', 'Pacifica', 'United States', 'North America', 37.6138, -122.4869),
     (('port miami', 'miami cruise'), '마이애미 항구', 'Miami', 'United States', 'North America', 25.7781, -80.1794),
     (('vancouver', 'canada place'), '밴쿠버', 'Vancouver', 'Canada', 'North America', 49.2890, -123.1110),
+    (('toronto',), '토론토', 'Toronto', 'Canada', 'North America', 43.6532, -79.3832),
+    (('montreal',), '몬트리올', 'Montreal', 'Canada', 'North America', 45.5019, -73.5674),
+    (('mexico city',), '멕시코시티', 'Mexico City', 'Mexico', 'North America', 19.4326, -99.1332),
     (('boston',), '보스턴', 'Boston', 'United States', 'North America', 42.3601, -71.0589),
     (('ocean city',), '오션시티', 'Ocean City', 'United States', 'North America', 38.3365, -75.0849),
     (('southampton', 'cowes', 'isle of wight'), '와이트섬 페리', 'Southampton', 'United Kingdom', 'Europe', 50.9097, -1.4044),
     (('dublin',), '더블린', 'Dublin', 'Ireland', 'Europe', 53.3498, -6.2603),
+    (('london', 'abbey road'), '런던', 'London', 'United Kingdom', 'Europe', 51.5072, -0.1276),
+    (('paris', 'eiffel'), '에펠탑', 'Paris', 'France', 'Europe', 48.8584, 2.2945),
+    (('rome', 'roma', 'colosseum'), '로마', 'Rome', 'Italy', 'Europe', 41.8902, 12.4922),
+    (('milan', 'milano'), '밀라노', 'Milan', 'Italy', 'Europe', 45.4642, 9.1900),
+    (('florence', 'firenze'), '피렌체', 'Florence', 'Italy', 'Europe', 43.7696, 11.2558),
+    (('barcelona',), '바르셀로나', 'Barcelona', 'Spain', 'Europe', 41.3874, 2.1686),
+    (('madrid',), '마드리드', 'Madrid', 'Spain', 'Europe', 40.4168, -3.7038),
+    (('lisbon', 'lisboa'), '리스본', 'Lisbon', 'Portugal', 'Europe', 38.7223, -9.1393),
+    (('amsterdam',), '암스테르담', 'Amsterdam', 'Netherlands', 'Europe', 52.3676, 4.9041),
+    (('prague', 'praha'), '프라하', 'Prague', 'Czech Republic', 'Europe', 50.0755, 14.4378),
+    (('vienna', 'wien'), '빈', 'Vienna', 'Austria', 'Europe', 48.2082, 16.3738),
+    (('budapest',), '부다페스트', 'Budapest', 'Hungary', 'Europe', 47.4979, 19.0402),
+    (('zermatt', 'matterhorn'), '마테호른', 'Zermatt', 'Switzerland', 'Europe', 46.0207, 7.7491),
     (('lanzarote',), '란사로테 공항', 'Lanzarote', 'Spain', 'Europe', 28.9455, -13.6052),
     (('swiss alps', 'schweiz panorama'), '스위스 알프스', 'Zermatt', 'Switzerland', 'Europe', 46.0207, 7.7491),
     (('bad salzungen',), '바트 잘충겐', 'Bad Salzungen', 'Germany', 'Europe', 50.8130, 10.2360),
     (('maui', 'wailea', 'whale watch'), '마우이', 'Maui', 'United States', 'North America', 20.7984, -156.3319),
+    (('waikiki', 'honolulu'), '와이키키', 'Honolulu', 'United States', 'North America', 21.2766, -157.8268),
     (('mauna', 'maunakea'), '마우나케아', 'Hawaii', 'United States', 'North America', 19.8207, -155.4681),
+    (('sydney', 'sydney harbour', 'sydney harbor'), '시드니 하버', 'Sydney', 'Australia', 'Oceania', -33.8568, 151.2153),
+    (('melbourne',), '멜버른', 'Melbourne', 'Australia', 'Oceania', -37.8136, 144.9631),
+    (('perth',), '퍼스', 'Perth', 'Australia', 'Oceania', -31.9505, 115.8605),
+    (('auckland',), '오클랜드', 'Auckland', 'New Zealand', 'Oceania', -36.8509, 174.7645),
+    (('queenstown',), '퀸스타운', 'Queenstown', 'New Zealand', 'Oceania', -45.0312, 168.6626),
+    (('rio', 'copacabana'), '리우 코파카바나', 'Rio de Janeiro', 'Brazil', 'South America', -22.9711, -43.1822),
+    (('sao paulo', 'são paulo'), '상파울루', 'São Paulo', 'Brazil', 'South America', -23.5558, -46.6396),
+    (('santiago',), '산티아고', 'Santiago', 'Chile', 'South America', -33.4489, -70.6693),
+    (('cape town',), '케이프타운', 'Cape Town', 'South Africa', 'Africa', -33.9249, 18.4241),
+    (('marrakesh', 'marrakech'), '마라케시', 'Marrakesh', 'Morocco', 'Africa', 31.6295, -7.9811),
+    (('cairo', 'pyramids'), '카이로', 'Cairo', 'Egypt', 'Africa', 30.0444, 31.2357),
     (('namib', 'namibia'), '나미브 사막', 'Namib Desert', 'Namibia', 'Africa', -23.0000, 15.0000),
     (('curacao', 'curaçao', 'swinging bridge'), '퀴라소 퀸 엠마 브리지', 'Willemstad', 'Curaçao', 'North America', 12.1084, -68.9335),
     (('kingston jamaica', 'half way tree'), '킹스턴 하프웨이트리', 'Kingston', 'Jamaica', 'North America', 18.0179, -76.8099),
@@ -224,6 +304,13 @@ def clean_youtube_search_title(title):
     value = re.sub(r'#\w+', ' ', value)
     value = re.sub(r'\s+', ' ', value).strip(' -–—:|')
     return value
+
+
+def youtube_search_queries():
+    custom = os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_QUERIES', '').strip()
+    if custom:
+        return [query.strip() for query in custom.split('|') if query.strip()]
+    return YOUTUBE_SEARCH_QUERIES
 
 
 def youtube_location_hint(title):
@@ -538,17 +625,29 @@ def collect_youtube_search(limit=YOUTUBE_SEARCH_LIMIT):
     if not YTDLP_BIN or limit <= 0:
         return []
 
-    payload = yt_dlp_json(
-        ['--flat-playlist', '--dump-single-json', f'ytsearch{limit}:live cam'],
-        timeout=70,
-    )
-    if not payload:
-        return []
+    entries = []
+    seen_entry_ids = set()
+    queries = youtube_search_queries()
+    per_query_limit = max(1, min(YOUTUBE_SEARCH_PER_QUERY_LIMIT, limit))
+    for query in queries:
+        payload = yt_dlp_json(
+            ['--flat-playlist', '--dump-single-json', f'ytsearch{per_query_limit}:{query}'],
+            timeout=70,
+        )
+        if not payload:
+            continue
+        for entry in payload.get('entries', []):
+            video_id = entry.get('id')
+            if not video_id or video_id in seen_entry_ids:
+                continue
+            seen_entry_ids.add(video_id)
+            entry['search_query'] = query
+            entries.append(entry)
 
     cache = load_geocode_cache()
     items = []
     seen = set()
-    for entry in payload.get('entries', []):
+    for entry in entries:
         video_id = entry.get('id')
         title = entry.get('title') or ''
         if not video_id or video_id in seen:
@@ -586,8 +685,11 @@ def collect_youtube_search(limit=YOUTUBE_SEARCH_LIMIT):
             'tags': ['tourism', 'youtube-search', 'livecam'],
             'priority': 67,
             'status': 'is_live',
-            'sourceType': 'youtube-search'
+            'sourceType': 'youtube-search',
+            'discoveredBy': entry.get('search_query') or 'live cam'
         })
+        if len(items) >= limit:
+            break
 
     save_geocode_cache(cache)
     return items
@@ -627,10 +729,81 @@ def validate_youtube_item(item):
         return item
 
 
+def calculate_quality_score(item):
+    score = float(item.get('priority') or 60)
+    source_type = item.get('sourceType') or ('youtube' if item.get('videoId') else 'external')
+    title = item.get('title', '')
+    subtitle = item.get('subtitle', '')
+    combined_title = f'{title} {subtitle}'
+
+    score += SOURCE_QUALITY_BONUS.get(source_type, 0)
+    if item.get('playbackStatus') == 'verified':
+        score += 8
+    elif item.get('playbackStatus') == 'unchecked':
+        score -= 12
+    if POSITIVE_TITLE.search(combined_title):
+        score += 5
+    if NEGATIVE_TITLE.search(combined_title):
+        score -= 18
+    if HARD_NEGATIVE_TITLE.search(combined_title):
+        score -= 80
+    if item.get('thumbnailUrl'):
+        score += 2
+    if is_finite_number(item.get('lat')) and is_finite_number(item.get('lng')):
+        score += 2
+    if item.get('sourceUrl'):
+        score += 1
+    if source_type == 'youtube-search':
+        score -= 3
+
+    return max(0, min(100, int(round(score))))
+
+
+def is_finite_number(value):
+    try:
+        number = float(value)
+        return number == number and number not in {float('inf'), float('-inf')}
+    except (TypeError, ValueError):
+        return False
+
+
+def enrich_item_quality(item):
+    score = calculate_quality_score(item)
+    item['qualityScore'] = score
+    item['stabilityScore'] = max(int(item.get('stabilityScore') or 0), min(100, score))
+    item['qualityTier'] = 'excellent' if score >= 88 else 'good' if score >= 76 else 'fair' if score >= 62 else 'watch'
+    return item
+
+
 def validate_items(items):
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
         validated = [item for item in executor.map(validate_youtube_item, items) if item]
-    return validated
+    return [enrich_item_quality(item) for item in validated if calculate_quality_score(item) >= 52]
+
+
+def dedupe_items(items):
+    by_video = {}
+    for item in items:
+        video_key = item.get('videoId') or item.get('embedUrl')
+        key = video_key or item.get('id') or slugify(item.get('title', ''))
+        current = by_video.get(key)
+        if current and calculate_quality_score(current) >= calculate_quality_score(item):
+            continue
+        by_video[key] = item
+
+    by_identity = {}
+    for item in by_video.values():
+        identity_key = '|'.join([
+            re.sub(r'[^a-z0-9가-힣]+', '', str(item.get('title', '')).lower()),
+            str(item.get('city', '')).lower(),
+            str(item.get('country', '')).lower(),
+        ])
+        current_identity = by_identity.get(identity_key)
+        if current_identity and calculate_quality_score(current_identity) >= calculate_quality_score(item):
+            continue
+        by_identity[identity_key] = item
+
+    return list(by_identity.values())
 
 
 def main():
@@ -646,19 +819,41 @@ def main():
             video_seen.add(item['videoId'])
         key = item.get('id') or slugify(item.get('title', ''))
         by_key[key] = item
-    items = validate_items(list(by_key.values()))
-    items.sort(key=lambda item: (-(float(item.get('priority') or 0)), item.get('region', ''), item.get('title', '')))
+    items = dedupe_items(validate_items(list(by_key.values())))
+    items.sort(key=lambda item: (
+        -(float(item.get('qualityScore') or item.get('stabilityScore') or item.get('priority') or 0)),
+        -(float(item.get('priority') or 0)),
+        item.get('region', ''),
+        item.get('title', '')
+    ))
+    from collections import Counter
+    source_counts = Counter(i.get('sourceType', 'youtube') for i in items)
+    region_counts = Counter(i.get('region', 'Other') for i in items)
+    playback_counts = Counter(i.get('playbackStatus', 'unknown') for i in items)
+    quality_counts = Counter(i.get('qualityTier', 'unknown') for i in items)
     payload = {
         'updated_at': dt.date.today().isoformat(),
         'description': 'Curated public world tourist live/webcam directory. Only in-app playable YouTube/embed streams are included; source-site-only players are excluded.',
+        'collectionMeta': {
+            'itemCount': len(items),
+            'sourceCounts': dict(source_counts),
+            'regionCounts': dict(region_counts),
+            'playbackCounts': dict(playback_counts),
+            'qualityTiers': dict(quality_counts),
+            'youtubeSearchQueries': youtube_search_queries(),
+            'youtubeSearchLimit': YOUTUBE_SEARCH_LIMIT,
+            'youtubeSearchPerQueryLimit': YOUTUBE_SEARCH_PER_QUERY_LIMIT,
+            'qualityPolicy': 'verified playback, source trust, positive tourist context, and coordinate availability are scored before ranking.'
+        },
         'items': items
     }
     DATA_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n')
-    from collections import Counter
     print('items', len(items))
-    print('sources', dict(Counter(i.get('sourceType', 'youtube') for i in items)))
+    print('sources', dict(source_counts))
+    print('regions', dict(region_counts))
     print('external_only', sum(1 for i in items if not (i.get('videoId') or i.get('embedUrl'))))
-    print('playback', dict(Counter(i.get('playbackStatus', 'unknown') for i in items)))
+    print('playback', dict(playback_counts))
+    print('quality', dict(quality_counts))
 
 if __name__ == '__main__':
     main()
