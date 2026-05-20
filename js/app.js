@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-world-video-height1';
+const APP_BUILD_VERSION = '20260520-world-card-click1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4908,11 +4908,6 @@ function enableHorizontalDragScroll(scroller, onScroll) {
         startY = event.clientY;
         startScrollLeft = scroller.scrollLeft;
         didDrag = false;
-        try {
-            scroller.setPointerCapture?.(pointerId);
-        } catch (error) {
-            // Non-fatal: drag still works without capture while the pointer stays inside.
-        }
     });
 
     scroller.addEventListener('pointermove', event => {
@@ -4922,6 +4917,11 @@ function enableHorizontalDragScroll(scroller, onScroll) {
         if (!didDrag && Math.abs(deltaX) > dragThreshold && Math.abs(deltaX) >= Math.abs(deltaY)) {
             didDrag = true;
             scroller.classList.add('is-dragging');
+            try {
+                scroller.setPointerCapture?.(pointerId);
+            } catch (error) {
+                // Non-fatal: drag still works while the pointer stays inside.
+            }
         }
         if (!didDrag) return;
         event.preventDefault();
@@ -5190,6 +5190,13 @@ async function initWorldTourMap(selected, visibleCams) {
                 .on('click', () => marker.openPopup());
 
             worldTourLeafletMarkers.push(marker);
+
+            if (isSelected) {
+                worldTourLeafletMap.setView([lat, lng], Math.max(worldTourLeafletMap.getZoom(), state.worldTourRegion === 'All' ? 4 : 5), {
+                    animate: false
+                });
+                setTimeout(() => marker.openPopup(), 120);
+            }
         });
 
         setTimeout(() => worldTourLeafletMap?.invalidateSize(), 80);
