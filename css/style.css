@@ -1463,6 +1463,12 @@ body.world-tour-active #pwa-install-prompt {
     transition: border-color var(--transition), background var(--transition), color var(--transition);
 }
 
+.world-tour-title-nav-btn svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+}
+
 .world-tour-title-nav-btn:hover {
     border-color: rgba(52, 211, 153, 0.48);
     background: rgba(20, 83, 45, 0.36);
@@ -1498,6 +1504,21 @@ body.world-tour-active #pwa-install-prompt {
     overscroll-behavior-x: contain;
     scrollbar-width: thin;
     scrollbar-color: rgba(52, 211, 153, 0.56) rgba(15, 23, 42, 0.78);
+    cursor: grab;
+    touch-action: pan-x;
+    user-select: none;
+}
+
+.world-tour-region-tabs.is-dragging,
+.world-tour-card-rail.is-dragging {
+    cursor: grabbing;
+    scroll-behavior: auto;
+}
+
+.world-tour-region-tabs.is-dragging *,
+.world-tour-card-rail.is-dragging * {
+    cursor: grabbing;
+    pointer-events: none;
 }
 
 .world-tour-card-rail::-webkit-scrollbar {
@@ -1873,6 +1894,9 @@ body.world-tour-active #pwa-install-prompt {
     gap: 8px;
     padding: 0 8px;
     overflow-x: auto;
+    cursor: grab;
+    touch-action: pan-x;
+    user-select: none;
     scrollbar-width: none;
 }
 

@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-z3-guard1';
+const APP_BUILD_VERSION = '20260520-world-drag1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -26,6 +26,8 @@ const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const QUALITY_SUMMARY_FALLBACK_URL = 'data/quality_summary.json';
 const WORLD_TOUR_DATA_URL = `data/world_tour_cams.json?v=${APP_BUILD_VERSION}`;
+const WORLD_TOUR_CHEVRON_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
+const WORLD_TOUR_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
 const QUALITY_SUMMARY_TIMEOUT_MS = 1800;
 const QUALITY_TELEMETRY_SAMPLE_RATE = 0.35;
@@ -4766,13 +4768,13 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
                             class="world-tour-title-nav-btn"
                             data-world-tour-neighbor="${escapeWorldTourHtml(previousCam?.id || selected.id)}"
                             aria-label="이전 관광 라이브"
-                        >&lt;</button>
+                        >${WORLD_TOUR_CHEVRON_LEFT_SVG}</button>
                         <button
                             type="button"
                             class="world-tour-title-nav-btn"
                             data-world-tour-neighbor="${escapeWorldTourHtml(nextCam?.id || selected.id)}"
                             aria-label="다음 관광 라이브"
-                        >&gt;</button>
+                        >${WORLD_TOUR_CHEVRON_RIGHT_SVG}</button>
                     </div>
                 </div>
                 <p>${escapeWorldTourHtml(selected.subtitle || `${selected.city}, ${selected.country}`)}</p>
@@ -4869,6 +4871,72 @@ function createWorldTourMarkerPopup(cam) {
     });
 
     return popup;
+}
+
+function enableHorizontalDragScroll(scroller, onScroll) {
+    if (!scroller || scroller.dataset.dragScrollBound === 'true') return;
+    scroller.dataset.dragScrollBound = 'true';
+
+    let pointerId = null;
+    let startX = 0;
+    let startY = 0;
+    let startScrollLeft = 0;
+    let didDrag = false;
+    let suppressClick = false;
+    const dragThreshold = 5;
+
+    const finishDrag = event => {
+        if (pointerId === null || event.pointerId !== pointerId) return;
+        if (didDrag) {
+            suppressClick = true;
+            window.setTimeout(() => { suppressClick = false; }, 0);
+        }
+        scroller.classList.remove('is-dragging');
+        try {
+            scroller.releasePointerCapture?.(pointerId);
+        } catch (error) {
+            // Pointer capture can already be released by the browser.
+        }
+        pointerId = null;
+        didDrag = false;
+    };
+
+    scroller.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || event.pointerType === 'touch') return;
+        pointerId = event.pointerId;
+        startX = event.clientX;
+        startY = event.clientY;
+        startScrollLeft = scroller.scrollLeft;
+        didDrag = false;
+        try {
+            scroller.setPointerCapture?.(pointerId);
+        } catch (error) {
+            // Non-fatal: drag still works without capture while the pointer stays inside.
+        }
+    });
+
+    scroller.addEventListener('pointermove', event => {
+        if (pointerId === null || event.pointerId !== pointerId) return;
+        const deltaX = event.clientX - startX;
+        const deltaY = event.clientY - startY;
+        if (!didDrag && Math.abs(deltaX) > dragThreshold && Math.abs(deltaX) >= Math.abs(deltaY)) {
+            didDrag = true;
+            scroller.classList.add('is-dragging');
+        }
+        if (!didDrag) return;
+        event.preventDefault();
+        scroller.scrollLeft = startScrollLeft - deltaX;
+        onScroll?.(scroller.scrollLeft);
+    });
+
+    scroller.addEventListener('pointerup', finishDrag);
+    scroller.addEventListener('pointercancel', finishDrag);
+    scroller.addEventListener('lostpointercapture', finishDrag);
+    scroller.addEventListener('click', event => {
+        if (!suppressClick) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }, true);
 }
 
 async function renderWorldTourCams(selectedId = state.selectedWorldTourId, options = {}) {
@@ -4982,6 +5050,9 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             cardRail.addEventListener('scroll', () => {
                 state.worldTourCardScrollLeft = cardRail.scrollLeft;
             }, { passive: true });
+            enableHorizontalDragScroll(cardRail, scrollLeft => {
+                state.worldTourCardScrollLeft = scrollLeft;
+            });
         }
         if (regionTabs) {
             requestAnimationFrame(() => {
@@ -4991,6 +5062,9 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             regionTabs.addEventListener('scroll', () => {
                 state.worldTourRegionScrollLeft = regionTabs.scrollLeft;
             }, { passive: true });
+            enableHorizontalDragScroll(regionTabs, scrollLeft => {
+                state.worldTourRegionScrollLeft = scrollLeft;
+            });
         }
 
         if (state.worldTourViewMode === 'map') {
