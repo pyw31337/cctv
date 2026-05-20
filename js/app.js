@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-mobile-sort-panel1';
+const APP_BUILD_VERSION = '20260520-mobile-sort-polish1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -65,7 +65,7 @@ const QUALITY_SORT_LABELS = {
     stability: '안정우선',
     quality: '화질우선'
 };
-const SEARCH_HISTORY_PANEL_ITEM_LIMIT = 5;
+const SEARCH_HISTORY_PANEL_ITEM_LIMIT = 4;
 const WORLD_TOUR_REGIONS = ['All', 'North America', 'Europe', 'Asia', 'Oceania', 'South America', 'Africa'];
 const WORLD_TOUR_REGION_LABELS = {
     All: 'All',
@@ -640,11 +640,12 @@ function updateSegmentIndicator() {
     const indicator = $('.segment-indicator');
 
     if (activeBtn && indicator) {
+        const paddingLeft = parseFloat(getComputedStyle(indicator.parentElement).paddingLeft) || 4;
         const left = activeBtn.offsetLeft;
         const width = activeBtn.offsetWidth;
         const height = activeBtn.offsetHeight;
 
-        indicator.style.transform = `translateX(${left - 4}px)`; // -4 for padding
+        indicator.style.transform = `translateX(${left - paddingLeft}px)`;
         indicator.style.width = `${width}px`;
         indicator.style.height = `${height}px`;
     }
