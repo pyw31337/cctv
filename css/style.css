@@ -20,6 +20,8 @@
     --radius-sm: 8px;
     --radius-md: 12px;
     --radius-full: 999px;
+    --control-height: 44px;
+    --world-tour-action-height: 44px;
     --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -192,8 +194,8 @@ body {
     position: absolute;
     top: 4px;
     left: 4px;
-    width: 44px;
-    height: 44px;
+    width: var(--control-height);
+    height: var(--control-height);
     background: var(--accent);
     border-radius: 50%;
     z-index: 1;
@@ -204,8 +206,8 @@ body {
 .segment-btn {
     position: relative;
     z-index: 2;
-    width: 44px;
-    height: 44px;
+    width: var(--control-height);
+    height: var(--control-height);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -236,7 +238,7 @@ body {
 
 .search-box input {
     width: 100%;
-    height: 44px;
+    height: var(--control-height);
     padding: 0 72px 0 16px;
     background: var(--bg-primary);
     border: 2px solid var(--accent);
@@ -309,8 +311,8 @@ body {
 
 /* === Weather Button === */
 .weather-btn {
-    width: 44px;
-    height: 44px;
+    width: var(--control-height);
+    height: var(--control-height);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1804,8 +1806,9 @@ body.world-tour-active #pwa-install-prompt {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 38px;
-    padding: 0 14px;
+    height: var(--world-tour-action-height);
+    min-height: var(--world-tour-action-height);
+    padding: 0 16px;
     border-radius: var(--radius-full);
     border: 1px solid rgba(52, 211, 153, 0.32);
     background: rgba(52, 211, 153, 0.12);
@@ -1817,10 +1820,10 @@ body.world-tour-active #pwa-install-prompt {
 }
 
 .world-tour-open-btn {
-    width: 38px;
-    min-width: 38px;
-    height: 38px;
-    min-height: 38px;
+    width: var(--world-tour-action-height);
+    min-width: var(--world-tour-action-height);
+    height: var(--world-tour-action-height);
+    min-height: var(--world-tour-action-height);
     padding: 0;
     border-radius: 50%;
     border-color: rgba(148, 163, 184, 0.18);
@@ -1837,7 +1840,9 @@ body.world-tour-active #pwa-install-prompt {
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    padding: 3px;
+    height: var(--world-tour-action-height);
+    min-height: var(--world-tour-action-height);
+    padding: 0;
     border: 1px solid rgba(148, 163, 184, 0.18);
     border-radius: var(--radius-full);
     background: rgba(2, 6, 23, 0.38);
@@ -1845,7 +1850,7 @@ body.world-tour-active #pwa-install-prompt {
 
 .world-tour-mode-option {
     min-width: 58px;
-    height: 32px;
+    height: var(--world-tour-action-height);
     padding: 0 12px;
     border: 0;
     border-radius: var(--radius-full);
@@ -2232,21 +2237,6 @@ body.world-tour-active #pwa-install-prompt {
         max-width: 100%;
     }
 
-    .segment-control {
-        padding: 3px;
-    }
-
-    .segment-btn,
-    .segment-indicator {
-        width: 36px;
-        height: 36px;
-    }
-
-    .segment-indicator {
-        top: 3px;
-        left: 3px;
-    }
-
     .segment-btn svg {
         width: 18px;
         height: 18px;
@@ -2401,17 +2391,12 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-mode-option {
         min-width: 58px;
-        height: 30px;
         padding: 0 9px;
         font-size: 11px;
     }
 
     .world-tour-open-btn {
         flex: 0 0 auto;
-        width: 32px;
-        min-width: 32px;
-        height: 32px;
-        min-height: 32px;
         padding: 0;
     }
 
@@ -2627,16 +2612,11 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-mode-option {
         min-width: 53px;
-        height: 28px;
         padding: 0 8px;
         font-size: 10.5px;
     }
 
     .world-tour-open-btn {
-        width: 30px;
-        min-width: 30px;
-        height: 30px;
-        min-height: 30px;
         padding: 0;
     }
 
