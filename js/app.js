@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-control-align1';
+const APP_BUILD_VERSION = '20260520-world-split-layout1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4824,32 +4824,12 @@ function renderWorldTourVideoHero(selected) {
 }
 
 function renderWorldTourMapHero(selected, visibleCams) {
-    const nearby = getWorldTourNearbyCams(selected, visibleCams, 3);
-
     return `
         <section class="world-tour-map-stage" aria-label="세계 관광 라이브 지도">
             <div class="world-tour-map-wrap">
                 <div id="world-tour-map" class="world-tour-map" aria-label="${escapeWorldTourHtml(selected.title)} 주변 관광 라이브 지도">
                     <div class="world-tour-map-loading">OpenStreetMap 지도를 불러오는 중...</div>
                 </div>
-            </div>
-            <div class="world-tour-map-card">
-                <span>${escapeWorldTourHtml(getWorldTourRegionLabel(selected.region))}</span>
-                <strong>${escapeWorldTourHtml(selected.title)}</strong>
-                <p>${escapeWorldTourHtml(selected.city)} · ${escapeWorldTourHtml(selected.country)}</p>
-                ${nearby.length ? `
-                    <div class="world-tour-nearby">
-                        <strong>가까운 영상</strong>
-                        <div class="world-tour-nearby-row">
-                            ${nearby.map(cam => `
-                                <button type="button" class="world-tour-nearby-item" data-id="${escapeWorldTourHtml(cam.id)}">
-                                    <span>${escapeWorldTourHtml(cam.title)}</span>
-                                    <em>${escapeWorldTourHtml(formatDistance(cam.distance))}</em>
-                                </button>
-                            `).join('')}
-                        </div>
-                    </div>
-                ` : ''}
             </div>
         </section>
     `;
