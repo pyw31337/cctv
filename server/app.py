@@ -35,13 +35,15 @@ lock = threading.Lock()
 # === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
 _z3_cache = {
     'data': None,       # dict: cctvip (str) -> appUrl (str)
-    'fetched': None,    # datetime of last successful fetch
-    'source': None,     # 'github' or 'its.go.kr'
+    'fetched': None,    # datetime when this process loaded/refreshed the cache
+    'data_fetched': None,  # datetime embedded in the cache payload
+    'source': None,     # local, github, its.go.kr, or stale fallback source
     'lock': threading.Lock()
 }
 Z3_CACHE_TTL_MINUTES = 50
 Z3_CACHE_STALE_HOURS = 2   # If GitHub data is older than this, try its.go.kr directly
 Z3_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/pyw31337/cctv/main/data/z3_cache.json'
+Z3_LOCAL_CACHE_FILE = os.environ.get('Z3_LOCAL_CACHE_FILE', os.path.join(ROOT_DIR, 'data', 'z3_cache.json'))
 
 JEJU_STREAM_CACHE_TTL_SECONDS = 120
 jeju_session = requests.Session()
@@ -75,6 +77,64 @@ def load_jeju_id_map():
 
 
 JEJU_ID_MAP = load_jeju_id_map()
+
+
+def utc_now():
+    return datetime.utcnow()
+
+
+def parse_z3_fetched(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ')
+    except Exception:
+        return None
+
+
+def z3_age_hours(fetched):
+    if not fetched:
+        return None
+    return (utc_now() - fetched).total_seconds() / 3600
+
+
+def set_z3_cache_data(cctvip_map, source, data_fetched=None):
+    _z3_cache['data'] = cctvip_map
+    _z3_cache['fetched'] = utc_now()
+    _z3_cache['data_fetched'] = data_fetched or utc_now()
+    _z3_cache['source'] = source
+
+
+def load_z3_cache_payload(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        cctvip_map = payload.get('data', {}) if isinstance(payload, dict) else {}
+        data_fetched = parse_z3_fetched(payload.get('fetched')) if isinstance(payload, dict) else None
+        if isinstance(cctvip_map, dict) and cctvip_map:
+            return cctvip_map, data_fetched
+    except FileNotFoundError:
+        return None, None
+    except Exception as exc:
+        logger.warning("Z3: failed to load local cache %s: %s", path, exc)
+    return None, None
+
+
+def save_z3_local_cache(cctvip_map):
+    try:
+        os.makedirs(os.path.dirname(Z3_LOCAL_CACHE_FILE), exist_ok=True)
+        payload = {
+            'fetched': utc_now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'entries': len(cctvip_map),
+            'data': cctvip_map,
+        }
+        tmp_path = f"{Z3_LOCAL_CACHE_FILE}.tmp"
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False, separators=(',', ':'))
+            f.write('\n')
+        os.replace(tmp_path, Z3_LOCAL_CACHE_FILE)
+    except Exception as exc:
+        logger.warning("Z3: failed to persist local cache %s: %s", Z3_LOCAL_CACHE_FILE, exc)
 
 
 def get_jeju_headers():
@@ -151,9 +211,8 @@ def _refresh_z3_from_its():
             logger.error("Z3: No entries extracted from its.go.kr getMarkers")
             return False
 
-        _z3_cache['data'] = cctvip_map
-        _z3_cache['fetched'] = datetime.now()
-        _z3_cache['source'] = 'its.go.kr'
+        set_z3_cache_data(cctvip_map, 'its.go.kr', utc_now())
+        save_z3_local_cache(cctvip_map)
         logger.info(f"Z3 cache refreshed from its.go.kr: {len(cctvip_map)} entries")
         return True
     except Exception as e:
@@ -164,7 +223,16 @@ def _refresh_z3_from_its():
 def _refresh_z3_cache():
     """Fetch Z3 appUrl map. Tries GitHub cached file first; if stale, falls back to
     direct its.go.kr fetch. Caller must hold _z3_cache['lock']."""
-    # Step 1: Try GitHub raw URL (fast, always accessible)
+    # Step 1: Prefer the local Oracle cache written by cron or previous refresh.
+    local_map, local_fetched = load_z3_cache_payload(Z3_LOCAL_CACHE_FILE)
+    local_age_hours = z3_age_hours(local_fetched)
+    if local_map and (local_age_hours is None or local_age_hours < Z3_CACHE_STALE_HOURS):
+        set_z3_cache_data(local_map, 'local', local_fetched)
+        age_str = f"{local_age_hours:.1f}h" if local_age_hours is not None else "unknown age"
+        logger.info(f"Z3 cache from local file: {len(local_map)} entries (data age: {age_str})")
+        return
+
+    # Step 2: Try GitHub raw URL as a static fallback.
     try:
         resp = requests.get(Z3_GITHUB_RAW_URL, timeout=30,
                             headers={'User-Agent': 'CCTV-Proxy/1.0',
@@ -174,18 +242,11 @@ def _refresh_z3_cache():
             cctvip_map = cache_data.get('data', {})
             fetched_str = cache_data.get('fetched', '')
 
-            # Determine age of GitHub cache
-            cache_age_hours = None
-            try:
-                fetched_dt = datetime.strptime(fetched_str, '%Y-%m-%dT%H:%M:%SZ')
-                cache_age_hours = (datetime.utcnow() - fetched_dt).total_seconds() / 3600
-            except Exception:
-                pass
+            fetched_dt = parse_z3_fetched(fetched_str)
+            cache_age_hours = z3_age_hours(fetched_dt)
 
             if cctvip_map and (cache_age_hours is None or cache_age_hours < Z3_CACHE_STALE_HOURS):
-                _z3_cache['data'] = cctvip_map
-                _z3_cache['fetched'] = datetime.now()
-                _z3_cache['source'] = 'github'
+                set_z3_cache_data(cctvip_map, 'github', fetched_dt)
                 age_str = f"{cache_age_hours:.1f}h" if cache_age_hours is not None else "unknown age"
                 logger.info(f"Z3 cache from GitHub: {len(cctvip_map)} entries (data age: {age_str})")
                 return
@@ -194,22 +255,25 @@ def _refresh_z3_cache():
                 logger.warning(f"Z3: GitHub cache is stale ({age_str} old) — trying its.go.kr directly")
                 # Use stale data as temporary fallback while we try to refresh
                 if cctvip_map and _z3_cache['data'] is None:
-                    _z3_cache['data'] = cctvip_map
-                    _z3_cache['source'] = 'github-stale'
+                    set_z3_cache_data(cctvip_map, 'github-stale', fetched_dt)
         else:
             logger.error(f"Z3: GitHub raw fetch failed: {resp.status_code}")
     except Exception as e:
         logger.warning(f"Z3: GitHub cache fetch failed: {e}")
 
-    # Step 2: Try direct its.go.kr (works if server IP is not geo-blocked)
+    # Step 3: Try direct its.go.kr (works if server IP is not geo-blocked)
     if not _refresh_z3_from_its():
+        if local_map and _z3_cache['data'] is None:
+            set_z3_cache_data(local_map, 'local-stale', local_fetched)
+            logger.error("Z3: direct refresh failed — using stale local cache as emergency fallback")
+            return
         logger.error("Z3: All refresh sources failed — using existing cached data if available")
 
 
 def get_z3_app_url(cctvip):
     """Return appUrl for given cctvip, refreshing cache if needed."""
     with _z3_cache['lock']:
-        now = datetime.now()
+        now = utc_now()
         needs_refresh = (
             _z3_cache['data'] is None or
             _z3_cache['fetched'] is None or
@@ -218,6 +282,55 @@ def get_z3_app_url(cctvip):
         if needs_refresh:
             _refresh_z3_cache()
     return (_z3_cache['data'] or {}).get(str(cctvip))
+
+
+def fetch_z3_hls_url(app_url):
+    return requests.get(
+        app_url + '!hls',
+        timeout=10,
+        verify=False,
+        headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://its.go.kr/'
+        }
+    )
+
+
+def retry_z3_with_fresh_cache(cctvip, cctv_id, reason):
+    logger.warning("Z3: refreshing its.go.kr cache for cctvip=%s (%s) after %s", cctvip, cctv_id, reason)
+    with _z3_cache['lock']:
+        refreshed = _refresh_z3_from_its()
+        fresh_url = (_z3_cache['data'] or {}).get(str(cctvip)) if refreshed else None
+    if not fresh_url:
+        logger.error("Z3: cctvip=%s not found after forced refresh", cctvip)
+        return None, refreshed
+    return fetch_z3_hls_url(fresh_url), refreshed
+
+
+def get_z3_cache_payload():
+    with _z3_cache['lock']:
+        now = utc_now()
+        needs_refresh = (
+            _z3_cache['data'] is None or
+            _z3_cache['fetched'] is None or
+            now - _z3_cache['fetched'] > timedelta(minutes=Z3_CACHE_TTL_MINUTES)
+        )
+        if needs_refresh:
+            _refresh_z3_cache()
+
+        data = _z3_cache.get('data') or {}
+        fetched = _z3_cache.get('data_fetched') or _z3_cache.get('fetched')
+        fetched_text = fetched.strftime('%Y-%m-%dT%H:%M:%SZ') if fetched else None
+        age_minutes = None
+        if fetched:
+            age_minutes = round((utc_now() - fetched).total_seconds() / 60, 1)
+        return {
+            'fetched': fetched_text,
+            'entries': len(data),
+            'source': _z3_cache.get('source') or 'unknown',
+            'age_minutes': age_minutes,
+            'data': data,
+        }
 
 # Pre-warm Z3 cache on startup
 def _prewarm_z3():
@@ -301,6 +414,28 @@ def serve_health_status():
         return Response(
             json.dumps({'regions': {}, 'last_updated': None, 'error': 'status-read-failed'}),
             500,
+            {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
+        )
+
+
+@app.route('/z3-cache.json')
+def serve_z3_cache():
+    try:
+        payload = get_z3_cache_payload()
+        status = 200 if payload.get('data') else 503
+        return Response(
+            json.dumps(payload, ensure_ascii=False, separators=(',', ':')),
+            status,
+            {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'public, max-age=300'
+            }
+        )
+    except Exception as exc:
+        logger.error("Z3 cache endpoint failed: %s", exc)
+        return Response(
+            json.dumps({'error': 'z3-cache-unavailable'}),
+            503,
             {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
         )
 
@@ -640,27 +775,18 @@ def proxy_utic():
                 logger.error(f"Z3: No appUrl found for cctvip={cctvip} ({cctv_id})")
                 return f"Z3 stream not found for cctvip {cctvip}", 404
 
-            # cctvsec.ktict.co.kr returns the signed m3u8 URL in the response body
-            hls_resp = requests.get(
-                app_url + '!hls', timeout=10, verify=False,
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                         'Referer': 'https://its.go.kr/'})
+            # cctvsec.ktict.co.kr returns the signed m3u8 URL in the response body.
+            hls_resp = fetch_z3_hls_url(app_url)
 
-            # If token is expired, attempt a direct its.go.kr refresh and retry once
-            if hls_resp.status_code in (401, 403):
-                logger.warning(f"Z3: Token expired for cctvip={cctvip} (HTTP {hls_resp.status_code}) — refreshing from its.go.kr")
-                with _z3_cache['lock']:
-                    refreshed = _refresh_z3_from_its()
-                if refreshed:
-                    fresh_url = (_z3_cache['data'] or {}).get(str(cctvip))
-                    if fresh_url:
-                        app_url = fresh_url
-                        hls_resp = requests.get(
-                            app_url + '!hls', timeout=10, verify=False,
-                            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                                     'Referer': 'https://its.go.kr/'})
-                    else:
-                        logger.error(f"Z3: cctvip={cctvip} not found after its.go.kr refresh")
+            # Expired/stale Z3 tokens can appear as 401/403/404/5xx or a non-URL body.
+            # Force a direct its.go.kr refresh once before declaring the camera broken.
+            first_body = hls_resp.text.strip() if hls_resp.status_code < 400 else ''
+            if hls_resp.status_code >= 400 or not first_body.startswith('http'):
+                retry_resp, refreshed = retry_z3_with_fresh_cache(cctvip, cctv_id, f"HTTP {hls_resp.status_code}")
+                if retry_resp is not None:
+                    hls_resp = retry_resp
+                elif refreshed:
+                    return f"Z3 stream not found after refresh for cctvip {cctvip}", 404
 
             if hls_resp.status_code >= 400:
                 logger.error(f"Z3 !hls error {hls_resp.status_code} for {cctvip}")

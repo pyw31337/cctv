@@ -3,16 +3,18 @@
  * Clean Rewrite: State-Driven, Event Delegation
  */
 
-// === Z3 Cache (its.go.kr 30min snapshot) ===
+// === Z3 Cache (its.go.kr snapshot via Oracle first, static GitHub fallback) ===
 let z3CacheData = null;
 let z3CachePromise = null;
 let z3CacheAgeMs = Infinity; // 캐시가 fetch된 이후 경과 시간 (ms)
-const Z3_CACHE_STALE_MS = 90 * 60 * 1000; // 90분 이상이면 토큰 만료 가능성 높음
+let z3CacheFetchedAt = null;
+let z3CacheSource = 'unknown';
+const Z3_CACHE_STALE_MS = 60 * 60 * 1000; // 60분 이상이면 브라우저 캐시 대신 Oracle 리졸버를 우선 사용
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-control-height1';
+const APP_BUILD_VERSION = '20260520-z3-guard1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -184,26 +186,44 @@ const SOURCE_QUALITY_SCORES = {
 async function loadZ3Cache() {
     if (z3CacheData) return z3CacheData;
     if (z3CachePromise) return z3CachePromise;
-    // 30분마다 cache-bust (워크플로 30분 주기와 동기화)
-    z3CachePromise = fetch(`data/z3_cache.json?v=${APP_BUILD_VERSION}&t=${Math.floor(Date.now() / 1800000)}`)
-        .then(r => r.json())
-        .then(json => {
-            z3CacheData = json.data || json;
-            const fetched = json.fetched || null;
-            z3CacheAgeMs = fetched ? Date.now() - new Date(fetched).getTime() : Infinity;
-            const count = Object.keys(z3CacheData).length;
-            const ageMin = Math.round(z3CacheAgeMs / 60000);
-            console.log(`[Z3] Cache loaded: ${count} entries (fetched: ${fetched}, age: ${ageMin}min)`);
-            if (z3CacheAgeMs > Z3_CACHE_STALE_MS) {
-                console.warn(`[Z3] Cache is ${ageMin}min old — tokens likely expired, will skip to strategy3`);
+    const cacheBucket = Math.floor(Date.now() / 1800000);
+    const urls = [
+        `${ORACLE_BASE}/z3-cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
+        `data/z3_cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+    ];
+
+    z3CachePromise = (async () => {
+        for (const url of urls) {
+            try {
+                const response = await fetch(url, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const json = await response.json();
+                const data = json.data || json;
+                if (!data || Object.keys(data).length === 0) throw new Error('empty z3 cache');
+
+                z3CacheData = data;
+                z3CacheFetchedAt = json.fetched || null;
+                z3CacheSource = json.source || (url.includes('/z3-cache.json') ? 'oracle' : 'static');
+                z3CacheAgeMs = z3CacheFetchedAt ? Date.now() - new Date(z3CacheFetchedAt).getTime() : Infinity;
+                const count = Object.keys(z3CacheData).length;
+                const ageMin = Math.round(z3CacheAgeMs / 60000);
+                console.log(`[Z3] Cache loaded from ${z3CacheSource}: ${count} entries (fetched: ${z3CacheFetchedAt}, age: ${ageMin}min)`);
+                if (z3CacheAgeMs > Z3_CACHE_STALE_MS) {
+                    console.warn(`[Z3] Cache is ${ageMin}min old — browser will skip static token and use Oracle resolver`);
+                }
+                return z3CacheData;
+            } catch (error) {
+                console.warn('[Z3] Cache load skipped:', url, error.message || error);
             }
-            return z3CacheData;
-        })
-        .catch(e => {
-            console.warn('[Z3] Cache load failed:', e);
-            z3CachePromise = null; // allow retry
-            return {};
-        });
+        }
+
+        z3CachePromise = null; // allow retry
+        z3CacheData = {};
+        z3CacheAgeMs = Infinity;
+        z3CacheFetchedAt = null;
+        z3CacheSource = 'unavailable';
+        return z3CacheData;
+    })();
     return z3CachePromise;
 }
 async function getZ3StreamUrl(cctvip) {
@@ -311,6 +331,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     loadQualitySummary().then((loaded) => {
         if (!loaded) return;
+        updateNearestCctvs();
+        renderServiceStatusBanner();
+        renderVideoGrid();
+        renderMapMarkers();
+    });
+
+    loadZ3Cache().then(() => {
         updateNearestCctvs();
         renderServiceStatusBanner();
         renderVideoGrid();
@@ -1112,6 +1139,50 @@ function isJejuUticProxyable(cctv) {
     return source === 'UTIC' && kind === 'K' && !!streamId && inferRegionKey(cctv) === 'JEJU';
 }
 
+function getZ3CctvIp(cctv) {
+    const url = cctv ? (cctv.directUrl || cctv.url || '') : '';
+    return getUrlParam(url, 'cctvip');
+}
+
+function isZ3PlaybackCandidate(cctv) {
+    const url = cctv ? (cctv.directUrl || cctv.url || '') : '';
+    const kind = getUrlParam(url, 'kind');
+    return !!cctv && (cctv.source === 'NTIC' || kind === 'Z3') && !!getZ3CctvIp(cctv);
+}
+
+function getZ3CacheRiskMeta(cctv) {
+    if (!isZ3PlaybackCandidate(cctv)) return null;
+    if (!z3CacheData) return null;
+
+    const cctvip = getZ3CctvIp(cctv);
+    const lastUpdated = z3CacheFetchedAt || null;
+    if (z3CacheAgeMs > Z3_CACHE_STALE_MS) {
+        return {
+            regionKey: 'UTIC_Z3',
+            status: 'Z3_CACHE_STALE',
+            shortLabel: '캐시 점검 중',
+            longLabel: `UTIC 국도 토큰 캐시가 오래되어 서버 리졸버로 직접 확인합니다 (${z3CacheSource})`,
+            tone: 'warn',
+            penalty: 3.5,
+            lastUpdated
+        };
+    }
+
+    if (cctvip && !z3CacheData[String(cctvip)]) {
+        return {
+            regionKey: 'UTIC_Z3',
+            status: 'Z3_CACHE_MISS',
+            shortLabel: '최신 목록 제외',
+            longLabel: `${cctv.name || '이 CCTV'}는 최신 its.go.kr Z3 목록에서 확인되지 않아 재생 실패 가능성이 높습니다`,
+            tone: 'danger',
+            penalty: 10,
+            lastUpdated
+        };
+    }
+
+    return null;
+}
+
 function isUnsupportedBrowserStream(cctv) {
     const url = cctv ? (cctv.directUrl || cctv.url || '') : '';
     const source = cctv ? (cctv.source || '') : '';
@@ -1539,6 +1610,9 @@ function getCameraHealthMeta(cctv) {
         };
     }
 
+    const z3CacheMeta = getZ3CacheRiskMeta(cctv);
+    if (z3CacheMeta) return z3CacheMeta;
+
     const cameraFailureMeta = getCameraFailureHealthMeta(cctv, regionKey, lastUpdated);
     if (cameraFailureMeta) return cameraFailureMeta;
 
@@ -1730,6 +1804,11 @@ function hasCameraSpecificPlaybackProblem(cctv) {
         return playbackHealth.status === 'PLAYBACK_ERROR' || playbackHealth.tone === 'danger';
     }
 
+    const z3CacheMeta = getZ3CacheRiskMeta(cctv);
+    if (z3CacheMeta && z3CacheMeta.status === 'Z3_CACHE_MISS') {
+        return true;
+    }
+
     const cameraMetrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
     if (cameraMetrics && cameraMetrics.samples >= 3) {
         return cameraMetrics.failureRate >= 0.25 || cameraMetrics.successRate < 0.72;
@@ -1793,7 +1872,7 @@ function shouldIsolateProblemCamera(cctv) {
     const health = cctv?._health || getCameraHealthMeta(cctv);
     if (!health) return false;
     if (health.status === 'UNSUPPORTED') return true;
-    if (['CAMERA_CRITICAL', 'CAMERA_INVESTIGATE', 'PLAYBACK_ERROR', 'QUALITY_DOWN'].includes(health.status)) {
+    if (['CAMERA_CRITICAL', 'CAMERA_INVESTIGATE', 'PLAYBACK_ERROR', 'QUALITY_DOWN', 'Z3_CACHE_MISS'].includes(health.status)) {
         return true;
     }
     if (health.status === 'DOWN' && !isAggregateOnlyHealthWarning(cctv, health)) {
@@ -1837,6 +1916,13 @@ function getStreamQualityScore(cctv) {
     }
     if (isFrameOnlyPlaybackCandidate(cctv)) {
         score -= 0.24;
+    }
+
+    const z3CacheMeta = getZ3CacheRiskMeta(cctv);
+    if (z3CacheMeta?.status === 'Z3_CACHE_MISS') {
+        score -= 0.28;
+    } else if (z3CacheMeta?.status === 'Z3_CACHE_STALE') {
+        score -= 0.08;
     }
 
     if (cctv.backup_urls && cctv.backup_urls.length > 0) {
@@ -3674,8 +3760,8 @@ function createVideoElement(cctv, sourceIndex = 0) {
     }
 
     // UTIC Portal - play natively via worker/oracle resolver.
-    // Z3 kind: look up fresh stream URL from z3_cache.json (updated hourly by GitHub Actions)
-    // Other kinds: extract real m3u8 URL via /utic endpoint. If that fails, prefer frame-free alternatives.
+    // Z3 kind: resolve from the Oracle-served fresh cache first, then fall back to
+    // direct token and Oracle resolver paths. Other kinds use the UTIC resolver.
     if (isUtic) {
         const video = document.createElement('video');
         video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
@@ -3694,7 +3780,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
             try {
                 if (isZ3 && z3CctvIp) {
-                    // Z3 전략 1: z3_cache.json (its.go.kr에서 매시간 갱신되는 신선한 토큰)
+                    // Z3 전략 1: Oracle /z3-cache.json 우선, 정적 GitHub 캐시는 긴급 fallback
                     try {
                         const cacheWorkerUrl = await getZ3StreamUrl(z3CctvIp);
                         if (cacheWorkerUrl) {
@@ -3725,7 +3811,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                         } catch(e2) { console.warn('[Z3] 전략2 실패:', e2); }
                     }
 
-                    // Z3 전략 3: Oracle /utic가 GitHub 최신 캐시를 읽고 /proxy로 리다이렉트한다.
+                    // Z3 전략 3: Oracle /utic가 서버 로컬 최신 캐시를 읽고 /proxy로 리다이렉트한다.
                     if (!streamUrl) {
                         try {
                             let uticSearch = '';

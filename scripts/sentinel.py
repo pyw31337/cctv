@@ -499,6 +499,75 @@ def check_gits_stream(cctv):
     return False
 
 
+def check_z3_stream(cctv):
+    url = cctv.get('directUrl') or cctv.get('url') or ''
+    cctvip = get_z3_cctvip(url)
+    cctvid = get_url_param(url, 'cctvid') or cctv.get('id', '')
+    if not cctvip:
+        set_probe_result(cctv, False, reason='missing_z3_cctvip', category='data_error', url=url)
+        return False
+
+    resolver_url = f'{ORACLE_BASE}/utic?kind=Z3&cctvid={quote(str(cctvid))}&cctvip={quote(str(cctvip))}'
+    try:
+        # Z3 health should verify token resolution, not pull the full HLS media
+        # path. Following /proxy can produce monitor-path timeouts even when the
+        # browser can play after receiving a fresh signed m3u8.
+        resp = requests.get(
+            resolver_url,
+            timeout=REQUEST_TIMEOUT,
+            verify=False,
+            headers=HEADERS,
+            allow_redirects=False,
+            stream=True
+        )
+        location = resp.headers.get('Location', '')
+        content_type = resp.headers.get('Content-Type', '').lower()
+        if resp.status_code in (301, 302, 303, 307, 308) and location:
+            set_probe_result(
+                cctv,
+                True,
+                reason='z3_resolver_redirect_ok',
+                status_code=resp.status_code,
+                url=resolver_url,
+                content_type=content_type
+            )
+            log(f"[OK] Z3 {cctv.get('id')} resolver is UP")
+            return True
+        if resp.status_code == 200:
+            body = resp.raw.read(160, decode_content=True).decode('utf-8', errors='ignore').strip()
+            if body.startswith('http') or body.startswith('#EXTM3U'):
+                set_probe_result(
+                    cctv,
+                    True,
+                    reason='z3_resolver_body_ok',
+                    status_code=resp.status_code,
+                    url=resolver_url,
+                    content_type=content_type
+                )
+                log(f"[OK] Z3 {cctv.get('id')} resolver body is UP")
+                return True
+
+        base_category = 'not_found' if resp.status_code == 404 else ('auth_or_token' if resp.status_code in (401, 403) else 'http_error')
+        category = get_source_specific_failure_category(cctv, base_category, resp.status_code)
+        set_probe_result(
+            cctv,
+            False,
+            reason='z3_resolver_failed',
+            category=category,
+            status_code=resp.status_code,
+            url=resolver_url,
+            content_type=content_type
+        )
+        log(f"[FAIL] Z3 {cctv.get('id')} resolver returned {resp.status_code}")
+    except requests.Timeout as error:
+        set_probe_result(cctv, False, reason='timeout', category=get_source_specific_failure_category(cctv, 'timeout'), url=resolver_url, detail=error)
+        log(f"[ERR] Z3 {cctv.get('id')} resolver timed out: {error}")
+    except Exception as error:
+        set_probe_result(cctv, False, reason='request_error', category=get_source_specific_failure_category(cctv, 'network_error'), url=resolver_url, detail=error)
+        log(f"[ERR] Z3 {cctv.get('id')} resolver check failed: {error}")
+    return False
+
+
 def check_generic_stream(cctv):
     url = cctv.get('directUrl') or cctv.get('url')
     if not url:
@@ -560,6 +629,8 @@ def check_camera(region_name, cctv):
         return check_paju_stream(cctv)
     if cctv.get('source') == 'GITS':
         return check_gits_stream(cctv)
+    if region_name == 'UTIC_Z3' or cctv.get('source') == 'NTIC' or get_url_param(cctv.get('directUrl') or cctv.get('url') or '', 'kind') == 'Z3':
+        return check_z3_stream(cctv)
     if is_unsupported_browser_stream(cctv):
         log(f"[UNSUPPORTED] {cctv.get('id')} uses a legacy UTIC browser plugin stream")
         set_probe_result(cctv, False, reason='unsupported_legacy_player', category='unsupported_legacy')
