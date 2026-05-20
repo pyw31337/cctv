@@ -12,7 +12,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-mobile-sort-polish1';
+const APP_BUILD_VERSION = '20260520-z3-utic-fix1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -185,7 +185,7 @@ async function loadZ3Cache() {
     if (z3CacheData) return z3CacheData;
     if (z3CachePromise) return z3CachePromise;
     // 30분마다 cache-bust (워크플로 30분 주기와 동기화)
-    z3CachePromise = fetch(`data/z3_cache.json?t=${Math.floor(Date.now() / 1800000)}`)
+    z3CachePromise = fetch(`data/z3_cache.json?v=${APP_BUILD_VERSION}&t=${Math.floor(Date.now() / 1800000)}`)
         .then(r => r.json())
         .then(json => {
             z3CacheData = json.data || json;
@@ -3578,7 +3578,9 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
     const isHls = url.includes('.m3u8');
     const isMp4 = url.includes('.mp4');
-    const isUtic = url.includes('utic.go.kr') || url.includes('openDataCctvStream');
+    const isUtic = url.includes('utic.go.kr')
+        || url.includes('openDataCctvStream')
+        || (selectedKind === 'Z3' && url.includes('/utic?'));
     const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html') || url.includes('hrfco.go.kr');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
     const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev')
