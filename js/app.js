@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-world-youtube-audit1';
+const APP_BUILD_VERSION = '20260520-world-favorites1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -37,6 +37,7 @@ const QUALITY_SLOW_FIRST_FRAME_MS = 8000;
 const QUALITY_SORT_STORAGE_KEY = 'cctv_quality_sort_mode';
 const TELEMETRY_SAMPLE_STORAGE_KEY = 'cctv_quality_sample_v1';
 const TELEMETRY_DAILY_STORAGE_KEY = 'cctv_quality_daily_v1';
+const WORLD_TOUR_FAVORITES_STORAGE_KEY = 'cctv_world_tour_favorites_v1';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -70,9 +71,12 @@ const QUALITY_SORT_LABELS = {
     quality: '화질우선'
 };
 const SEARCH_HISTORY_PANEL_ITEM_LIMIT = 4;
+const WORLD_TOUR_FAVORITE_REGION = 'Favorite';
 const WORLD_TOUR_REGIONS = ['All', 'North America', 'Europe', 'Asia', 'Oceania', 'South America', 'Africa'];
+const WORLD_TOUR_STAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star-icon lucide-star"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></svg>';
 const WORLD_TOUR_REGION_LABELS = {
     All: 'All',
+    Favorite: 'Favorite',
     'North America': 'North America',
     Europe: 'Europe',
     Asia: 'Asia',
@@ -278,6 +282,7 @@ const state = {
     worldTourViewMode: 'map',
     worldTourCardScrollLeft: 0,
     worldTourRegionScrollLeft: 0,
+    worldTourFavorites: new Set(),
     geoIndex: new Map(),
     markers: [], // Array to store Kakao map markers
     mapInitialized: false,
@@ -314,6 +319,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Setup Event Listeners
     setupEventListeners();
     renderQualityControls();
+    hydrateWorldTourFavorites();
 
     // Initial State
     updateNearestCctvs();
@@ -4542,7 +4548,7 @@ async function openWorldTourPanel() {
     document.body.classList.add('world-tour-active');
     state.worldTourViewMode = 'map';
     $('#weather-title').textContent = '세계 관광 라이브 지도';
-    if (!WORLD_TOUR_REGIONS.includes(state.worldTourRegion)) {
+    if (!isWorldTourRegionAvailable(state.worldTourRegion)) {
         state.worldTourRegion = 'All';
     }
     await renderWorldTourCams();
@@ -4557,6 +4563,7 @@ async function loadWorldTourCams() {
     state.worldTourCams = (payload.items || [])
         .filter(item => item && (item.videoId || item.embedUrl))
         .sort((a, b) => (Number(b.priority || 0) - Number(a.priority || 0)) || String(a.title).localeCompare(String(b.title)));
+    pruneWorldTourFavorites(state.worldTourCams);
     return state.worldTourCams;
 }
 
@@ -4607,16 +4614,105 @@ function canPlayWorldTourInApp(cam) {
     return Boolean(cam?.videoId || cam?.embedUrl);
 }
 
+function isWorldTourRegionAvailable(region) {
+    return region === WORLD_TOUR_FAVORITE_REGION || WORLD_TOUR_REGIONS.includes(region);
+}
+
+function hydrateWorldTourFavorites() {
+    try {
+        const raw = localStorage.getItem(WORLD_TOUR_FAVORITES_STORAGE_KEY);
+        const favoriteIds = raw ? JSON.parse(raw) : [];
+        state.worldTourFavorites = new Set(Array.isArray(favoriteIds) ? favoriteIds.map(String).filter(Boolean) : []);
+    } catch (error) {
+        console.warn('[WorldTour] failed to restore favorites:', error);
+        state.worldTourFavorites = new Set();
+    }
+}
+
+function getWorldTourFavoriteIds() {
+    if (!(state.worldTourFavorites instanceof Set)) {
+        hydrateWorldTourFavorites();
+    }
+    return state.worldTourFavorites;
+}
+
+function persistWorldTourFavorites() {
+    try {
+        const favoriteIds = [...getWorldTourFavoriteIds()];
+        localStorage.setItem(WORLD_TOUR_FAVORITES_STORAGE_KEY, JSON.stringify(favoriteIds));
+    } catch (error) {
+        console.warn('[WorldTour] failed to save favorites:', error);
+    }
+}
+
+function pruneWorldTourFavorites(cams) {
+    const favorites = getWorldTourFavoriteIds();
+    if (!favorites.size) return;
+
+    const availableIds = new Set(cams.map(cam => String(cam.id)));
+    let changed = false;
+    favorites.forEach(id => {
+        if (!availableIds.has(id)) {
+            favorites.delete(id);
+            changed = true;
+        }
+    });
+    if (changed) persistWorldTourFavorites();
+}
+
+function isWorldTourFavorite(camOrId) {
+    const id = typeof camOrId === 'object' ? camOrId?.id : camOrId;
+    return Boolean(id && getWorldTourFavoriteIds().has(String(id)));
+}
+
+function toggleWorldTourFavorite(camId) {
+    if (!camId) return false;
+    const favorites = getWorldTourFavoriteIds();
+    const id = String(camId);
+    const willActivate = !favorites.has(id);
+    if (willActivate) {
+        favorites.add(id);
+    } else {
+        favorites.delete(id);
+    }
+    persistWorldTourFavorites();
+    return willActivate;
+}
+
+function renderWorldTourFavoriteButton(cam, variant = 'card') {
+    const isActive = isWorldTourFavorite(cam);
+    const title = isActive ? '즐겨찾기 해제' : '즐겨찾기 추가';
+
+    return `
+        <button
+            type="button"
+            class="world-tour-favorite-btn world-tour-favorite-btn-${escapeWorldTourHtml(variant)} ${isActive ? 'active' : ''}"
+            data-world-tour-favorite="${escapeWorldTourHtml(cam.id)}"
+            aria-pressed="${isActive}"
+            aria-label="${escapeWorldTourHtml(`${cam.title} ${title}`)}"
+            title="${escapeWorldTourHtml(title)}"
+        >${WORLD_TOUR_STAR_SVG}</button>
+    `;
+}
+
 function getWorldTourRegionCounts(cams) {
+    const favorites = getWorldTourFavoriteIds();
     return cams.reduce((counts, cam) => {
         const region = cam.region || 'Other';
         counts.All = (counts.All || 0) + 1;
+        if (favorites.has(String(cam.id))) {
+            counts[WORLD_TOUR_FAVORITE_REGION] = (counts[WORLD_TOUR_FAVORITE_REGION] || 0) + 1;
+        }
         counts[region] = (counts[region] || 0) + 1;
         return counts;
-    }, { All: 0 });
+    }, { All: 0, [WORLD_TOUR_FAVORITE_REGION]: 0 });
 }
 
 function getWorldTourVisibleCams(cams) {
+    if (state.worldTourRegion === WORLD_TOUR_FAVORITE_REGION) {
+        const favorites = getWorldTourFavoriteIds();
+        return cams.filter(cam => favorites.has(String(cam.id)));
+    }
     if (state.worldTourRegion === 'All') return cams;
     return cams.filter(cam => cam.region === state.worldTourRegion);
 }
@@ -4636,18 +4732,22 @@ function getWorldTourNearbyCams(selected, cams, limit = 6) {
 
 function renderWorldTourRegionTabs(cams) {
     const counts = getWorldTourRegionCounts(cams);
+    const regions = [WORLD_TOUR_FAVORITE_REGION, ...WORLD_TOUR_REGIONS];
 
     return `
         <div class="world-tour-region-tabs" role="tablist" aria-label="대륙별 관광 라이브 필터">
-            ${WORLD_TOUR_REGIONS
-                .filter(region => counts[region] > 0)
+            ${regions
+                .filter(region => region === WORLD_TOUR_FAVORITE_REGION || counts[region] > 0)
                 .map(region => `
                     <button
                         type="button"
                         class="world-tour-region-tab ${state.worldTourRegion === region ? 'active' : ''}"
                         data-world-region="${escapeWorldTourHtml(region)}"
                     >
-                        <span>${escapeWorldTourHtml(getWorldTourRegionLabel(region))}</span>
+                        <span class="world-tour-region-tab-label">
+                            ${region === WORLD_TOUR_FAVORITE_REGION ? `<span class="world-tour-favorite-tab-icon active">${WORLD_TOUR_STAR_SVG}</span>` : ''}
+                            <span>${escapeWorldTourHtml(getWorldTourRegionLabel(region))}</span>
+                        </span>
                         <b>${counts[region]}</b>
                     </button>
                 `).join('')}
@@ -4661,14 +4761,17 @@ function renderWorldTourCard(cam, selectedId) {
     const sourceLabel = getWorldTourSourceLabel(cam);
 
     return `
-        <button type="button" class="world-tour-card ${isActive ? 'active' : ''}" data-id="${escapeWorldTourHtml(cam.id)}">
-            <span class="world-tour-card-title">${escapeWorldTourHtml(cam.title)}</span>
+        <article class="world-tour-card ${isActive ? 'active' : ''}" data-id="${escapeWorldTourHtml(cam.id)}" tabindex="0" aria-label="${escapeWorldTourHtml(`${cam.title} 영상 선택`)}">
+            <span class="world-tour-card-title-row">
+                <span class="world-tour-card-title">${escapeWorldTourHtml(cam.title)}</span>
+                ${renderWorldTourFavoriteButton(cam, 'card')}
+            </span>
             <span class="world-tour-card-sub">${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
             <span class="world-tour-card-footer">
                 <span class="world-tour-card-tag" style="--region-color:${regionColor}">${escapeWorldTourHtml(getWorldTourRegionLabel(cam.region))}</span>
                 <span class="world-tour-source-tag ${canPlayWorldTourInApp(cam) ? 'playable' : 'external'}">${escapeWorldTourHtml(sourceLabel)}</span>
             </span>
-        </button>
+        </article>
     `;
 }
 
@@ -4762,6 +4865,7 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
                 <span class="world-tour-kicker">${escapeWorldTourHtml(getWorldTourRegionLabel(selected.region))} live cam</span>
                 <div class="world-tour-title-row">
                     <h3>${escapeWorldTourHtml(selected.title)}</h3>
+                    ${renderWorldTourFavoriteButton(selected, 'summary')}
                     <div class="world-tour-title-nav" aria-label="인근 관광 라이브 이동">
                         <button
                             type="button"
@@ -4787,7 +4891,9 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
             <div class="world-tour-bottom-main">
                 ${renderWorldTourRegionTabs(cams)}
                 <div class="world-tour-card-rail" aria-label="선택 가능한 세계 관광 라이브">
-                    ${visibleCams.map(cam => renderWorldTourCard(cam, selected.id)).join('')}
+                    ${visibleCams.length
+                        ? visibleCams.map(cam => renderWorldTourCard(cam, selected.id)).join('')
+                        : '<div class="world-tour-empty-favorites">아직 즐겨찾기한 세계 영상이 없습니다.</div>'}
                 </div>
             </div>
         </section>
@@ -4939,7 +5045,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             return;
         }
 
-        if (options.region && WORLD_TOUR_REGIONS.includes(options.region)) {
+        if (options.region && isWorldTourRegionAvailable(options.region)) {
             state.worldTourRegion = options.region;
         }
         if (options.viewMode) {
@@ -4947,14 +5053,14 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         }
 
         let visibleCams = getWorldTourVisibleCams(cams);
-        if (!visibleCams.length) {
+        if (!visibleCams.length && state.worldTourRegion !== WORLD_TOUR_FAVORITE_REGION) {
             state.worldTourRegion = 'All';
             visibleCams = cams;
         }
 
         const selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
         const selectedFromAll = cams.find(cam => cam.id === selectedId);
-        const selected = selectedFromVisible || (state.worldTourRegion === 'All' ? selectedFromAll : null) || visibleCams[0] || cams[0];
+        const selected = selectedFromVisible || selectedFromAll || visibleCams[0] || cams[0];
         state.selectedWorldTourId = selected.id;
         destroyWorldTourMap();
 
@@ -4969,10 +5075,33 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         `;
 
         list.querySelectorAll('.world-tour-card').forEach(card => {
-            card.addEventListener('click', () => {
+            const selectCard = () => {
                 const cardRail = list.querySelector('.world-tour-card-rail');
                 const regionTabs = list.querySelector('.world-tour-region-tabs');
                 renderWorldTourCams(card.dataset.id, {
+                    viewMode: state.worldTourViewMode,
+                    cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
+                });
+            };
+            card.addEventListener('click', event => {
+                if (event.target.closest('.world-tour-favorite-btn')) return;
+                selectCard();
+            });
+            card.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                selectCard();
+            });
+        });
+        list.querySelectorAll('.world-tour-favorite-btn').forEach(button => {
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                toggleWorldTourFavorite(button.dataset.worldTourFavorite);
+                const cardRail = list.querySelector('.world-tour-card-rail');
+                const regionTabs = list.querySelector('.world-tour-region-tabs');
+                renderWorldTourCams(state.selectedWorldTourId, {
                     viewMode: state.worldTourViewMode,
                     cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
                     regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
@@ -4993,8 +5122,15 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         list.querySelectorAll('.world-tour-region-tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 const region = tab.dataset.worldRegion || 'All';
-                const nextVisibleCams = region === 'All' ? cams : cams.filter(cam => cam.region === region);
-                const nextSelected = nextVisibleCams.find(cam => cam.id === state.selectedWorldTourId) || nextVisibleCams[0] || cams[0];
+                const nextVisibleCams = region === WORLD_TOUR_FAVORITE_REGION
+                    ? cams.filter(cam => isWorldTourFavorite(cam))
+                    : region === 'All'
+                        ? cams
+                        : cams.filter(cam => cam.region === region);
+                const nextSelected = nextVisibleCams.find(cam => cam.id === state.selectedWorldTourId)
+                    || nextVisibleCams[0]
+                    || cams.find(cam => cam.id === state.selectedWorldTourId)
+                    || cams[0];
                 const regionTabs = list.querySelector('.world-tour-region-tabs');
                 renderWorldTourCams(nextSelected.id, {
                     region,
