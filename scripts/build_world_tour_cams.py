@@ -2,19 +2,27 @@ import concurrent.futures
 import datetime as dt
 import html
 import json
+import os
 import re
+import shutil
+import subprocess
 import time
 import urllib.request
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data/world_tour_cams.json'
+GEOCODE_CACHE_PATH = ROOT / '.cache/world_tour_geocode_cache.json'
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36'}
+NOMINATIM_HEADERS = {
+    **HEADERS,
+    'User-Agent': 'pyw31337-cctv-world-tour/1.0 (https://pyw31337.github.io/cctv/)'
+}
 REGION_BY_COUNTRY = {
     'United States': 'North America', 'Canada': 'North America', 'Mexico': 'North America',
-    'Panama': 'North America', 'Greenland': 'North America',
+    'Panama': 'North America', 'Greenland': 'North America', 'Jamaica': 'North America', 'Curaçao': 'North America',
     'France': 'Europe', 'Italy': 'Europe', 'United Kingdom': 'Europe', 'Spain': 'Europe', 'Greece': 'Europe',
     'Germany': 'Europe', 'Switzerland': 'Europe', 'Netherlands': 'Europe', 'Norway': 'Europe', 'Finland': 'Europe',
     'Denmark': 'Europe', 'Czech Republic': 'Europe', 'Austria': 'Europe', 'Hungary': 'Europe', 'Ireland': 'Europe',
@@ -27,7 +35,7 @@ REGION_BY_COUNTRY = {
     'Maldives': 'Asia', 'Philippines': 'Asia', 'Saudi Arabia': 'Asia', 'Singapore': 'Asia', 'Vietnam': 'Asia',
     'Georgia': 'Asia', 'Australia': 'Oceania', 'New Zealand': 'Oceania',
     'Brazil': 'South America', 'Chile': 'South America',
-    'South Africa': 'Africa', 'Kenya': 'Africa', 'Cape Verde': 'Africa', 'Egypt': 'Africa',
+    'South Africa': 'Africa', 'Kenya': 'Africa', 'Cape Verde': 'Africa', 'Egypt': 'Africa', 'Namibia': 'Africa',
     'Mauritius': 'Africa', 'Morocco': 'Africa'
 }
 COUNTRY_BY_SLUG = {
@@ -51,6 +59,50 @@ HARD_NEGATIVE_TITLE = re.compile(r'(트로피컬\s*머피|바오밥\s*레스토�
 NEGATIVE_TITLE = re.compile(r'(고양이|독수리|새 모이|피더|동물|야생동물|Alligator|Spoonbill|Osprey|Otter|Eagle|Cat|Feeder|Wildlife|Zoo|Bird|Animal|Penguin|카지노)', re.I)
 POSITIVE_TITLE = re.compile(r'(타임|광장|해변|비치|항구|하버|공항|타워|브리지|대교|성|궁|공원|강|시티|도시|스카이라인|라이브|역|거리|마켓|파노라마|폭포|산|리조트|마리나|해안|도쿄|오사카|서울|부산|뉴욕|파리|런던|로마|베니스|교토|후지|시부야|Times|Square|Beach|Harbour|Harbor|Airport|Tower|Bridge|Castle|Park|River|Skyline|City|Panorama|Falls|Mountain|Resort|Marina)', re.I)
 UNSTABLE_TITLE = re.compile(r'(private video|deleted video|video unavailable|비공개|삭제|사용할 수 없는)', re.I)
+YOUTUBE_SEARCH_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_LIMIT', '160'))
+YTDLP_BIN = shutil.which(os.getenv('YTDLP_BIN', 'yt-dlp'))
+YOUTUBE_SEARCH_NEGATIVE = re.compile(
+    r'(around the world|top live cams|rolling cam|camera feeds|middle east|smooth jazz|relaxing music|'
+    r'timelapse|armchair travel|bus rides|walking|walk |drive |cab view|train moments|family real life|'
+    r'food cooking|puppy|cat|kitten|bird|birds|eagle|panda|penguin|jelly|otter|owl|nest|wildlife|safari|zoo|'
+    r'forest|feeder|animal|falcon|casino|skid row|kensington|truck queue)',
+    re.I
+)
+YOUTUBE_LOCATION_HINTS = [
+    (('shibuya', '渋谷'), '시부야 스크램블', 'Tokyo', 'Japan', 'Asia', 35.6595, 139.7005),
+    (('shinjuku', '新宿'), '신주쿠', 'Tokyo', 'Japan', 'Asia', 35.6938, 139.7034),
+    (('hongdae', '홍대'), '홍대입구', 'Seoul', 'South Korea', 'Asia', 37.5563, 126.9236),
+    (('davao', 'agdao', 'bankerohan'), '다바오 시티', 'Davao City', 'Philippines', 'Asia', 7.1907, 125.4553),
+    (('koh samui', 'lamai', 'bophut', 'chaweng'), '코사무이', 'Koh Samui', 'Thailand', 'Asia', 9.5120, 100.0136),
+    (('venice beach',), '베니스 비치', 'Los Angeles', 'United States', 'North America', 33.9850, -118.4695),
+    (('venice', 'venezia', 'san marco', 'guglie'), '베네치아', 'Venice', 'Italy', 'Europe', 45.4408, 12.3155),
+    (('key west', 'southernmost point', 'hogs breath'), '키웨스트', 'Key West', 'United States', 'North America', 24.5465, -81.7975),
+    (('fort lauderdale', 'elbo room'), '포트로더데일', 'Fort Lauderdale', 'United States', 'North America', 26.1224, -80.1040),
+    (('coney island',), '코니 아일랜드', 'New York', 'United States', 'North America', 40.5749, -73.9850),
+    (('bryant park',), '브라이언트 파크', 'New York', 'United States', 'North America', 40.7536, -73.9832),
+    (('times square',), '타임스퀘어', 'New York', 'United States', 'North America', 40.7580, -73.9855),
+    (('las vegas airport', 'vegas airport'), '라스베이거스 공항', 'Las Vegas', 'United States', 'North America', 36.0840, -115.1537),
+    (('las vegas strip',), '라스베이거스 스트립', 'Las Vegas', 'United States', 'North America', 36.1147, -115.1728),
+    (('hollywood beach',), '할리우드 비치', 'Hollywood', 'United States', 'North America', 26.0112, -80.1169),
+    (('jacksonville beach',), '잭슨빌 비치', 'Jacksonville Beach', 'United States', 'North America', 30.2841, -81.3961),
+    (('mori point', 'pacifica'), '퍼시피카 모리 포인트', 'Pacifica', 'United States', 'North America', 37.6138, -122.4869),
+    (('port miami', 'miami cruise'), '마이애미 항구', 'Miami', 'United States', 'North America', 25.7781, -80.1794),
+    (('vancouver', 'canada place'), '밴쿠버', 'Vancouver', 'Canada', 'North America', 49.2890, -123.1110),
+    (('boston',), '보스턴', 'Boston', 'United States', 'North America', 42.3601, -71.0589),
+    (('ocean city',), '오션시티', 'Ocean City', 'United States', 'North America', 38.3365, -75.0849),
+    (('southampton', 'cowes', 'isle of wight'), '와이트섬 페리', 'Southampton', 'United Kingdom', 'Europe', 50.9097, -1.4044),
+    (('dublin',), '더블린', 'Dublin', 'Ireland', 'Europe', 53.3498, -6.2603),
+    (('lanzarote',), '란사로테 공항', 'Lanzarote', 'Spain', 'Europe', 28.9455, -13.6052),
+    (('swiss alps', 'schweiz panorama'), '스위스 알프스', 'Zermatt', 'Switzerland', 'Europe', 46.0207, 7.7491),
+    (('bad salzungen',), '바트 잘충겐', 'Bad Salzungen', 'Germany', 'Europe', 50.8130, 10.2360),
+    (('maui', 'wailea', 'whale watch'), '마우이', 'Maui', 'United States', 'North America', 20.7984, -156.3319),
+    (('mauna', 'maunakea'), '마우나케아', 'Hawaii', 'United States', 'North America', 19.8207, -155.4681),
+    (('namib', 'namibia'), '나미브 사막', 'Namib Desert', 'Namibia', 'Africa', -23.0000, 15.0000),
+    (('curacao', 'curaçao', 'swinging bridge'), '퀴라소 퀸 엠마 브리지', 'Willemstad', 'Curaçao', 'North America', 12.1084, -68.9335),
+    (('kingston jamaica', 'half way tree'), '킹스턴 하프웨이트리', 'Kingston', 'Jamaica', 'North America', 18.0179, -76.8099),
+    (('negril', 'rick'), '네그릴', 'Negril', 'Jamaica', 'North America', 18.2683, -78.3472),
+    (('bondi aussie', 'crystal bay',), '코사무이', 'Koh Samui', 'Thailand', 'Asia', 9.5120, 100.0136),
+]
 
 CCTV_WORLD_META = {
     'gyeongbokgung': ('경복궁', '서울 대표 고궁과 광화문 일대', 'Seoul', 'South Korea', 37.5796, 126.9770, 86),
@@ -118,6 +170,25 @@ def fetch_json(url, timeout=12):
     return json.loads(fetch_text(url, timeout=timeout))
 
 
+def fetch_json_with_headers(url, timeout=12, headers=None):
+    req = urllib.request.Request(url, headers=headers or HEADERS)
+    return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode('utf-8', 'replace'))
+
+
+def load_geocode_cache():
+    if not GEOCODE_CACHE_PATH.exists():
+        return {}
+    try:
+        return json.loads(GEOCODE_CACHE_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def save_geocode_cache(cache):
+    GEOCODE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    GEOCODE_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False, indent=2) + '\n')
+
+
 def slugify(text):
     value = re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
     return value or str(abs(hash(text)))
@@ -146,17 +217,145 @@ def extract_youtube_id(text):
     return None
 
 
+def clean_youtube_search_title(title):
+    value = html.unescape(title or '')
+    value = re.sub(r'[🔴🟢🟡⚫⚪🚢🌊🐳✨☕|]+', ' ', value)
+    value = re.sub(r'\b(24/7|4K|HD|LIVE|Live|live|Webcam|webcam|LIVE CAM|Live Cam|Camera|camera|Stream|streaming)\b', ' ', value)
+    value = re.sub(r'#\w+', ' ', value)
+    value = re.sub(r'\s+', ' ', value).strip(' -–—:|')
+    return value
+
+
+def youtube_location_hint(title):
+    lowered = (title or '').lower()
+    for aliases, title_ko, city, country, region, lat, lng in YOUTUBE_LOCATION_HINTS:
+        if any(alias in lowered for alias in aliases):
+            return {
+                'title': title_ko,
+                'city': city,
+                'country': country,
+                'region': region,
+                'lat': lat,
+                'lng': lng,
+            }
+    return None
+
+
+def youtube_geocode_candidates(title):
+    cleaned = clean_youtube_search_title(title)
+    parts = re.split(r'\s[-–—:]\s|,|\(|\)|/', cleaned)
+    candidates = []
+    for part in parts:
+        part = re.sub(r'\b(official|channel|with|from|view|views|real time|tonight|now|cam)\b', ' ', part, flags=re.I)
+        part = re.sub(r'\s+', ' ', part).strip()
+        if len(part) < 4 or len(part) > 70:
+            continue
+        if YOUTUBE_SEARCH_NEGATIVE.search(part):
+            continue
+        candidates.append(part)
+    if cleaned and len(cleaned) <= 70:
+        candidates.append(cleaned)
+    return list(dict.fromkeys(candidates))[:4]
+
+
+def geocode_location(query, cache):
+    if not query:
+        return None
+    key = query.lower().strip()
+    if key in cache:
+        return cache[key]
+    url = (
+        'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q='
+        + quote(query)
+    )
+    try:
+        results = fetch_json_with_headers(url, timeout=12, headers=NOMINATIM_HEADERS)
+        time.sleep(1.05)
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+        cache[key] = None
+        return None
+    if not results:
+        cache[key] = None
+        return None
+    result = results[0]
+    address = result.get('address') or {}
+    country = address.get('country')
+    if not country:
+        cache[key] = None
+        return None
+    city = (
+        address.get('city') or address.get('town') or address.get('village') or
+        address.get('municipality') or address.get('county') or country
+    )
+    item = {
+        'city': city,
+        'country': country,
+        'region': REGION_BY_COUNTRY.get(country, 'Other'),
+        'lat': round(float(result['lat']), 6),
+        'lng': round(float(result['lon']), 6),
+    }
+    if item['region'] == 'Other':
+        cache[key] = None
+        return None
+    cache[key] = item
+    return item
+
+
+def infer_youtube_location(title, cache):
+    hint = youtube_location_hint(title)
+    if hint:
+        return hint
+    for candidate in youtube_geocode_candidates(title):
+        geocoded = geocode_location(candidate, cache)
+        if geocoded:
+            return geocoded
+    return None
+
+
+def yt_dlp_json(args, timeout=45):
+    if not YTDLP_BIN:
+        return None
+    try:
+        completed = subprocess.run(
+            [YTDLP_BIN, *args],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
 def existing_playable_items():
     payload = json.loads(DATA_PATH.read_text())
     items = []
+    cache = load_geocode_cache()
     for item in payload.get('items', []):
         if item.get('sourceType') == 'webcamera24' and HARD_NEGATIVE_TITLE.search(item.get('title', '')):
             continue
         if item.get('sourceType') == 'webcamera24' and NEGATIVE_TITLE.search(item.get('title', '')) and not POSITIVE_TITLE.search(item.get('title', '')):
             continue
+        if item.get('sourceType') == 'youtube-search':
+            location = infer_youtube_location(f"{item.get('title', '')} {item.get('subtitle', '')}", cache)
+            if location:
+                item['title'] = location.get('title') or item.get('title')
+                item['city'] = location['city']
+                item['country'] = location['country']
+                item['region'] = location['region']
+                item['lat'] = location['lat']
+                item['lng'] = location['lng']
         if item.get('videoId') or item.get('embedUrl'):
             item.setdefault('sourceType', 'youtube' if item.get('videoId') else 'external')
             items.append(item)
+    save_geocode_cache(cache)
     return items
 
 
@@ -335,6 +534,65 @@ def collect_webcamera24(limit=190):
     return items
 
 
+def collect_youtube_search(limit=YOUTUBE_SEARCH_LIMIT):
+    if not YTDLP_BIN or limit <= 0:
+        return []
+
+    payload = yt_dlp_json(
+        ['--flat-playlist', '--dump-single-json', f'ytsearch{limit}:live cam'],
+        timeout=70,
+    )
+    if not payload:
+        return []
+
+    cache = load_geocode_cache()
+    items = []
+    seen = set()
+    for entry in payload.get('entries', []):
+        video_id = entry.get('id')
+        title = entry.get('title') or ''
+        if not video_id or video_id in seen:
+            continue
+        seen.add(video_id)
+        if entry.get('live_status') != 'is_live':
+            continue
+        if YOUTUBE_SEARCH_NEGATIVE.search(title):
+            continue
+        if not (POSITIVE_TITLE.search(title) or youtube_location_hint(title)):
+            continue
+
+        location = infer_youtube_location(title, cache)
+        if not location:
+            continue
+
+        thumbnails = entry.get('thumbnails') or []
+        thumbnail = thumbnails[-1].get('url') if thumbnails and isinstance(thumbnails[-1], dict) else ''
+        display_title = location.get('title') or clean_youtube_search_title(title)
+        city = location['city']
+        country = location['country']
+        items.append({
+            'id': f'youtube-search-{slugify(video_id)}',
+            'title': display_title,
+            'subtitle': clean_youtube_search_title(title)[:110],
+            'city': city,
+            'country': country,
+            'region': location['region'],
+            'lat': location['lat'],
+            'lng': location['lng'],
+            'videoId': video_id,
+            'channel': entry.get('channel') or entry.get('uploader') or 'YouTube',
+            'sourceUrl': entry.get('url') or f'https://www.youtube.com/watch?v={video_id}',
+            'thumbnailUrl': thumbnail,
+            'tags': ['tourism', 'youtube-search', 'livecam'],
+            'priority': 67,
+            'status': 'is_live',
+            'sourceType': 'youtube-search'
+        })
+
+    save_geocode_cache(cache)
+    return items
+
+
 def validate_youtube_item(item):
     video_id = item.get('videoId')
     if not video_id:
@@ -377,7 +635,7 @@ def validate_items(items):
 
 def main():
     base = existing_playable_items()
-    additions = collect_cctv_world() + collect_tabi() + collect_webcamera24()
+    additions = collect_cctv_world() + collect_tabi() + collect_webcamera24() + collect_youtube_search()
     by_key = {}
     video_seen = set()
     for item in base + additions:
