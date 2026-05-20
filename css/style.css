@@ -21,6 +21,8 @@
     --radius-md: 12px;
     --radius-full: 999px;
     --control-height: 44px;
+    --control-inner-size: 36px;
+    --control-shell-padding: 3px;
     --world-tour-action-height: 44px;
     --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -184,18 +186,21 @@ body {
 .segment-control {
     display: flex;
     position: relative;
+    flex: 0 0 auto;
+    height: var(--control-height);
+    min-height: var(--control-height);
     background: var(--bg-primary);
     border-radius: var(--radius-full);
-    padding: 4px;
+    padding: var(--control-shell-padding);
     border: 1px solid var(--border-color);
 }
 
 .segment-indicator {
     position: absolute;
-    top: 4px;
-    left: 4px;
-    width: var(--control-height);
-    height: var(--control-height);
+    top: var(--control-shell-padding);
+    left: var(--control-shell-padding);
+    width: var(--control-inner-size);
+    height: var(--control-inner-size);
     background: var(--accent);
     border-radius: 50%;
     z-index: 1;
@@ -206,8 +211,8 @@ body {
 .segment-btn {
     position: relative;
     z-index: 2;
-    width: var(--control-height);
-    height: var(--control-height);
+    width: var(--control-inner-size);
+    height: var(--control-inner-size);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -231,6 +236,8 @@ body {
 .search-box {
     flex: 1;
     max-width: 300px;
+    height: var(--control-height);
+    min-height: var(--control-height);
     position: relative;
     z-index: 1001;
     /* Above dim overlay */
@@ -311,8 +318,11 @@ body {
 
 /* === Weather Button === */
 .weather-btn {
+    flex: 0 0 var(--control-height);
     width: var(--control-height);
     height: var(--control-height);
+    min-width: var(--control-height);
+    min-height: var(--control-height);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -355,7 +365,10 @@ body {
 .quality-controls {
     display: inline-flex;
     align-items: center;
-    padding: 5px;
+    flex: 0 0 auto;
+    height: var(--control-height);
+    min-height: var(--control-height);
+    padding: 3px;
     background: var(--bg-primary);
     border: 2px solid var(--border-color);
     border-radius: var(--radius-full);
