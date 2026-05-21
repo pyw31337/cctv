@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-e672c85b';
+const APP_BUILD_VERSION = '20260521-trigger-zoom-precip';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -2101,7 +2101,12 @@ function isProxyResolverBackedCandidate(cctv) {
         || isJejuUticProxyable(cctv)
         || cctv?.urlType === 'daejeon_mp4_dynamic'
         || (source === 'UTIC' && kind === 'E' && inferRegionKey(cctv) === 'DAEJEON')
-        || (source === 'UTIC' && kind === 'Z3' && !!getUrlParam(url, 'cctvip'));
+        || (source === 'UTIC' && kind === 'Z3' && !!getUrlParam(url, 'cctvip'))
+        // GANGWON/HRFCO iframe 임베드 카메라는 health monitor 가 m3u8/mp4 못 받아서 frame_only 로 잘못 분류하지만
+        // 클라이언트는 이미 iframe 으로 직접 임베드해서 정상 재생함. region DOWN 신호를 받아도 격리하지 않도록.
+        || isFrameOnlyPlaybackCandidate(cctv)
+        // YouTube 카메라(GIGAEYES) 도 동일 — 원본이 YouTube 라이브이므로 health monitor 의 frame_or_bad_content 는 오탐.
+        || /(?:youtube\.com|youtu\.be)/.test(url);
 }
 
 function isAggregateOnlyHealthWarning(cctv, health) {
@@ -4785,13 +4790,16 @@ async function renderKmaPrecipOverlays() {
     if (!data || !Array.isArray(data.points)) return;
 
     let hasAny = false;
+    const renderedLatLngs = [];
     data.points.forEach(point => {
         const style = getKmaPtyStyle(point);
         if (!style) return;
         hasAny = true;
+        const latLng = new kakao.maps.LatLng(point.lat, point.lng);
+        renderedLatLngs.push(latLng);
 
         const circle = new kakao.maps.Circle({
-            center: new kakao.maps.LatLng(point.lat, point.lng),
+            center: latLng,
             radius: style.radiusBase * 200,
             strokeWeight: 2,
             strokeColor: style.stroke,
@@ -4804,7 +4812,7 @@ async function renderKmaPrecipOverlays() {
         kmaPrecipOverlays.push(circle);
 
         const overlay = new kakao.maps.CustomOverlay({
-            position: new kakao.maps.LatLng(point.lat, point.lng),
+            position: latLng,
             content: `<div class="kma-precip-label" title="${point.name} · ${point.wfKor || ''}">${style.label}<span class="kma-precip-city">${point.name}</span></div>`,
             yAnchor: 0.5,
             zIndex: 5
@@ -4814,6 +4822,36 @@ async function renderKmaPrecipOverlays() {
     });
 
     updateKmaPrecipEmptyHint(!hasAny);
+    updateKmaPrecipButtonLabel(renderedLatLngs.length);
+
+    // When the user just turned the toggle on, frame the map around the
+    // precipitation points so they can see something change — otherwise
+    // the toggle feels broken when the user happens to be staring at a
+    // dry region. Only fits once per enable; subsequent renders leave
+    // the user's pan/zoom alone.
+    if (hasAny && kmaPrecipShouldFitOnNextRender) {
+        kmaPrecipShouldFitOnNextRender = false;
+        const bounds = new kakao.maps.LatLngBounds();
+        renderedLatLngs.forEach(ll => bounds.extend(ll));
+        try { map.setBounds(bounds); } catch (_) { /* tolerate */ }
+    }
+}
+
+// Set true on every enable so the next render frames the rain points.
+let kmaPrecipShouldFitOnNextRender = false;
+
+function updateKmaPrecipButtonLabel(activeCount) {
+    const btn = document.getElementById('kma-precip-toggle');
+    if (!btn) return;
+    const label = btn.querySelector('.kma-precip-toggle-label');
+    if (!label) return;
+    if (kmaPrecipVisible && activeCount > 0) {
+        label.textContent = `강수 ${activeCount}곳`;
+    } else if (kmaPrecipVisible) {
+        label.textContent = '강수 없음';
+    } else {
+        label.textContent = '강수';
+    }
 }
 
 function updateKmaPrecipEmptyHint(empty) {
@@ -4833,6 +4871,7 @@ function updateKmaPrecipEmptyHint(empty) {
 }
 
 function setKmaPrecipVisible(visible) {
+    const wasVisible = kmaPrecipVisible;
     kmaPrecipVisible = visible;
     const btn = document.getElementById('kma-precip-toggle');
     if (btn) {
@@ -4841,10 +4880,14 @@ function setKmaPrecipVisible(visible) {
         btn.title = visible ? '강수/적설 오버레이 끄기' : '강수/적설 오버레이 보기';
     }
     if (visible) {
+        // Only frame the precip points on a fresh enable, not on
+        // subsequent re-renders from data refresh / map move handlers.
+        if (!wasVisible) kmaPrecipShouldFitOnNextRender = true;
         renderKmaPrecipOverlays();
     } else {
         clearKmaPrecipOverlays();
         updateKmaPrecipEmptyHint(false);
+        updateKmaPrecipButtonLabel(0);
     }
     try { localStorage.setItem('cctv_kma_precip_visible', visible ? '1' : '0'); } catch (_) {}
 }
