@@ -12,7 +12,7 @@
 // The CACHE_VERSION is hot-swapped by the deploy GHA so a new release purges
 // all prior caches even when a long-lived tab still holds the old SW.
 
-const CACHE_VERSION = 'v20260521-zoom-cap-10';
+const CACHE_VERSION = 'v20260521-3be845da';
 
 const SHELL_ASSETS = [
     './',
