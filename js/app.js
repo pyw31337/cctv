@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-aaabe56b';
+const APP_BUILD_VERSION = '20260521-ui-cleanup-final';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -451,7 +451,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderQualityControls();
     hydrateWorldTourFavorites();
     hydrateCctvFavorites();
-    initCompareModeButton();
+    // initCompareModeButton(); // 전국 주요 도시 라이브 entry point removed per request
 
     // Initial State
     updateNearestCctvs();
@@ -739,15 +739,6 @@ function setupEventListeners() {
 
     // Search Results Click (Delegation for items, bookmark, delete, cctv favorite, open compare)
     $('#search-results').addEventListener('click', (e) => {
-        // 전국 주요 도시 라이브 (mobile entry point inside the search panel)
-        const compareBtn = e.target.closest('[data-action="open-compare-mode"]');
-        if (compareBtn) {
-            e.stopPropagation();
-            $('#search-results').classList.remove('active');
-            $('#dim-overlay').classList.remove('active');
-            openCompareMode();
-            return;
-        }
         // CCTV favorite item — opens video layer directly
         const favItem = e.target.closest('.cctv-favorite-item');
         if (favItem) {
@@ -899,9 +890,6 @@ function renderSearchSortPanel() {
                     <option value="${mode}" ${state.sortMode === mode ? 'selected' : ''}>${QUALITY_SORT_LABELS[mode]}</option>
                 `).join('')}
             </select>
-            <button type="button" class="search-compare-btn" data-action="open-compare-mode" title="전국 주요 도시 라이브" aria-label="전국 주요 도시 라이브">
-                ${COMPARE_MODE_ICON_SVG}
-            </button>
         </div>
     `;
 }
@@ -2569,28 +2557,11 @@ function getStreamLoadingCopy(cctv, isFallback = false, fallbackIndex = 0, backu
 }
 
 function renderPanelHealthBadge(panel, cctv) {
-    let badge = panel.querySelector('.panel-health-badge');
-    if (!badge) {
-        badge = document.createElement('div');
-        badge.className = 'panel-health-badge';
-    }
-
-    const controls = panel.querySelector('.panel-controls');
-    const expandButton = panel.querySelector('.panel-expand-btn');
-    if (controls && badge.parentElement !== controls) {
-        controls.insertBefore(badge, expandButton || null);
-    }
-
-    const health = getCameraHealthMeta(cctv);
-    const sourceMeta = getSourceMeta(cctv);
-    badge.className = `panel-health-badge tone-${health.tone}`;
-    badge.innerHTML = `
-        <span class="panel-health-dot" aria-hidden="true"></span>
-        <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
-        <span class="panel-health-label">${health.shortLabel}</span>
-    `;
-    badge.title = `${sourceMeta.label} · ${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
-    badge.setAttribute('aria-label', `${sourceMeta.label}, ${health.longLabel}`);
+    // The "● 재생 불안정" pill that used to sit next to the CCTV
+    // name was redundant with the colored status dot inside the
+    // .cctv-select-trigger button. Strip any leftover badge node
+    // and skip rendering.
+    panel?.querySelector?.('.panel-health-badge')?.remove?.();
 }
 
 function renderSelectTrigger(panel, cctv, fallbackLabel) {
@@ -4614,7 +4585,7 @@ function createErrorPlaceholder(options, legacyRetryFn) {
     }
     const allowTryAnother = showTryAnother && cctv && (typeof onTryAnother === 'function' || findAnotherNearbyCctv(cctv));
     if (allowTryAnother) {
-        actions.push(`<button class="try-another-btn" type="button">🔄 다른 카메라 시도</button>`);
+        actions.push(`<button class="try-another-btn" type="button"><svg class="try-another-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M19.95 11a8 8 0 1 0 -.5 4m.5 5v-5h-5"/></svg><span>다른 카메라 시도</span></button>`);
     }
     if (cctv) {
         actions.push('<button class="report-btn" type="button">문제 제보</button>');
@@ -6270,27 +6241,17 @@ function bindWorldTourListPanel(root, cams, selected) {
 
     const shell = root.querySelector('.world-tour-shell');
 
-    // Toggle the "search active" state — overlay drops its blur/dim so the
-    // user can still see the map/video, and the bottom menu disappears so
-    // the left side is a clean canvas while they explore results.
-    let lastSearchActive = null;
-    const setSearchActive = (active) => {
-        const next = !!active;
-        if (lastSearchActive === next) return;
-        lastSearchActive = next;
-        overlay.classList.toggle('is-searching', next);
-        if (shell) shell.classList.toggle('is-searching', next);
-        // The map-stage resizes when the bottom menu disappears (and again
-        // when it reappears); Leaflet needs a kick so it paints tiles for
-        // the newly exposed area. Run on the next frame so the layout has
-        // already settled.
-        if (typeof worldTourLeafletMap !== 'undefined' && worldTourLeafletMap?.invalidateSize) {
-            requestAnimationFrame(() => {
-                try { worldTourLeafletMap.invalidateSize(false); } catch (e) { /* map gone */ }
-            });
-        }
-    };
-    setSearchActive(Boolean(state.worldTourListSearch));
+    // Whenever the list panel is mounted, drop the overlay blur/dim and
+    // hide the bottom menu so the user sees the live map/video on the
+    // left while exploring results. The class disappears with the
+    // panel on the next re-render.
+    overlay.classList.add('is-searching');
+    if (shell) shell.classList.add('is-searching');
+    if (typeof worldTourLeafletMap !== 'undefined' && worldTourLeafletMap?.invalidateSize) {
+        requestAnimationFrame(() => {
+            try { worldTourLeafletMap.invalidateSize(false); } catch (e) { /* map gone */ }
+        });
+    }
 
     const rerenderWithList = (selectedId = state.selectedWorldTourId, extraOptions = {}) => {
         const cardRail = root.querySelector('.world-tour-card-rail');
@@ -6341,16 +6302,7 @@ function bindWorldTourListPanel(root, cams, selected) {
             state.worldTourListRegion = 'All';
             refreshRegionChips();
         }
-        setSearchActive(Boolean(state.worldTourListSearch));
         refreshResults();
-    });
-    // Treat focus/blur as a softer signal — while the input is focused,
-    // even an empty query keeps the left side clear so the user can
-    // glance at the map before typing. Once they tab away and the query
-    // is empty, revert to the default blurred backdrop.
-    searchInput?.addEventListener('focus', () => setSearchActive(true));
-    searchInput?.addEventListener('blur', () => {
-        setSearchActive(Boolean(state.worldTourListSearch));
     });
 
     panel.querySelector('[data-world-tour-list-country]')?.addEventListener('change', event => {
