@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-ui-refresh1';
+const APP_BUILD_VERSION = '20260521-ui-refresh2';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -5657,6 +5657,21 @@ function enableHorizontalDragScroll(scroller, onScroll) {
         event.preventDefault();
         event.stopImmediatePropagation();
     }, true);
+
+    // Convert vertical mouse-wheel scroll into horizontal scroll so users on
+    // a standard wheel mouse (without a trackpad) can also browse the chips.
+    scroller.addEventListener('wheel', event => {
+        if (event.deltaY === 0 || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+        const maxScroll = scroller.scrollWidth - scroller.clientWidth;
+        if (maxScroll <= 0) return;
+        const current = scroller.scrollLeft;
+        // Stop scroll bleed-through to the page only when we'll actually move.
+        const headroom = event.deltaY > 0 ? maxScroll - current : current;
+        if (headroom <= 0) return;
+        event.preventDefault();
+        scroller.scrollLeft = current + event.deltaY;
+        onScroll?.(scroller.scrollLeft);
+    }, { passive: false });
 }
 
 function cleanupWorldTourVideoPlayers(root = document) {
@@ -6086,9 +6101,14 @@ async function initWorldTourMap(selected, visibleCams) {
 
         L.control.zoom({ position: 'topright' }).addTo(worldTourLeafletMap);
 
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 18,
-            attribution: '&copy; OpenStreetMap contributors'
+        // Tile choice: CartoDB Voyager — uses Latin (English) place names
+        // worldwide, which is much more readable than OSM Standard (where
+        // labels in CJK / Cyrillic / Arabic regions appear in the local script).
+        // {r} adds @2x for HiDPI screens automatically.
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+            subdomains: 'abcd',
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         }).addTo(worldTourLeafletMap);
 
         const mappableCams = visibleCams

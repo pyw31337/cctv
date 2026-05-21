@@ -1998,6 +1998,7 @@ body.world-tour-active #pwa-install-prompt {
     align-items: center;
     gap: 8px;
     min-width: 0;
+    position: relative;
 }
 
 .world-tour-region-tabs {
@@ -2005,20 +2006,28 @@ body.world-tour-active #pwa-install-prompt {
     gap: 8px;
     padding: 0 8px;
     overflow-x: auto;
+    overflow-y: hidden;
     cursor: grab;
     touch-action: pan-x;
     user-select: none;
     scrollbar-width: none;
+    /* WebKit thin scrollbar so the drag affordance is visible on hover. */
+    scroll-behavior: smooth;
 }
 
+/* When inside the persistent bottom bar, the chip rail must actually shrink
+ * to its parent so overflow scroll triggers and the list toggle stays put. */
 .world-tour-bottom-menu .world-tour-region-tabs {
-    flex: 1 1 auto;
-    flex-shrink: 0;
+    flex: 1 1 0;
+    min-width: 0;
     padding: 0;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 16px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 16px), transparent 100%);
 }
 
 .world-tour-region-tabs::-webkit-scrollbar {
     display: none;
+    height: 0;
 }
 
 .world-tour-region-tab {
@@ -2855,11 +2864,31 @@ body.world-tour-active #pwa-install-prompt {
         gap: 10px;
         height: var(--world-tour-menu-height);
         max-height: none;
-        padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+        /* Lift the bottom menu so the last row isn't clipped behind the
+         * iOS home indicator / Android nav bar. */
+        padding: 10px 10px calc(18px + env(safe-area-inset-bottom));
         border-right: 0;
         border-bottom: 0;
         border-left: 0;
         border-radius: 0;
+    }
+
+    /* On narrow screens the "Favorite" word eats space — keep only star + count. */
+    .world-tour-region-tab[data-world-region="Favorite"] .world-tour-region-tab-label > span:not(.world-tour-favorite-tab-icon) {
+        display: none;
+    }
+    .world-tour-region-tab[data-world-region="Favorite"] {
+        padding: 0 10px;
+    }
+
+    /* Pin the list toggle to the right edge of the chip row so it is
+     * always reachable, even when many region chips are scrolled. The chip
+     * rail uses flex:1 1 0 so the toggle naturally anchors to the right. */
+    .world-tour-region-bar .world-tour-list-toggle {
+        margin-left: 6px;
+        box-shadow: -12px 0 18px -8px rgba(2, 6, 23, 0.85);
+        z-index: 2;
+        flex: 0 0 38px;
     }
 
     .world-tour-selected-summary {
@@ -3099,7 +3128,7 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-bottom-menu {
         gap: 8px;
-        padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+        padding: 8px 8px calc(16px + env(safe-area-inset-bottom));
     }
 
     .world-tour-selected-summary {
