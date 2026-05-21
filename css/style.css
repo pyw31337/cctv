@@ -3798,7 +3798,15 @@ body.world-tour-active #pwa-install-prompt {
     background: #000;
 }
 
+/*
+ * .world-tour-video 컨테이너는 ::before { padding-top: 56.25% } 로 16:9
+ * 비율을 강제한다. 이 위에 이미지가 같이 배치되면 ::before 영역만큼
+ * 화면 밖으로 밀려 검정 배경만 보이게 된다. iframe / direct-video 와
+ * 동일하게 absolute + inset:0 으로 컨테이너를 정확히 채우게 한다.
+ */
 .world-tour-snapshot-img {
+    position: absolute;
+    inset: 0;
     display: block;
     width: 100%;
     height: 100%;
