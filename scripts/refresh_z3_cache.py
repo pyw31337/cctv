@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -19,10 +20,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import requests
-import urllib3
+try:
+    import requests
+except Exception:  # pragma: no cover - used by lightweight cron environments
+    requests = None
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+try:
+    import urllib3
+except Exception:  # pragma: no cover - requests may be unavailable locally
+    urllib3 = None
+
+if urllib3:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CACHE_FILE = ROOT / "data" / "z3_cache.json"
@@ -98,7 +107,120 @@ def should_skip_refresh(cache_file: Path, max_age_minutes: int, force: bool) -> 
     return False
 
 
+def extract_z3_app_urls(features: list[dict]) -> dict[str, str]:
+    cctvip_map: dict[str, str] = {}
+    for feature in features:
+        props = feature.get("properties", {})
+        info_str = props.get("INFO", "{}")
+        try:
+            info = json.loads(info_str) if isinstance(info_str, str) else info_str
+        except Exception:
+            continue
+        app_url = info.get("appUrl", "") if isinstance(info, dict) else ""
+        if app_url and "cctvsec.ktict.co.kr" in app_url:
+            parts = app_url.split("/")
+            if len(parts) >= 4:
+                cctvip_map[parts[3]] = app_url
+    return cctvip_map
+
+
+def read_cookie_value(cookie_file: Path, name: str) -> str:
+    try:
+        for line in cookie_file.read_text(encoding="utf-8").splitlines():
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 7 and parts[5] == name:
+                return parts[6]
+    except Exception:
+        return ""
+    return ""
+
+
+def fetch_z3_map_with_curl(max_attempts: int = 3) -> dict[str, str]:
+    last_error = None
+    payload = '{"body":{"data":{"type":"CCTV"}}}'
+    for attempt in range(max_attempts):
+        ua = USER_AGENTS[attempt % len(USER_AGENTS)]
+        try:
+            print(f"[INFO] Z3 curl fallback attempt {attempt + 1}/{max_attempts}: opening its.go.kr")
+            with tempfile.TemporaryDirectory(prefix="z3-refresh-") as tmp_dir:
+                cookie_file = Path(tmp_dir) / "cookies.txt"
+                subprocess.run(
+                    [
+                        "curl",
+                        "-k",
+                        "-L",
+                        "-sS",
+                        "--max-time",
+                        "30",
+                        "-A",
+                        ua,
+                        "-c",
+                        str(cookie_file),
+                        "-b",
+                        str(cookie_file),
+                        "https://its.go.kr/",
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                xsrf = read_cookie_value(cookie_file, "XSRF-TOKEN")
+                if not xsrf:
+                    raise RuntimeError("missing XSRF-TOKEN from curl cookie jar")
+
+                result = subprocess.run(
+                    [
+                        "curl",
+                        "-k",
+                        "-L",
+                        "-sS",
+                        "--max-time",
+                        "140",
+                        "-A",
+                        ua,
+                        "-b",
+                        str(cookie_file),
+                        "-H",
+                        "Referer: https://its.go.kr/",
+                        "-H",
+                        "Content-Type: application/json",
+                        "-H",
+                        "Accept: application/json",
+                        "-H",
+                        "Origin: https://its.go.kr",
+                        "-H",
+                        f"X-XSRF-TOKEN: {xsrf}",
+                        "--data",
+                        payload,
+                        "https://its.go.kr/map/getMarkers",
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                features = json.loads(result.stdout).get("features", [])
+                cctvip_map = extract_z3_app_urls(features)
+                if not cctvip_map:
+                    raise RuntimeError("no cctvsec appUrl entries extracted from curl response")
+                print(f"[OK] curl fallback fetched {len(cctvip_map)} Z3 appUrl entries from its.go.kr")
+                return cctvip_map
+        except Exception as error:
+            last_error = error
+            print(f"[WARN] curl attempt {attempt + 1} failed: {error}", file=sys.stderr)
+            if attempt < max_attempts - 1:
+                time.sleep(8 * (attempt + 1))
+    raise RuntimeError(f"all curl Z3 refresh attempts failed: {last_error}")
+
+
 def fetch_z3_map(max_attempts: int = 3) -> dict[str, str]:
+    if requests is None:
+        print("[WARN] requests is not installed; using curl fallback for Z3 refresh", file=sys.stderr)
+        return fetch_z3_map_with_curl(max_attempts)
+
     last_error = None
     for attempt in range(max_attempts):
         ua = USER_AGENTS[attempt % len(USER_AGENTS)]
@@ -135,19 +257,7 @@ def fetch_z3_map(max_attempts: int = 3) -> dict[str, str]:
                 raise RuntimeError(f"getMarkers HTTP {response.status_code}: {response.text[:160]}")
 
             features = response.json().get("features", [])
-            cctvip_map: dict[str, str] = {}
-            for feature in features:
-                props = feature.get("properties", {})
-                info_str = props.get("INFO", "{}")
-                try:
-                    info = json.loads(info_str) if isinstance(info_str, str) else info_str
-                except Exception:
-                    continue
-                app_url = info.get("appUrl", "") if isinstance(info, dict) else ""
-                if app_url and "cctvsec.ktict.co.kr" in app_url:
-                    parts = app_url.split("/")
-                    if len(parts) >= 4:
-                        cctvip_map[parts[3]] = app_url
+            cctvip_map = extract_z3_app_urls(features)
 
             if not cctvip_map:
                 raise RuntimeError("no cctvsec appUrl entries extracted")
@@ -160,7 +270,8 @@ def fetch_z3_map(max_attempts: int = 3) -> dict[str, str]:
             if attempt < max_attempts - 1:
                 time.sleep(8 * (attempt + 1))
 
-    raise RuntimeError(f"all Z3 refresh attempts failed: {last_error}")
+    print(f"[WARN] requests refresh failed: {last_error}; trying curl fallback", file=sys.stderr)
+    return fetch_z3_map_with_curl(max_attempts)
 
 
 def z3_expected_cctvips(data_file: Path) -> set[str]:

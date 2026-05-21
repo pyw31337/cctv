@@ -9,12 +9,12 @@ let z3CachePromise = null;
 let z3CacheAgeMs = Infinity; // 캐시가 fetch된 이후 경과 시간 (ms)
 let z3CacheFetchedAt = null;
 let z3CacheSource = 'unknown';
-const Z3_CACHE_STALE_MS = 60 * 60 * 1000; // 60분 이상이면 브라우저 캐시 대신 Oracle 리졸버를 우선 사용
+const Z3_CACHE_STALE_MS = 60 * 60 * 1000; // 60분 이상이면 다음 캐시 후보 또는 실시간 리졸버를 사용
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260520-world-quality1';
+const APP_BUILD_VERSION = '20260521-jindo-z3-fix1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -199,6 +199,14 @@ async function loadZ3Cache() {
     ];
 
     z3CachePromise = (async () => {
+        let staleCandidate = null;
+        const adoptCacheCandidate = (candidate) => {
+            z3CacheData = candidate.data;
+            z3CacheFetchedAt = candidate.fetched;
+            z3CacheSource = candidate.source;
+            z3CacheAgeMs = candidate.ageMs;
+        };
+
         for (const url of urls) {
             try {
                 const response = await fetch(url, { cache: 'no-store' });
@@ -207,20 +215,34 @@ async function loadZ3Cache() {
                 const data = json.data || json;
                 if (!data || Object.keys(data).length === 0) throw new Error('empty z3 cache');
 
-                z3CacheData = data;
-                z3CacheFetchedAt = json.fetched || null;
-                z3CacheSource = json.source || (url.includes('/z3-cache.json') ? 'oracle' : 'static');
-                z3CacheAgeMs = z3CacheFetchedAt ? Date.now() - new Date(z3CacheFetchedAt).getTime() : Infinity;
-                const count = Object.keys(z3CacheData).length;
-                const ageMin = Math.round(z3CacheAgeMs / 60000);
-                console.log(`[Z3] Cache loaded from ${z3CacheSource}: ${count} entries (fetched: ${z3CacheFetchedAt}, age: ${ageMin}min)`);
-                if (z3CacheAgeMs > Z3_CACHE_STALE_MS) {
-                    console.warn(`[Z3] Cache is ${ageMin}min old — browser will skip static token and use Oracle resolver`);
+                const candidate = {
+                    data,
+                    fetched: json.fetched || null,
+                    source: json.source || (url.includes('/z3-cache.json') ? 'oracle' : 'static'),
+                    ageMs: json.fetched ? Date.now() - new Date(json.fetched).getTime() : Infinity
+                };
+                const count = Object.keys(candidate.data).length;
+                const ageMin = Math.round(candidate.ageMs / 60000);
+                console.log(`[Z3] Cache candidate ${candidate.source}: ${count} entries (fetched: ${candidate.fetched}, age: ${ageMin}min)`);
+                if (candidate.ageMs > Z3_CACHE_STALE_MS) {
+                    console.warn(`[Z3] Cache candidate ${candidate.source} is ${ageMin}min old — checking next candidate`);
+                    staleCandidate = staleCandidate || candidate;
+                    continue;
                 }
+                adoptCacheCandidate(candidate);
+                console.log(`[Z3] Cache loaded from ${z3CacheSource}: ${count} entries`);
                 return z3CacheData;
             } catch (error) {
                 console.warn('[Z3] Cache load skipped:', url, error.message || error);
             }
+        }
+
+        if (staleCandidate) {
+            adoptCacheCandidate(staleCandidate);
+            const count = Object.keys(z3CacheData).length;
+            const ageMin = Math.round(z3CacheAgeMs / 60000);
+            console.warn(`[Z3] Only stale cache is available from ${z3CacheSource}: ${count} entries (age: ${ageMin}min)`);
+            return z3CacheData;
         }
 
         z3CachePromise = null; // allow retry
@@ -3393,6 +3415,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         }
     }
 
+    const originalPlaybackUrl = url;
     const shouldProxy = url && !url.includes('cctv-proxy.pyw213.workers.dev');
     const sourceFallbackId = selectedOriginalId || cctv.original_id || ((cctv.id || '').includes('_') ? cctv.id.split('_').pop() : cctv.id);
     const selectedCctvIp = getUrlParam(url, 'cctvip') || sourceFallbackId;
@@ -3779,8 +3802,9 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.playsInline = true;
         video.setAttribute('playsinline', '');
 
-        const isZ3 = url.includes('kind=Z3');
-        const cctvipMatch = url.match(/[?&]cctvip=(\d+)/);
+        const uticSourceUrl = originalPlaybackUrl || url;
+        const isZ3 = selectedKind === 'Z3' || uticSourceUrl.includes('kind=Z3') || url.includes('kind=Z3');
+        const cctvipMatch = uticSourceUrl.match(/[?&]cctvip=(\d+)/) || url.match(/[?&]cctvip=(\d+)/);
         const z3CctvIp = isZ3 && cctvipMatch ? cctvipMatch[1] : null;
 
         (async () => {
@@ -3795,7 +3819,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
                             const cacheResp = await fetch(cacheWorkerUrl, { cache: 'no-store' });
                             if (cacheResp.ok) {
                                 const cacheText = (await cacheResp.text()).trim();
-                                if (cacheText && cacheText.startsWith('http')) streamUrl = cacheText;
+                                if (cacheText && cacheText.startsWith('http')) {
+                                    streamUrl = cacheText;
+                                    console.log(`[Z3] Resolved ${z3CctvIp} through ${z3CacheSource} cache (${Math.round(z3CacheAgeMs / 60000)}min old)`);
+                                }
                             }
                         }
                     } catch(e2) { console.warn('[Z3] 전략1 실패:', e2); }
@@ -3803,7 +3830,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                     // Z3 전략 2: cctv_data.json의 id 파라미터 사용 (fallback)
                     if (!streamUrl) {
                         try {
-                            const idParam = new URL(url).searchParams.get('id');
+                            const idParam = new URL(uticSourceUrl).searchParams.get('id');
                             if (idParam) {
                                 // URLSearchParams는 literal +를 space로 디코딩 → 복원
                                 const tokenUrl = `https://cctvsec.ktict.co.kr/${idParam.replace(/ /g, '+')}`;
@@ -3823,7 +3850,9 @@ function createVideoElement(cctv, sourceIndex = 0) {
                     if (!streamUrl) {
                         try {
                             let uticSearch = '';
-                            try { uticSearch = new URL(url).search.substring(1); } catch(e3) {}
+                            try { uticSearch = new URL(uticSourceUrl).search.substring(1); } catch(e3) {
+                                try { uticSearch = new URL(url).search.substring(1); } catch(e4) {}
+                            }
                             if (uticSearch) streamUrl = `${ORACLE_BASE}/utic?${uticSearch}&_t=${Date.now()}`;
                         } catch(e2) { console.warn('[Z3] 전략3 실패:', e2); }
                     }
@@ -3851,8 +3880,11 @@ function createVideoElement(cctv, sourceIndex = 0) {
                         capLevelToPlayerSize: true,
                         maxBufferLength: 30,
                         maxMaxBufferLength: 60,
-                        fragLoadingTimeOut: 30000,
-                        manifestLoadingTimeOut: 15000,
+                        fragLoadingTimeOut: isZ3 ? 16000 : 30000,
+                        manifestLoadingTimeOut: isZ3 ? 9000 : 15000,
+                        manifestLoadingMaxRetry: isZ3 ? 1 : 2,
+                        levelLoadingMaxRetry: isZ3 ? 1 : 2,
+                        fragLoadingMaxRetry: isZ3 ? 2 : 4,
                     });
                     hls.loadSource(streamUrl);
                     hls.attachMedia(video);
