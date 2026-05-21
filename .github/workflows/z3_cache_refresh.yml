@@ -13,8 +13,8 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: z3-cache-refresh
-      cancel-in-progress: true
+      group: cctv-repo-writes
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -31,12 +31,8 @@ jobs:
 
       - name: Commit and push if changed
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/z3_cache.json data/cache_status.json
-          if git diff --staged --quiet; then
+          if git diff --quiet -- data/z3_cache.json data/cache_status.json; then
             echo "No cache changes"
           else
-            git commit -m "AUTO: Refresh Z3 appUrl cache [skip ci]"
-            git push
+            scripts/commit_and_push_changes.sh "AUTO: Refresh Z3 appUrl cache [skip ci]" data/z3_cache.json data/cache_status.json
           fi

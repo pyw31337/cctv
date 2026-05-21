@@ -24,8 +24,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: auto-bump-build-version
-  cancel-in-progress: true
+  group: cctv-repo-writes
+  cancel-in-progress: false
 
 jobs:
   bump:
@@ -78,8 +78,4 @@ jobs:
             echo "No version token changes needed; skipping commit."
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add js/app.js index.html sw.js 2>/dev/null || true
-          git commit -m "chore: bump build version to ${VERSION} [skip ci]"
-          git push
+          scripts/commit_and_push_changes.sh "chore: bump build version to ${VERSION} [skip ci]" js/app.js index.html sw.js

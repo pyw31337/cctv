@@ -14,8 +14,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: refresh-quality-summary
-  cancel-in-progress: true
+  group: cctv-repo-writes
+  cancel-in-progress: false
 
 env:
   SUMMARY_ENDPOINT: https://cctv-quality.pyw31337.workers.dev/v1/summary
@@ -65,11 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! git diff --quiet -- "$OUTPUT_PATH"; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add "$OUTPUT_PATH"
-            git commit -m "chore(data): refresh quality_summary.json [skip ci]"
-            git push
+            scripts/commit_and_push_changes.sh "chore(data): refresh quality_summary.json [skip ci]" "$OUTPUT_PATH"
           else
             echo "No change in $OUTPUT_PATH — skipping commit."
           fi

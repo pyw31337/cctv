@@ -14,8 +14,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: gits-daily-ingest
-  cancel-in-progress: true
+  group: cctv-repo-writes
+  cancel-in-progress: false
 
 jobs:
   ingest:
@@ -41,8 +41,5 @@ jobs:
         run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
 
       - name: Commit changes
-        uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: "chore: daily GITS ingest [skip ci]"
-          file_pattern: "cctv_data.json"
-          branch: main
+        run: |
+          scripts/commit_and_push_changes.sh "chore: daily GITS ingest [skip ci]" cctv_data.json

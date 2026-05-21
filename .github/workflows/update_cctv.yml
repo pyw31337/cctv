@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: update-cctv-data
-  cancel-in-progress: true
+  group: cctv-repo-writes
+  cancel-in-progress: false
 
 jobs:
   update-data:
@@ -61,32 +61,4 @@ jobs:
       - name: Commit and push changes
         if: steps.check_changes.outputs.changes_detected == 'true'
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add cctv_data.json
-          git commit -m "Auto-update: CCTV data (Validated) [skip ci]"
-          
-          # Retry loop for push to handle concurrent updates from other workflows (e.g. Sentinel)
-          for i in {1..5}; do
-            echo "Push attempt $i..."
-            if git pull --rebase origin main; then
-              if git push; then
-                echo "Successfully pushed changes."
-                exit 0
-              fi
-            else
-              echo "Rebase conflict! Using our generated cctv_data.json"
-              git checkout --theirs cctv_data.json
-              git add cctv_data.json
-              GIT_EDITOR=true git rebase --continue
-              if git push; then
-                echo "Successfully pushed after resolving conflict."
-                exit 0
-              fi
-            fi
-            echo "Push failed, aborting rebase and retrying in 10 seconds..."
-            git rebase --abort || true
-            sleep 10
-          done
-          echo "Failed to push after 5 attempts."
-          exit 1
+          scripts/commit_and_push_changes.sh "Auto-update: CCTV data (Validated) [skip ci]" cctv_data.json

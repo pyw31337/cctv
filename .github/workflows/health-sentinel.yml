@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: regional-health-sentinel
-  cancel-in-progress: true
+  group: cctv-repo-writes
+  cancel-in-progress: false
 
 jobs:
   health-check:
@@ -36,14 +36,9 @@ jobs:
           
       - name: Commit and Push Status
         run: |
-          git config --global user.name 'Sentinel Bot'
-          git config --global user.email 'actions@github.com'
           # Check if data/status.json was modified
           if [[ -n $(git status -s data/status.json) ]]; then
-            git add data/status.json
-            git commit -m "AUTO: Update Regional Health Status [skip ci]"
-            git pull --rebase origin main
-            git push
+            GIT_COMMIT_USER_NAME='Sentinel Bot' GIT_COMMIT_USER_EMAIL='actions@github.com' scripts/commit_and_push_changes.sh "AUTO: Update Regional Health Status [skip ci]" data/status.json
           else
             echo "No changes in health status."
           fi
