@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-380bf3e8';
+const APP_BUILD_VERSION = '20260521-pr8-split-view';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -6387,21 +6387,18 @@ function bindWorldTourListPanel(root, cams, selected) {
 
         const videoButton = event.target.closest('[data-world-tour-list-video]');
         if (videoButton) {
-            state.worldTourListOpen = false;
             renderWorldTourCams(videoButton.dataset.worldTourListVideo, { viewMode: 'video' });
             return;
         }
 
         const mapButton = event.target.closest('[data-world-tour-list-map]');
         if (mapButton) {
-            state.worldTourListOpen = false;
             renderWorldTourCams(mapButton.dataset.worldTourListMap, { viewMode: 'map' });
             return;
         }
 
         const item = event.target.closest('[data-world-tour-list-item]');
         if (item) {
-            state.worldTourListOpen = false;
             renderWorldTourCams(item.dataset.worldTourListItem, { viewMode: state.worldTourViewMode });
         }
     });
@@ -6411,7 +6408,6 @@ function bindWorldTourListPanel(root, cams, selected) {
         const item = event.target.closest('[data-world-tour-list-item]');
         if (!item) return;
         event.preventDefault();
-        state.worldTourListOpen = false;
         renderWorldTourCams(item.dataset.worldTourListItem, { viewMode: state.worldTourViewMode });
     });
 }

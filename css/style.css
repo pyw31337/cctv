@@ -4124,3 +4124,21 @@ body.world-tour-active #pwa-install-prompt {
 .cctv-favorite-item--world .source-dot {
     background: linear-gradient(135deg, #34d399, #38bdf8);
 }
+
+/* PR8 panel-aware hero gutter: while the right list panel is open the
+ * world-tour shell carries .is-searching. Push the hero (map or video)
+ * away from the right edge by the panel width so the visible left area
+ * shows the content centered, not hidden under the 430px panel. */
+@media (min-width: 720px) {
+    .world-tour-shell.is-searching .world-tour-hero {
+        right: min(430px, 100vw);
+    }
+    .world-tour-shell.is-searching .world-tour-map-stage {
+        right: min(430px, 100vw);
+    }
+    .world-tour-shell.is-searching .world-tour-video {
+        margin-left: auto;
+        margin-right: auto;
+        max-width: 100%;
+    }
+}
