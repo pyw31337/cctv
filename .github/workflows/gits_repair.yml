@@ -1,44 +1,42 @@
-name: GITS Stream Repair
+name: GITS Daily Ingest
+
+# GITS 카메라 (경기도) 1,800+개의 popup token 은 단기 만료성이라 daily fresh ingest 필요.
+# 이전엔 cctv-proxy worker /gits 가 실시간 fetch 했으나 Oracle /gits 가 hang 하면서 망가짐.
+# popup 자체는 살아있어서 collectors.gits.GitsCollector 로 직접 긁어 cctv_data.json 에 넣는다.
 
 on:
-  # Disabled: GITS tokens now fetched in real-time via CF Worker /gits endpoint
-  # schedule:
-  #   - cron: '0 */2 * * *'
+  schedule:
+    # 매일 새벽 4시 KST (= 19:00 UTC 전날)
+    - cron: '0 19 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
 
-jobs:
-  repair-gits:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+concurrency:
+  group: gits-daily-ingest
+  cancel-in-progress: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
+        run: pip install requests urllib3
 
-      - name: Run GITS Repair
-        run: python scripts/repair_gits_streams.py
+      - name: Run GITS ingest
+        run: python scripts/ingest_gits.py
 
-      - name: Commit and push changes
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          # Check if cctv_data.json was modified
-          if [[ -n $(git status -s cctv_data.json) ]]; then
-            git add cctv_data.json
-            git commit -m "chore: auto-repair GITS streams"
-            git pull --rebase origin main
-            git push
-          else
-            echo "No repairs needed."
-          fi
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "chore: daily GITS ingest"
+          file_pattern: "cctv_data.json"
+          branch: main
