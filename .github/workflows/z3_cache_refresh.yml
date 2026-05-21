@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Refresh and audit Z3 cache
-        run: python scripts/refresh_z3_cache.py --max-age-minutes 45 --force
+        run: python scripts/refresh_z3_cache.py --max-age-minutes 45 --force --stale-ok-on-refresh-failure-hours 36
 
       - name: Commit and push if changed
         run: |
