@@ -18,7 +18,7 @@ def save_json(filepath, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def main():
-    print("Disabling broken streams...")
+    print("Flagging broken streams for manual_check (preserve list/markers)...")
     
     failed_data = load_json(FAILED_STREAMS_FILE)
     cctv_data = load_json(CCTV_DATA_FILE)
@@ -35,21 +35,22 @@ def main():
     for item in failures.get("http_404", []):
         target_ids.add(item["id"])
         
-    print(f"Found {len(target_ids)} streams with 404 errors to disable.")
+    print(f"Found {len(target_ids)} streams with 404 errors to flag for review.")
     
     # Apply to cctv_data
-    disabled_count = 0
+    flagged_count = 0
     for item in cctv_data:
         if item.get("id") in target_ids:
-            if item.get("status") != "inactive":
-                item["status"] = "inactive"
-                item["status_note"] = "Auto-disabled: Returned 404 during health check"
-                disabled_count += 1
-                print(f"Disabling {item['name']} ({item['id']})")
+            if item.get("status") != "manual_check" or item.get("health_reason") != "health_check_http_404":
+                item["status"] = "manual_check"
+                item["health_reason"] = "health_check_http_404"
+                item["status_note"] = "Review needed: Returned 404 during health check"
+                flagged_count += 1
+                print(f"Flagging {item['name']} ({item['id']})")
                 
-    if disabled_count > 0:
+    if flagged_count > 0:
         save_json(CCTV_DATA_FILE, cctv_data)
-        print(f"Successfully disabled {disabled_count} streams.")
+        print(f"Successfully flagged {flagged_count} streams for review.")
     else:
         print("No active streams matched the failure list.")
 

@@ -31,6 +31,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
+      - name: Snapshot current dataset
+        run: cp cctv_data.json /tmp/cctv_data.before.json
+
       - name: Run optimized sync
         run: python collect_cctv_data.py --force --duration 3.0
 
@@ -40,6 +43,10 @@ jobs:
           echo "Running validation..."
           python validate_cctv_data.py
           echo "validation_passed=true" >> $GITHUB_OUTPUT
+
+      - name: Guard data preservation
+        if: steps.validate.outputs.validation_passed == 'true'
+        run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses --max-drop-ratio 0.05
 
       - name: Check for changes
         id: check_changes
@@ -57,7 +64,7 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add cctv_data.json
-          git commit -m "Auto-update: CCTV data (Validated)"
+          git commit -m "Auto-update: CCTV data (Validated) [skip ci]"
           
           # Retry loop for push to handle concurrent updates from other workflows (e.g. Sentinel)
           for i in {1..5}; do

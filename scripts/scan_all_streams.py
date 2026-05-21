@@ -27,9 +27,7 @@ def check_stream(item):
     if not url:
         return None
         
-    # Skip if already inactive
-    if item.get("status") in ["inactive", "broken"]:
-        return None
+    # Keep review items in the dataset; do not hide them from future checks.
 
     # Focus on HLS/MP4
     is_video = False
@@ -62,9 +60,9 @@ def main():
     data = load_json(CCTV_DATA_FILE)
     
     # Filter for HLS/MP4
-    targets = [item for item in data if (".m3u8" in item.get("url", "") or ".mp4" in item.get("url", "")) and item.get("status") not in ["inactive", "broken"]]
+    targets = [item for item in data if (".m3u8" in item.get("url", "") or ".mp4" in item.get("url", ""))]
     
-    print(f"Found {len(targets)} active HLS/MP4 streams to check.")
+    print(f"Found {len(targets)} HLS/MP4 streams to check.")
     
     broken_ids = []
     
@@ -85,16 +83,17 @@ def main():
     print(f"Scan complete. Found {len(broken_ids)} broken streams.")
     
     if broken_ids:
-        print("Disabling broken streams...")
-        disabled_count = 0
+        print("Flagging broken streams for manual_check...")
+        flagged_count = 0
         for item in data:
             if item.get("id") in broken_ids:
-                item["status"] = "inactive"
-                item["status_note"] = "Auto-disabled: 404 during full scan"
-                disabled_count += 1
+                item["status"] = "manual_check"
+                item["health_reason"] = "full_scan_http_404"
+                item["status_note"] = "Review needed: 404 during full scan"
+                flagged_count += 1
         
         save_json(CCTV_DATA_FILE, data)
-        print(f"Saved {disabled_count} updates to {CCTV_DATA_FILE}")
+        print(f"Saved {flagged_count} review updates to {CCTV_DATA_FILE}")
 
 if __name__ == "__main__":
     main()

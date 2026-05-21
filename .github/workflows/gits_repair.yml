@@ -31,12 +31,18 @@ jobs:
       - name: Install dependencies
         run: pip install requests urllib3
 
+      - name: Snapshot current dataset
+        run: cp cctv_data.json /tmp/cctv_data.before.json
+
       - name: Run GITS ingest
         run: python scripts/ingest_gits.py
+
+      - name: Guard data preservation
+        run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
 
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          commit_message: "chore: daily GITS ingest"
+          commit_message: "chore: daily GITS ingest [skip ci]"
           file_pattern: "cctv_data.json"
           branch: main

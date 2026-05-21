@@ -29,15 +29,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests urllib3
 
+      - name: Snapshot current dataset
+        run: cp cctv_data.json /tmp/cctv_data.before.json
+
       - name: Run Health Check (Detect Failures)
         run: python monitor_health.py || true # Allow failure to proceed to renewal
 
       - name: Run Auto-Renewal
         run: python scripts/renew_cctv_urls.py
 
+      - name: Guard data preservation
+        run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
+
       - name: Commit and Push Changes
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          commit_message: "chore: auto-renew broken cctv urls"
+          commit_message: "chore: auto-renew broken cctv urls [skip ci]"
           file_pattern: "cctv_data.json"
           branch: main

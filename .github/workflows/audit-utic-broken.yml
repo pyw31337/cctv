@@ -24,8 +24,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Snapshot current dataset
+        run: cp cctv_data.json /tmp/cctv_data.before.json
+
       - name: Run audit
         run: python scripts/audit_utic_broken.py
+
+      - name: Guard data preservation
+        run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
 
       - name: Commit results
         uses: stefanzweifel/git-auto-commit-action@v4
