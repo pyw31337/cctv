@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-ui-refresh2';
+const APP_BUILD_VERSION = '20260521-snapshot-playback';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -4939,7 +4939,21 @@ function renderWorldTourHashTags(cam) {
 }
 
 function canPlayWorldTourInApp(cam) {
-    return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
+    // A cam is "playable in-app" if we can render *any* live representation
+    // inside our page — either a video/iframe player or an auto-refreshing
+    // snapshot image (HK Traffic / USGS / Panomax / Roundshot).
+    return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl || cam?.snapshotUrl);
+}
+
+// Returns a suggested refresh cadence (ms) for snapshot-based cameras.
+// Conservative defaults keep CDN load reasonable while feeling "live".
+function getWorldTourSnapshotRefreshMs(cam) {
+    const sourceType = (cam?.sourceType || '').toLowerCase();
+    if (sourceType === 'hktraffic') return 30_000;     // HK CCTV: 30s
+    if (sourceType === 'usgsvolcano') return 60_000;   // USGS volc: 1min
+    if (sourceType === 'panomax') return 5 * 60_000;   // Panomax: 5min
+    if (sourceType === 'roundshot') return 0;          // Roundshot URL is dated; no refresh
+    return 60_000;
 }
 
 function isWorldTourHlsUrl(url) {
@@ -5524,43 +5538,94 @@ function renderWorldTourVideoHero(selected) {
     const embedUrl = getWorldTourEmbedUrl(selected);
     const sourceLabel = getWorldTourSourceLabel(selected);
     const isDirectVideo = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl);
+    const snapshotUrl = !embedUrl ? (selected.snapshotUrl || '') : '';
 
-    return `
-        <section class="world-tour-hero">
-            ${embedUrl && isDirectVideo ? `
-                <div class="world-tour-video">
-                    <video
-                        class="world-tour-direct-video"
-                        data-world-tour-stream="${escapeWorldTourHtml(embedUrl)}"
-                        data-world-tour-title="${escapeWorldTourHtml(selected.title)}"
-                        autoplay
-                        muted
-                        playsinline
-                        controls
-                    ></video>
-                    <div class="world-tour-video-loading">영상을 불러오는 중...</div>
+    let mediaHtml;
+    if (embedUrl && isDirectVideo) {
+        mediaHtml = `
+            <div class="world-tour-video">
+                <video
+                    class="world-tour-direct-video"
+                    data-world-tour-stream="${escapeWorldTourHtml(embedUrl)}"
+                    data-world-tour-title="${escapeWorldTourHtml(selected.title)}"
+                    autoplay muted playsinline controls
+                ></video>
+                <div class="world-tour-video-loading">영상을 불러오는 중...</div>
+            </div>`;
+    } else if (embedUrl) {
+        mediaHtml = `
+            <div class="world-tour-video">
+                <iframe
+                    src="${escapeWorldTourHtml(embedUrl)}"
+                    title="${escapeWorldTourHtml(selected.title)}"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen
+                ></iframe>
+            </div>`;
+    } else if (snapshotUrl) {
+        // In-app snapshot playback for sources without an embeddable player
+        // (HK Traffic, USGS VolcView, Panomax, Roundshot). The image auto-
+        // refreshes via initWorldTourSnapshotRefresh after the DOM mounts.
+        const refreshMs = getWorldTourSnapshotRefreshMs(selected);
+        mediaHtml = `
+            <div class="world-tour-video world-tour-snapshot-hero">
+                <img
+                    class="world-tour-snapshot-img"
+                    src="${escapeWorldTourHtml(snapshotUrl)}"
+                    alt="${escapeWorldTourHtml(selected.title)} 실시간 스냅샷"
+                    data-world-tour-snapshot="${escapeWorldTourHtml(snapshotUrl)}"
+                    data-world-tour-snapshot-refresh="${refreshMs}"
+                    loading="eager"
+                    decoding="async"
+                />
+                <div class="world-tour-snapshot-overlay">
+                    <span class="world-tour-snapshot-badge">${escapeWorldTourHtml(sourceLabel)} 실시간 스냅샷</span>
+                    ${refreshMs > 0 ? `<span class="world-tour-snapshot-meta">${Math.round(refreshMs / 1000)}초마다 자동 새로고침</span>` : '<span class="world-tour-snapshot-meta">최신 캡처 이미지</span>'}
                 </div>
-            ` : embedUrl ? `
-                <div class="world-tour-video">
-                    <iframe
-                        src="${escapeWorldTourHtml(embedUrl)}"
-                        title="${escapeWorldTourHtml(selected.title)}"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        allowfullscreen
-                    ></iframe>
+            </div>`;
+    } else {
+        mediaHtml = `
+            <div class="world-tour-video world-tour-external-preview">
+                ${selected.thumbnailUrl ? `<img src="${escapeWorldTourHtml(selected.thumbnailUrl)}" alt="${escapeWorldTourHtml(selected.title)} preview" loading="lazy">` : ''}
+                <div class="world-tour-external-copy">
+                    <span>${escapeWorldTourHtml(sourceLabel)} 공식 플레이어</span>
+                    <strong>이 영상은 원본 사이트에서 안정적으로 재생됩니다.</strong>
+                    <a href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본에서 보기</a>
                 </div>
-            ` : `
-                <div class="world-tour-video world-tour-external-preview">
-                    ${selected.thumbnailUrl ? `<img src="${escapeWorldTourHtml(selected.thumbnailUrl)}" alt="${escapeWorldTourHtml(selected.title)} preview" loading="lazy">` : ''}
-                    <div class="world-tour-external-copy">
-                        <span>${escapeWorldTourHtml(sourceLabel)} 공식 플레이어</span>
-                        <strong>이 영상은 원본 사이트에서 안정적으로 재생됩니다.</strong>
-                        <a href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본에서 보기</a>
-                    </div>
-                </div>
-            `}
-        </section>
-    `;
+            </div>`;
+    }
+
+    return `<section class="world-tour-hero">${mediaHtml}</section>`;
+}
+
+// Auto-refreshes the snapshot img every N ms. Adds a cache-busting query
+// param so the browser doesn't serve a stale cached copy. Cleans up its
+// interval when the element is removed.
+let _worldTourSnapshotTimers = new WeakMap();
+function initWorldTourSnapshotRefresh() {
+    document.querySelectorAll('.world-tour-snapshot-img[data-world-tour-snapshot]').forEach(img => {
+        // De-dupe — avoid stacking intervals when re-render happens.
+        const prev = _worldTourSnapshotTimers.get(img);
+        if (prev) {
+            clearInterval(prev);
+            _worldTourSnapshotTimers.delete(img);
+        }
+        const refreshMs = Number(img.dataset.worldTourSnapshotRefresh || 0);
+        if (!refreshMs || refreshMs < 5000) return; // skip static-image sources
+        const baseUrl = img.dataset.worldTourSnapshot;
+        if (!baseUrl) return;
+        const timer = setInterval(() => {
+            if (!img.isConnected) {
+                clearInterval(timer);
+                _worldTourSnapshotTimers.delete(img);
+                return;
+            }
+            if (document.hidden) return; // pause when tab not visible
+            const sep = baseUrl.includes('?') ? '&' : '?';
+            img.src = `${baseUrl}${sep}_=${Date.now()}`;
+        }, refreshMs);
+        _worldTourSnapshotTimers.set(img, timer);
+    });
 }
 
 function renderWorldTourMapHero(selected, visibleCams) {
@@ -6023,7 +6088,10 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         if (state.worldTourViewMode === 'map') {
             requestAnimationFrame(() => initWorldTourMap(selected, visibleCams));
         } else {
-            requestAnimationFrame(initWorldTourVideoPlayback);
+            requestAnimationFrame(() => {
+                initWorldTourVideoPlayback();
+                initWorldTourSnapshotRefresh();
+            });
         }
     } catch (error) {
         console.error('[WorldTour] failed to load:', error);
