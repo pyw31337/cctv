@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-aaabe56b';
+const APP_BUILD_VERSION = '20260521-pr4-unified-favorites';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -3179,47 +3179,15 @@ function updateNearestCctvs() {
     state.nearestCctvs = ordered.slice(0, NEAREST_RESULT_LIMIT);
 }
 
-// Restructures #video-grid into a 1-big + 3-thumb layout on narrow screens.
-// Wraps slots 1-3 in a horizontal-scroll strip so users can swipe between them.
-function applyMobileVideoGridLayout() {
-    const grid = document.getElementById('video-grid');
-    if (!grid) return;
-    const isNarrow = window.matchMedia('(max-width: 600px)').matches;
-    const existingStrip = grid.querySelector(':scope > .video-thumb-strip');
-
-    if (isNarrow) {
-        if (existingStrip) return; // already wrapped
-        const strip = document.createElement('div');
-        strip.className = 'video-thumb-strip';
-        const thumbs = Array.from(grid.querySelectorAll(':scope > .video-panel'))
-            .filter(panel => panel.dataset.slot !== '0');
-        thumbs.forEach(thumb => strip.appendChild(thumb));
-        grid.appendChild(strip);
-        grid.classList.add('video-grid-mobile-1plus3');
-    } else if (existingStrip) {
-        Array.from(existingStrip.children).forEach(child => grid.appendChild(child));
-        existingStrip.remove();
-        grid.classList.remove('video-grid-mobile-1plus3');
-    }
-}
-
-let _mobileGridResizeBound = false;
-function bindMobileVideoGridResponsiveness() {
-    if (_mobileGridResizeBound) return;
-    _mobileGridResizeBound = true;
-    const handler = () => applyMobileVideoGridLayout();
-    if (window.matchMedia) {
-        try { window.matchMedia('(max-width: 600px)').addEventListener('change', handler); }
-        catch (_) { window.addEventListener('resize', handler); }
-    } else {
-        window.addEventListener('resize', handler);
-    }
-}
-
+// (Mobile 1+3 layout removed by user request — keep simple 2×2 / 1×4 grid.)
 function renderVideoGrid() {
     const grid = $('#video-grid');
-    applyMobileVideoGridLayout();
-    bindMobileVideoGridResponsiveness();
+    const strayStrip = grid.querySelector(':scope > .video-thumb-strip');
+    if (strayStrip) {
+        Array.from(strayStrip.children).forEach(child => grid.appendChild(child));
+        strayStrip.remove();
+        grid.classList.remove('video-grid-mobile-1plus3');
+    }
     const panels = grid.querySelectorAll('.video-panel');
     const visiblePanelCount = panels.length;
 
@@ -5446,122 +5414,94 @@ function isWorldTourRegionAvailable(region) {
     return region === WORLD_TOUR_FAVORITE_REGION || WORLD_TOUR_REGIONS.includes(region);
 }
 
-function hydrateWorldTourFavorites() {
+// === Unified favorites store ===========================================
+const UNIFIED_FAVORITES_STORAGE_KEY = 'cctv_favorites_unified_v1';
+function hydrateUnifiedFavorites() {
     try {
-        const raw = localStorage.getItem(WORLD_TOUR_FAVORITES_STORAGE_KEY);
-        const favoriteIds = raw ? JSON.parse(raw) : [];
-        state.worldTourFavorites = new Set(Array.isArray(favoriteIds) ? favoriteIds.map(String).filter(Boolean) : []);
+        const raw = localStorage.getItem(UNIFIED_FAVORITES_STORAGE_KEY);
+        const ids = raw ? JSON.parse(raw) : [];
+        state.unifiedFavorites = new Set(Array.isArray(ids) ? ids.map(String).filter(Boolean) : []);
     } catch (error) {
-        console.warn('[WorldTour] failed to restore favorites:', error);
-        state.worldTourFavorites = new Set();
+        console.warn('[Favorites] failed to restore:', error);
+        state.unifiedFavorites = new Set();
     }
+    let migrated = false;
+    [WORLD_TOUR_FAVORITES_STORAGE_KEY, CCTV_FAVORITES_STORAGE_KEY].forEach(legacyKey => {
+        try {
+            const raw = localStorage.getItem(legacyKey);
+            if (!raw) return;
+            const ids = JSON.parse(raw);
+            if (Array.isArray(ids)) {
+                ids.map(String).filter(Boolean).forEach(id => state.unifiedFavorites.add(id));
+                localStorage.removeItem(legacyKey);
+                migrated = true;
+            }
+        } catch (_) {}
+    });
+    if (migrated) persistUnifiedFavorites();
+    state.worldTourFavorites = state.unifiedFavorites;
+    state.cctvFavorites = state.unifiedFavorites;
 }
-
-function getWorldTourFavoriteIds() {
-    if (!(state.worldTourFavorites instanceof Set)) {
-        hydrateWorldTourFavorites();
-    }
-    return state.worldTourFavorites;
+function getUnifiedFavoriteIds() {
+    if (!(state.unifiedFavorites instanceof Set)) hydrateUnifiedFavorites();
+    return state.unifiedFavorites;
 }
-
-function persistWorldTourFavorites() {
-    try {
-        const favoriteIds = [...getWorldTourFavoriteIds()];
-        localStorage.setItem(WORLD_TOUR_FAVORITES_STORAGE_KEY, JSON.stringify(favoriteIds));
-    } catch (error) {
-        console.warn('[WorldTour] failed to save favorites:', error);
-    }
+function persistUnifiedFavorites() {
+    try { localStorage.setItem(UNIFIED_FAVORITES_STORAGE_KEY, JSON.stringify([...getUnifiedFavoriteIds()])); }
+    catch (e) { console.warn('[Favorites] save failed:', e); }
 }
+function isUnifiedFavorite(o) {
+    const id = typeof o === 'object' ? o?.id : o;
+    return Boolean(id && getUnifiedFavoriteIds().has(String(id)));
+}
+function toggleUnifiedFavorite(o) {
+    const id = typeof o === 'object' ? o?.id : o;
+    if (!id) return false;
+    const f = getUnifiedFavoriteIds(); const k = String(id);
+    const will = !f.has(k);
+    if (will) f.add(k); else f.delete(k);
+    persistUnifiedFavorites();
+    return will;
+}
+function hydrateWorldTourFavorites() { hydrateUnifiedFavorites(); }
+function hydrateCctvFavorites() { hydrateUnifiedFavorites(); }
+function getWorldTourFavoriteIds() { return getUnifiedFavoriteIds(); }
+function getCctvFavoriteIds() { return getUnifiedFavoriteIds(); }
+function persistWorldTourFavorites() { persistUnifiedFavorites(); }
+function persistCctvFavorites() { persistUnifiedFavorites(); }
+function isWorldTourFavorite(o) { return isUnifiedFavorite(o); }
+function isCctvFavorite(o) { return isUnifiedFavorite(o); }
+function toggleWorldTourFavorite(id) { return toggleUnifiedFavorite(id); }
+function toggleCctvFavorite(o) { return toggleUnifiedFavorite(o); }
 
 function pruneWorldTourFavorites(cams) {
-    const favorites = getWorldTourFavoriteIds();
-    if (!favorites.size) return;
-
-    const availableIds = new Set(cams.map(cam => String(cam.id)));
+    const f = getUnifiedFavoriteIds();
+    if (!f.size) return;
+    const camIds = new Set(cams.map(c => String(c.id)));
+    const wtPrefix = /^(?:earthcam|baltic|skyline|hktraffic|usgsvolcano|panomax|roundshot|worldcam|webcamtaxi|youtube|external|africam|alertcalifornia|aurorainfo|bergfex|camscape|cctvworld|climaaovivo|dctraffic|explore|feratel|gigaeyes|hdontap|idokep|japanwebcams|liveworldwebcams|livecamcroatia|livebeaches|nswtraffic|openwebcamdb|panoramask|ptztv|publictraffic|railcam|spacecam|surfline|tabi|twlivecam|viewsurf|weatherbug|webcamhopper|webcamera24|webcamsdemexico|wetter|whatsupcams|windy|worldcamtv|worldcamlive)/i;
     let changed = false;
-    favorites.forEach(id => {
-        if (!availableIds.has(id)) {
-            favorites.delete(id);
-            changed = true;
-        }
-    });
-    if (changed) persistWorldTourFavorites();
-}
-
-function isWorldTourFavorite(camOrId) {
-    const id = typeof camOrId === 'object' ? camOrId?.id : camOrId;
-    return Boolean(id && getWorldTourFavoriteIds().has(String(id)));
-}
-
-function toggleWorldTourFavorite(camId) {
-    if (!camId) return false;
-    const favorites = getWorldTourFavoriteIds();
-    const id = String(camId);
-    const willActivate = !favorites.has(id);
-    if (willActivate) {
-        favorites.add(id);
-    } else {
-        favorites.delete(id);
-    }
-    persistWorldTourFavorites();
-    return willActivate;
-}
-
-// === General CCTV favorites (출근길 카메라 등) ===
-function hydrateCctvFavorites() {
-    try {
-        const raw = localStorage.getItem(CCTV_FAVORITES_STORAGE_KEY);
-        const ids = raw ? JSON.parse(raw) : [];
-        state.cctvFavorites = new Set(Array.isArray(ids) ? ids.map(String).filter(Boolean) : []);
-    } catch (error) {
-        console.warn('[CCTV] failed to restore favorites:', error);
-        state.cctvFavorites = new Set();
-    }
-}
-
-function getCctvFavoriteIds() {
-    if (!(state.cctvFavorites instanceof Set)) hydrateCctvFavorites();
-    return state.cctvFavorites;
-}
-
-function persistCctvFavorites() {
-    try {
-        localStorage.setItem(CCTV_FAVORITES_STORAGE_KEY, JSON.stringify([...getCctvFavoriteIds()]));
-    } catch (error) {
-        console.warn('[CCTV] failed to save favorites:', error);
-    }
-}
-
-function isCctvFavorite(cctvOrId) {
-    const id = typeof cctvOrId === 'object' ? cctvOrId?.id : cctvOrId;
-    return Boolean(id && getCctvFavoriteIds().has(String(id)));
-}
-
-function toggleCctvFavorite(cctvOrId) {
-    const id = typeof cctvOrId === 'object' ? cctvOrId?.id : cctvOrId;
-    if (!id) return false;
-    const favorites = getCctvFavoriteIds();
-    const key = String(id);
-    const willActivate = !favorites.has(key);
-    if (willActivate) favorites.add(key); else favorites.delete(key);
-    persistCctvFavorites();
-    return willActivate;
+    f.forEach(id => { if (wtPrefix.test(id) && !camIds.has(id)) { f.delete(id); changed = true; } });
+    if (changed) persistUnifiedFavorites();
 }
 
 function getFavoriteCctvs() {
-    const favorites = getCctvFavoriteIds();
-    if (!favorites.size) return [];
-    const result = [];
-    favorites.forEach(id => {
-        const found = findCctvById(id);
-        if (found) result.push(found);
-    });
-    return result;
+    const f = getUnifiedFavoriteIds();
+    if (!f.size) return [];
+    const r = [];
+    f.forEach(id => { const c = findCctvById(id); if (c) r.push(c); });
+    return r;
+}
+function getFavoriteWorldTourCams() {
+    const f = getUnifiedFavoriteIds();
+    if (!f.size) return [];
+    const cams = (state.worldTourCams && state.worldTourCams.items) || (Array.isArray(state.worldTourCams) ? state.worldTourCams : []);
+    if (!Array.isArray(cams)) return [];
+    return cams.filter(c => f.has(String(c.id)));
 }
 
 function renderCctvFavoriteButton(cctv) {
     const active = isCctvFavorite(cctv);
-    const title = active ? '즐겨찾기 해제' : '출근길 즐겨찾기에 추가';
+    const title = active ? '즐겨찾기 해제' : '즐겨찾기 추가';
     return `
         <button id="video-layer-favorite" class="layer-action-btn favorite-toggle ${active ? 'active' : ''}" title="${title}" aria-pressed="${active}" aria-label="${title}">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="${active ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -5569,6 +5509,7 @@ function renderCctvFavoriteButton(cctv) {
             </svg>
         </button>`;
 }
+
 
 function renderWorldTourFavoriteButton(cam, variant = 'card') {
     const isActive = isWorldTourFavorite(cam);
@@ -6957,7 +6898,7 @@ function openVideoLayer(cctv) {
         const active = isCctvFavorite(displayCctv);
         favoriteBtn.classList.toggle('active', active);
         favoriteBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        const title = active ? '즐겨찾기 해제' : '출근길 즐겨찾기에 추가';
+        const title = active ? '즐겨찾기 해제' : '즐겨찾기 추가';
         favoriteBtn.title = title;
         favoriteBtn.setAttribute('aria-label', title);
         const svg = favoriteBtn.querySelector('svg');
@@ -6968,7 +6909,7 @@ function openVideoLayer(cctv) {
         const nowActive = toggleCctvFavorite(displayCctv);
         favoriteBtn.classList.toggle('active', nowActive);
         favoriteBtn.setAttribute('aria-pressed', nowActive ? 'true' : 'false');
-        const t = nowActive ? '즐겨찾기 해제' : '출근길 즐겨찾기에 추가';
+        const t = nowActive ? '즐겨찾기 해제' : '즐겨찾기 추가';
         favoriteBtn.title = t;
         favoriteBtn.setAttribute('aria-label', t);
         const svg = favoriteBtn.querySelector('svg');
