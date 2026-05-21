@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-32a328ad';
+const APP_BUILD_VERSION = '20260521-zoom-cap-10';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -4715,16 +4715,25 @@ function initMap() {
     };
 
     map = new kakao.maps.Map(container, options);
-    // Cap the zoom-out so users don't end up looking at the empty
-    // beige "kakaomap" background. Kakao's outer levels (>= 12) often
-    // have no tiles for South Korea, leaving the map blank.
+    // Cap the zoom-out so users don't see the empty beige "kakaomap"
+    // watermark background that appears past level 10 around our 진도
+    // default center (most of the viewport is ocean with no tiles).
+    const KAKAO_MAX_OUT_LEVEL = 10;
     if (typeof map.setMaxLevel === 'function') {
-        map.setMaxLevel(11);
+        map.setMaxLevel(KAKAO_MAX_OUT_LEVEL);
     }
     state.mapInitialized = true;
 
     // Map Move Event handler
     const handleMapMove = () => {
+        // Belt-and-braces: even with setMaxLevel above, clamp on every
+        // zoom event so any code path that bypasses the cap (mobile
+        // pinch gesture, programmatic setLevel, history restore) can't
+        // leave the user staring at the blank watermark grid.
+        if (map.getLevel() > KAKAO_MAX_OUT_LEVEL) {
+            map.setLevel(KAKAO_MAX_OUT_LEVEL);
+            return;
+        }
         const center = map.getCenter();
         state.center = { lat: center.getLat(), lng: center.getLng() };
         updateNearestCctvs();
