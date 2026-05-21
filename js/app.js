@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-snapshot-playback';
+const APP_BUILD_VERSION = '20260521-world-list-fix';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -29,6 +29,7 @@ const WORLD_TOUR_DATA_URL = `data/world_tour_cams.json?v=${APP_BUILD_VERSION}`;
 const WORLD_TOUR_CHEVRON_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const WORLD_TOUR_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const WORLD_TOUR_LIST_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>';
+const WORLD_TOUR_VIDEO_OFF_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-video-off" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 3l18 18"/><path d="M15 11v-1l4.553 -2.276a1 1 0 0 1 1.447 .894v6.764a1 1 0 0 1 -.675 .946"/><path d="M10 6h3a2 2 0 0 1 2 2v3m0 4v1a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2h1"/></svg>';
 const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
 const QUALITY_SUMMARY_TIMEOUT_MS = 1800;
 const QUALITY_TELEMETRY_SAMPLE_RATE = 0.35;
@@ -405,6 +406,10 @@ const state = {
     worldTourListRegion: 'All',
     worldTourListCountry: 'All',
     worldTourListSource: 'All',
+    // When true, hide cams that can only be viewed on the original
+    // source site (no in-app playback). Affects the panel list, the
+    // bottom card rail, and the map markers.
+    worldTourListExcludeExternal: false,
     worldTourFavorites: new Set(),
     cctvFavorites: new Set(),
     geoIndex: new Map(),
@@ -4995,12 +5000,20 @@ function getWorldTourListBaseCams(cams) {
 }
 
 function getWorldTourListCountries(cams) {
-    const counts = getWorldTourListBaseCams(cams).reduce((acc, cam) => {
+    const baseCams = getWorldTourListBaseCams(cams);
+    const visibleCams = state.worldTourListExcludeExternal
+        ? baseCams.filter(canPlayWorldTourInApp)
+        : baseCams;
+    const counts = visibleCams.reduce((acc, cam) => {
         const country = cam.country || 'Unknown';
         acc[country] = (acc[country] || 0) + 1;
         return acc;
     }, {});
-    return Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    // Sort alphabetically (A → Z, case-insensitive) so the dropdown is
+    // easy to scan regardless of which tab the user opened the list on.
+    return Object.entries(counts).sort((a, b) =>
+        a[0].localeCompare(b[0], undefined, { sensitivity: 'base' })
+    );
 }
 
 function getWorldTourListSources(cams) {
@@ -5017,13 +5030,18 @@ function getWorldTourListSources(cams) {
 
 function getWorldTourListFilteredCams(cams) {
     const search = normalizeWorldTourText(state.worldTourListSearch);
-    let filtered = getWorldTourListBaseCams(cams);
+    // When the user is actively typing, ignore the region tab and search
+    // across the entire dataset so a query never silently returns nothing
+    // because of a stale tab selection.
+    let filtered = search
+        ? cams.slice()
+        : getWorldTourListBaseCams(cams);
 
     if (state.worldTourListCountry && state.worldTourListCountry !== 'All') {
         filtered = filtered.filter(cam => cam.country === state.worldTourListCountry);
     }
-    if (state.worldTourListSource && state.worldTourListSource !== 'All') {
-        filtered = filtered.filter(cam => String(cam.sourceType || (cam.videoId ? 'youtube' : 'external')).toLowerCase() === state.worldTourListSource);
+    if (state.worldTourListExcludeExternal) {
+        filtered = filtered.filter(canPlayWorldTourInApp);
     }
     if (search) {
         filtered = filtered.filter(cam => getWorldTourSearchText(cam).includes(search));
@@ -5041,10 +5059,11 @@ function sanitizeWorldTourListFilters(cams) {
         state.worldTourListCountry = 'All';
     }
 
-    const sources = new Set(getWorldTourListSources(cams).map(source => source.sourceType));
-    if (state.worldTourListSource !== 'All' && !sources.has(state.worldTourListSource)) {
-        state.worldTourListSource = 'All';
-    }
+    // worldTourListSource is no longer surfaced in the UI but the state
+    // field is retained for backwards compatibility — reset stale values
+    // so they don't unexpectedly filter results.
+    state.worldTourListSource = 'All';
+    state.worldTourListExcludeExternal = !!state.worldTourListExcludeExternal;
 }
 
 function isWorldTourRegionAvailable(region) {
@@ -5205,12 +5224,18 @@ function getWorldTourRegionCounts(cams) {
 }
 
 function getWorldTourVisibleCams(cams) {
+    // The video-off toggle in the list panel is treated as a global
+    // filter — it should also hide external-only cams from the bottom
+    // rail and from the world-tour map markers, not just the panel list.
+    const base = state.worldTourListExcludeExternal
+        ? cams.filter(canPlayWorldTourInApp)
+        : cams;
     if (state.worldTourRegion === WORLD_TOUR_FAVORITE_REGION) {
         const favorites = getWorldTourFavoriteIds();
-        return cams.filter(cam => favorites.has(String(cam.id)));
+        return base.filter(cam => favorites.has(String(cam.id)));
     }
-    if (state.worldTourRegion === 'All') return cams;
-    return cams.filter(cam => cam.region === state.worldTourRegion);
+    if (state.worldTourRegion === 'All') return base;
+    return base.filter(cam => cam.region === state.worldTourRegion);
 }
 
 function getWorldTourNearbyCams(selected, cams, limit = 6) {
@@ -5278,11 +5303,15 @@ function renderWorldTourCard(cam, selectedId) {
     const isActive = cam.id === selectedId;
     const regionColor = WORLD_TOUR_REGION_COLORS[cam.region] || '#86efac';
     const sourceLabel = getWorldTourSourceLabel(cam);
+    const externalOnly = !canPlayWorldTourInApp(cam);
+    const externalBadge = externalOnly
+        ? `<span class="world-tour-external-badge" title="원본사이트에서만 재생 가능" aria-label="원본사이트에서만 재생 가능">${WORLD_TOUR_VIDEO_OFF_SVG}</span>`
+        : '';
 
     return `
         <article class="world-tour-card ${isActive ? 'active' : ''}" data-id="${escapeWorldTourHtml(cam.id)}" tabindex="0" aria-label="${escapeWorldTourHtml(`${cam.title} 영상 선택`)}">
             <span class="world-tour-card-title-row">
-                <span class="world-tour-card-title">${escapeWorldTourHtml(cam.title)}</span>
+                <span class="world-tour-card-title">${escapeWorldTourHtml(cam.title)}${externalBadge}</span>
                 ${renderWorldTourFavoriteButton(cam, 'card')}
             </span>
             <span class="world-tour-card-sub">${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
@@ -5335,11 +5364,18 @@ function renderWorldTourListItems(items, selectedId) {
     return items.map(cam => {
         const isActive = cam.id === selectedId;
         const sourceLabel = getWorldTourSourceLabel(cam);
+        const externalOnly = !canPlayWorldTourInApp(cam);
+        const externalBadge = externalOnly
+            ? `<span class="world-tour-external-badge" title="원본사이트에서만 재생 가능" aria-label="원본사이트에서만 재생 가능">${WORLD_TOUR_VIDEO_OFF_SVG}</span>`
+            : '';
         return `
             <article class="world-tour-list-item ${isActive ? 'active' : ''}" data-world-tour-list-item="${escapeWorldTourHtml(cam.id)}" tabindex="0">
                 ${renderWorldTourFavoriteButton(cam, 'list')}
                 <div class="world-tour-list-item-main">
-                    <strong>${escapeWorldTourHtml(cam.title)}</strong>
+                    <strong class="world-tour-list-item-title">
+                        <span class="world-tour-list-item-title-text">${escapeWorldTourHtml(cam.title)}</span>
+                        ${externalBadge}
+                    </strong>
                     <span>${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
                     <em>${escapeWorldTourHtml(getWorldTourRegionLabel(cam.region))} · ${escapeWorldTourHtml(sourceLabel)}</em>
                 </div>
@@ -5360,11 +5396,7 @@ function renderWorldTourListPanel(cams, selected) {
         state.worldTourListCountry,
         '모든 국가'
     );
-    const sourceOptions = renderWorldTourListSelectOptions(
-        getWorldTourListSources(cams),
-        state.worldTourListSource,
-        '모든 수집처'
-    );
+    const externalOnly = state.worldTourListExcludeExternal;
 
     return `
         <div class="world-tour-list-overlay" data-world-tour-list-overlay>
@@ -5395,7 +5427,17 @@ function renderWorldTourListPanel(cams, selected) {
                     </div>
                     <div class="world-tour-list-select-row">
                         <select data-world-tour-list-country aria-label="국가 필터">${countryOptions}</select>
-                        <select data-world-tour-list-source aria-label="수집처 필터">${sourceOptions}</select>
+                        <button
+                            type="button"
+                            class="world-tour-list-external-toggle ${externalOnly ? 'active' : ''}"
+                            data-world-tour-list-external-toggle
+                            aria-pressed="${externalOnly}"
+                            aria-label="${externalOnly ? '원본사이트 영상 포함' : '원본사이트 영상 제외'}"
+                            title="${externalOnly ? '원본사이트 영상 제외중 — 클릭하면 포함' : '원본사이트로만 재생되는 영상을 제외'}"
+                        >
+                            ${WORLD_TOUR_VIDEO_OFF_SVG}
+                            <span>원본만${externalOnly ? ' 숨김' : ' 보기'}</span>
+                        </button>
                     </div>
                 </div>
                 <div class="world-tour-list-count" data-world-tour-list-count>
@@ -5832,6 +5874,15 @@ function bindWorldTourListPanel(root, cams, selected) {
         }
     };
 
+    // Sync the active state of the region chips (Favorite / All / region)
+    // without a full re-render — needed when search auto-switches to 'All'.
+    const refreshRegionChips = () => {
+        panel.querySelectorAll('[data-world-tour-list-region]').forEach(chip => {
+            const region = chip.dataset.worldTourListRegion || 'All';
+            chip.classList.toggle('active', region === state.worldTourListRegion);
+        });
+    };
+
     overlay.addEventListener('click', event => {
         if (event.target !== overlay) return;
         state.worldTourListOpen = false;
@@ -5840,6 +5891,14 @@ function bindWorldTourListPanel(root, cams, selected) {
 
     panel.querySelector('[data-world-tour-list-search]')?.addEventListener('input', event => {
         state.worldTourListSearch = event.target.value;
+        // Any active typing should force results to come from the full
+        // dataset so users aren't accidentally filtered out by a region
+        // tab they forgot was active. We don't full-rerender to avoid
+        // losing the input focus / cursor position.
+        if (state.worldTourListSearch && state.worldTourListRegion !== 'All') {
+            state.worldTourListRegion = 'All';
+            refreshRegionChips();
+        }
         refreshResults();
     });
 
@@ -5848,8 +5907,9 @@ function bindWorldTourListPanel(root, cams, selected) {
         rerenderWithList();
     });
 
-    panel.querySelector('[data-world-tour-list-source]')?.addEventListener('change', event => {
-        state.worldTourListSource = event.target.value;
+    panel.querySelector('[data-world-tour-list-external-toggle]')?.addEventListener('click', event => {
+        event.preventDefault();
+        state.worldTourListExcludeExternal = !state.worldTourListExcludeExternal;
         rerenderWithList();
     });
 
@@ -5866,6 +5926,9 @@ function bindWorldTourListPanel(root, cams, selected) {
             state.worldTourListRegion = regionButton.dataset.worldTourListRegion || 'All';
             state.worldTourListCountry = 'All';
             state.worldTourListSource = 'All';
+            // A region click is an explicit user action — clear any
+            // active search so the user sees the new region's results.
+            state.worldTourListSearch = '';
             rerenderWithList();
             return;
         }
@@ -5942,7 +6005,13 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         let visibleCams = getWorldTourVisibleCams(cams);
         if (!visibleCams.length && state.worldTourRegion !== WORLD_TOUR_FAVORITE_REGION) {
             state.worldTourRegion = 'All';
-            visibleCams = cams;
+            visibleCams = state.worldTourListExcludeExternal
+                ? cams.filter(canPlayWorldTourInApp)
+                : cams;
+            // If the exclude-external filter happens to wipe out the
+            // entire dataset, fall back to the full list so the page
+            // doesn't render empty.
+            if (!visibleCams.length) visibleCams = cams;
         }
 
         const selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);

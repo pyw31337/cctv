@@ -2275,7 +2275,9 @@ body.world-tour-active #pwa-install-prompt {
     flex-direction: column;
     gap: 8px;
     overflow-y: auto;
-    padding: 0 20px 20px;
+    /* Provide a generous bottom inset so the last item isn't hidden
+     * behind the in-app browser's bottom toolbar (Naver, Kakao, etc.). */
+    padding: 0 20px max(72px, calc(20px + env(safe-area-inset-bottom)));
     scrollbar-width: thin;
     scrollbar-color: rgba(52, 211, 153, 0.45) rgba(15, 23, 42, 0.72);
 }
@@ -2304,7 +2306,6 @@ body.world-tour-active #pwa-install-prompt {
     gap: 4px;
 }
 
-.world-tour-list-item-main strong,
 .world-tour-list-item-main span,
 .world-tour-list-item-main em {
     overflow: hidden;
@@ -2313,9 +2314,92 @@ body.world-tour-active #pwa-install-prompt {
 }
 
 .world-tour-list-item-main strong {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 900;
+}
+
+.world-tour-list-item-main strong .world-tour-list-item-title-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.world-tour-external-badge {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(248, 113, 113, 0.16);
+    color: #fca5a5;
+    cursor: help;
+}
+
+.world-tour-external-badge svg {
+    width: 14px;
+    height: 14px;
+}
+
+.world-tour-card-title .world-tour-external-badge {
+    width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    vertical-align: -3px;
+}
+
+.world-tour-card-title .world-tour-external-badge svg {
+    width: 12px;
+    height: 12px;
+}
+
+.world-tour-list-external-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 0;
+    height: 38px;
+    padding: 0 12px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.78);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.world-tour-list-external-toggle svg {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+}
+
+.world-tour-list-external-toggle span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.world-tour-list-external-toggle:hover {
+    border-color: rgba(248, 113, 113, 0.48);
+    color: #fecaca;
+}
+
+.world-tour-list-external-toggle.active {
+    border-color: rgba(248, 113, 113, 0.6);
+    background: rgba(248, 113, 113, 0.16);
+    color: #fecaca;
 }
 
 .world-tour-list-item-main span {
@@ -2826,7 +2910,7 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .weather-content.world-tour-content {
-        --world-tour-menu-height: min(48dvh, 330px);
+        --world-tour-menu-height: min(54dvh, 380px);
         width: 100%;
         height: 100%;
         max-height: none;
@@ -2865,8 +2949,10 @@ body.world-tour-active #pwa-install-prompt {
         height: var(--world-tour-menu-height);
         max-height: none;
         /* Lift the bottom menu so the last row isn't clipped behind the
-         * iOS home indicator / Android nav bar. */
-        padding: 10px 10px calc(18px + env(safe-area-inset-bottom));
+         * iOS home indicator / Android nav bar / in-app browser toolbar
+         * (Naver, KakaoTalk, Instagram). env(safe-area-inset-bottom) is
+         * unreliable inside in-app webviews, so use a generous floor. */
+        padding: 10px 10px max(72px, calc(18px + env(safe-area-inset-bottom)));
         border-right: 0;
         border-bottom: 0;
         border-left: 0;
@@ -3105,7 +3191,7 @@ body.world-tour-active #pwa-install-prompt {
 
 @media (max-width: 360px) {
     .weather-content.world-tour-content {
-        --world-tour-menu-height: min(50dvh, 320px);
+        --world-tour-menu-height: min(56dvh, 360px);
     }
 
     .world-tour-layer .weather-header {
@@ -3128,7 +3214,7 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-bottom-menu {
         gap: 8px;
-        padding: 8px 8px calc(16px + env(safe-area-inset-bottom));
+        padding: 8px 8px max(64px, calc(16px + env(safe-area-inset-bottom)));
     }
 
     .world-tour-selected-summary {
