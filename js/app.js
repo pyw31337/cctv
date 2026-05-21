@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-74ba5adc';
+const APP_BUILD_VERSION = '20260521-pr7-passthrough';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -6319,11 +6319,13 @@ function bindWorldTourListPanel(root, cams, selected) {
         });
     };
 
-    overlay.addEventListener('click', event => {
-        if (event.target !== overlay) return;
-        state.worldTourListOpen = false;
-        rerenderWithList();
-    });
+    // Intentionally NOT closing the panel on overlay click — the overlay
+    // covers the entire viewport, and the user wants the left side (map +
+    // markers + card rail) to stay fully interactive while the right
+    // panel is open. To dismiss the panel use the × close button in the
+    // panel header (or the list-toggle button in the bottom menu).
+    // Pointer-events: none on the overlay (set in CSS for is-searching)
+    // means clicks pass through to the underlying map / cards anyway.
 
     const searchInput = panel.querySelector('[data-world-tour-list-search]');
     searchInput?.addEventListener('input', event => {
