@@ -1,6 +1,6 @@
 name: Daily UTIC Resurrect
 
-# audit_utic_broken.py 가 disabled 로 마킹한 카메라들을 매일 부활 시도.
+# audit_utic_broken.py 가 manual_check 로 마킹한 카메라들을 매일 부활 시도.
 # 100 표본 검증 결과 약 56% 가 UTIC API 에서 살아있음 (URL 만 stale). API 로 fresh 정보 받아
 # URL 재구성 후 worker /utic 으로 검증해 OK 면 status=active 복원.
 
@@ -34,6 +34,6 @@ jobs:
       - name: Commit results
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          commit_message: "chore: daily UTIC resurrect"
+          commit_message: "chore: daily UTIC resurrect [skip ci]"
           file_pattern: "cctv_data.json data/utic_audit_history.json"
           branch: main

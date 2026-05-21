@@ -1396,10 +1396,6 @@ function getYouTubeVideoId(url) {
 function shouldExcludeCctv(cctv) {
     if (!cctv) return true;
 
-    // audit_utic_broken.py 가 HTTP 404 로 확인된 카메라를 status='disabled' 로 마킹.
-    // 검색·지도·grid 어디에도 노출되지 않도록 로드 시점에 걸러냄.
-    if (cctv.status === 'disabled') return true;
-
     const url = cctv.directUrl || cctv.url || '';
     const videoId = getYouTubeVideoId(url);
     if (videoId && BLOCKED_YOUTUBE_VIDEO_IDS.has(videoId)) return true;
@@ -1645,6 +1641,25 @@ function getCameraFailureHealthMeta(cctv, regionKey, lastUpdated) {
         tone: 'warn',
         penalty: 4,
         lastUpdated: record.last_failed_at || lastUpdated
+    };
+}
+
+function getDatasetReviewHealthMeta(cctv, regionKey, lastUpdated) {
+    if (!cctv) return null;
+    const status = String(cctv.status || '').toLowerCase();
+    const reason = cctv.health_reason || cctv.disabled_reason || cctv.status_note || '';
+    const checkedAt = cctv.health_checked_at || cctv.disabled_at || cctv.checked_at || lastUpdated;
+
+    if (status !== 'manual_check' && status !== 'disabled') return null;
+
+    return {
+        regionKey,
+        status: 'DATASET_REVIEW',
+        shortLabel: '점검 필요',
+        longLabel: `${cctv.name || '이 CCTV'}는 자동 점검에서 재생 경로 확인이 실패했습니다. 목록에서는 유지하며, 실제로 재생되면 화면 재생 상태를 우선 반영합니다.${reason ? ` 원인: ${reason}` : ''}`,
+        tone: 'warn',
+        penalty: 3.2,
+        lastUpdated: checkedAt
     };
 }
 
@@ -1970,6 +1985,9 @@ function getCameraHealthMeta(cctv) {
     const cameraFailureMeta = getCameraFailureHealthMeta(cctv, regionKey, lastUpdated);
     if (cameraFailureMeta) return cameraFailureMeta;
 
+    const datasetReviewMeta = getDatasetReviewHealthMeta(cctv, regionKey, lastUpdated);
+    if (datasetReviewMeta) return datasetReviewMeta;
+
     const qualityMeta = getQualitySummaryHealthMeta(cctv, regionKey);
     if (qualityMeta) return qualityMeta;
 
@@ -2105,7 +2123,7 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
         };
     }
 
-    if (health.status === 'DEGRADED' || health.status === 'QUALITY_SLOW' || health.tone === 'warn') {
+    if (health.status === 'DEGRADED' || health.status === 'QUALITY_SLOW' || health.status === 'DATASET_REVIEW' || health.tone === 'warn') {
         return {
             tone: 'warn',
             label: health.shortLabel || '주의',

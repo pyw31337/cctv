@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-UTIC audit 으로 disabled 된 카메라들을 살릴 방법을 시도.
+UTIC audit 으로 manual_check 처리된 카메라들을 살릴 방법을 시도.
 
 배경:
   - audit_utic_broken.py 가 cctv-proxy worker /utic 에서 HTTP 404 를 받은 카메라를
-    status='disabled' 로 마킹함. 하지만 100개 표본 검증 결과 56% 가 UTIC API 에서
+    status='manual_check' 로 마킹함. 하지만 100개 표본 검증 결과 56% 가 UTIC API 에서
     여전히 살아있는 정보를 반환함. cctv_data.json 의 url 이 stale 한 게 원인.
   - 따라서 UTIC API getCctvInfoById.do 로 fresh 정보를 받아 URL 을 재구성하고,
     worker /utic 으로 한 번 더 검증해 OK 면 status='active' 로 복원.
 
 처리 흐름:
-  1) status='disabled' & disabled_reason='utic_audit_http_404' 카메라 모두 대상
+  1) status='manual_check' 또는 legacy disabled 이면서 utic_audit_http_404 카메라 모두 대상
   2) UTIC API 로 새 정보 fetch (CCTVIP/KIND/CCTVNAME/CH/ID/PASSWD/PORT)
   3) 응답 정보로 URL 재구성 (renew_cctv_urls.construct_url 로직 재사용)
   4) 새 URL 을 cctv-proxy /utic 으로 검증 - OK (http URL or m3u8) 면 부활
@@ -118,6 +118,8 @@ def verify_worker(url):
         qs = urllib.parse.urlparse(url).query
     except Exception:
         return False
+    if not qs:
+        return False
     target = f"{WORKER}?{qs}"
     try:
         r = urllib.request.urlopen(urllib.request.Request(target, headers=HEADERS), timeout=TIMEOUT, context=ctx)
@@ -125,6 +127,31 @@ def verify_worker(url):
         return body.startswith("http") or body.startswith("#EXTM3U")
     except Exception:
         return False
+
+
+def verify_direct_stream(url):
+    """Direct HLS/MP4 URL 은 worker 가 아니라 원본을 직접 짧게 확인한다."""
+    if not url or not url.startswith(("http://", "https://")):
+        return False
+    try:
+        req = urllib.request.Request(url, headers=HEADERS, method="GET")
+        r = urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx)
+        body = r.read(512).decode(errors="replace").strip()
+        content_type = (r.headers.get("Content-Type") or "").lower()
+        if body.startswith("#EXTM3U"):
+            return True
+        if "mpegurl" in content_type or "mp4" in content_type:
+            return True
+        return 200 <= getattr(r, "status", 0) < 300 and url.endswith((".m3u8", ".mp4"))
+    except Exception:
+        return False
+
+
+def verify_url(url):
+    parsed = urllib.parse.urlparse(url or "")
+    if parsed.path.endswith((".m3u8", ".mp4")):
+        return verify_direct_stream(url)
+    return verify_worker(url)
 
 
 def try_resurrect(cam):
@@ -136,7 +163,7 @@ def try_resurrect(cam):
     new_url = construct_url(cid, info)
     if not new_url:
         return cid, "url_failed", None
-    if verify_worker(new_url):
+    if verify_url(new_url):
         return cid, "alive", new_url
     return cid, "worker_still_404", None
 
@@ -147,10 +174,10 @@ def main():
 
     targets = [
         c for c in data
-        if c.get("status") == "disabled"
-        and c.get("disabled_reason") == "utic_audit_http_404"
+        if c.get("status") in ("manual_check", "disabled")
+        and (c.get("health_reason") == "utic_audit_http_404" or c.get("disabled_reason") == "utic_audit_http_404")
     ]
-    print(f"[resurrect] candidates: {len(targets):,} (disabled by utic_audit_http_404)", flush=True)
+    print(f"[resurrect] candidates: {len(targets):,} (manual_check/legacy disabled by utic_audit_http_404)", flush=True)
     if not targets:
         print("[resurrect] nothing to do", flush=True)
         return
@@ -187,6 +214,8 @@ def main():
             cam = by_id[cid]
             cam["url"] = new_url
             cam["status"] = "active"
+            cam.pop("health_reason", None)
+            cam.pop("health_checked_at", None)
             cam.pop("disabled_reason", None)
             cam.pop("disabled_at", None)
             cam["resurrected_at"] = now_iso

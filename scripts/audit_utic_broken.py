@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 UTIC 전수 audit — non-Z3 (E-prefix) + LEGACY (L-prefix) 카메라가 cctv-proxy /utic 워커에서
-HTTP 404 를 반환하면 cctv_data.json 에 status='disabled' 로 마킹.
+HTTP 404 를 반환하면 cctv_data.json 에 status='manual_check' 로 마킹.
 
 전략:
   - 병렬 호출 (worker 20개) 로 빠르게 검증
   - HTTP 404 만 broken 처리 (timeout/네트워크 오류는 일시적일 수 있으니 무시)
-  - 이전엔 disabled 였지만 이번에 ok 인 카메라는 status='active' 로 회복
+  - 이전엔 manual_check/disabled 였지만 이번에 ok 인 카메라는 status='active' 로 회복
   - data/utic_audit_history.json 에 결과 누적 (디버깅/모니터링용)
 """
 import json
@@ -109,30 +109,34 @@ def main(limit=None):
 
     # === cctv_data.json status 업데이트 ===
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    newly_disabled = 0
+    newly_flagged = 0
     recovered = 0
     for cam in data:
         cid = cam.get("id", "")
         if cid in broken_ids:
-            if cam.get("status") != "disabled":
-                cam["status"] = "disabled"
-                cam["disabled_reason"] = "utic_audit_http_404"
-                cam["disabled_at"] = now_iso
-                newly_disabled += 1
+            if cam.get("status") != "manual_check" or cam.get("health_reason") != "utic_audit_http_404":
+                cam["status"] = "manual_check"
+                cam["health_reason"] = "utic_audit_http_404"
+                cam["health_checked_at"] = now_iso
+                cam.pop("disabled_reason", None)
+                cam.pop("disabled_at", None)
+                newly_flagged += 1
         elif cid in ok_ids:
-            # 회복: 이전 audit 에서 disabled 였으면 active 로 복귀
+            # 회복: 이전 audit 에서 manual_check/disabled 였으면 active 로 복귀
             if (
-                cam.get("status") == "disabled"
-                and cam.get("disabled_reason") == "utic_audit_http_404"
+                cam.get("status") in ("manual_check", "disabled")
+                and (cam.get("health_reason") == "utic_audit_http_404" or cam.get("disabled_reason") == "utic_audit_http_404")
             ):
                 cam["status"] = "active"
+                cam.pop("health_reason", None)
+                cam.pop("health_checked_at", None)
                 cam.pop("disabled_reason", None)
                 cam.pop("disabled_at", None)
                 cam["recovered_at"] = now_iso
                 recovered += 1
 
     print(
-        f"[audit] cctv_data.json delta: {newly_disabled} newly disabled, {recovered} recovered"
+        f"[audit] cctv_data.json delta: {newly_flagged} newly flagged for review, {recovered} recovered"
     )
 
     with open(CCTV_DATA, "w", encoding="utf-8") as f:
@@ -154,7 +158,7 @@ def main(limit=None):
             "targets": len(targets),
             "broken": len(broken_ids),
             "ok": len(ok_ids),
-            "newly_disabled": newly_disabled,
+            "newly_flagged": newly_flagged,
             "recovered": recovered,
             "elapsed_sec": int(time.time() - t0),
         }
