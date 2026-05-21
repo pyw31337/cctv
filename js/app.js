@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-25213e30';
+const APP_BUILD_VERSION = '20260521-pr6-fav-click-fix';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -757,11 +757,18 @@ function setupEventListeners() {
                 const id = favItem.dataset.worldCamId;
                 $('#search-results').classList.remove('active');
                 $('#dim-overlay').classList.remove('active');
-                if (id) {
-                    state.selectedWorldTourId = id;
-                    state.worldTourRegion = 'All';
-                    if (typeof openWeather === 'function') openWeather('world-tour');
-                    else if (typeof renderWorldTourCams === 'function') renderWorldTourCams(id, { viewMode: state.worldTourViewMode || 'video' });
+                if (!id) return;
+                state.selectedWorldTourId = id;
+                state.worldTourRegion = 'All';
+                state.worldTourViewMode = 'video';
+                if (typeof openWorldTourPanel === 'function') {
+                    Promise.resolve(openWorldTourPanel()).then(() => {
+                        if (typeof renderWorldTourCams === 'function') {
+                            renderWorldTourCams(id, { viewMode: 'video' });
+                        }
+                    }).catch(err => console.warn('[favorites] world tour open failed:', err));
+                } else if (typeof renderWorldTourCams === 'function') {
+                    renderWorldTourCams(id, { viewMode: 'video' });
                 }
                 return;
             }
