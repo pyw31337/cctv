@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-39b672a8';
+const APP_BUILD_VERSION = '20260521-ui-defensive-hide';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -4963,23 +4963,10 @@ const COMPARE_MODE_ICON_SVG = `
 `;
 
 function initCompareModeButton() {
-    if (document.getElementById('compare-mode-btn')) return;
-    const header = document.querySelector('.header-inner');
-    if (!header) return;
-    const btn = document.createElement('button');
-    btn.id = 'compare-mode-btn';
-    btn.className = 'compare-mode-btn';
-    btn.type = 'button';
-    btn.title = '전국 주요 도시 라이브';
-    btn.setAttribute('aria-label', '전국 주요 도시 라이브');
-    btn.innerHTML = COMPARE_MODE_ICON_SVG;
-    btn.addEventListener('click', openCompareMode);
-    const weatherBtn = document.getElementById('weather-btn');
-    if (weatherBtn && weatherBtn.parentElement === header) {
-        header.insertBefore(btn, weatherBtn);
-    } else {
-        header.appendChild(btn);
-    }
+    // 전국 주요 도시 라이브 feature removed per user request — function
+    // is now a no-op AND defensively removes any leftover button node
+    // a cached older bundle might have injected.
+    document.getElementById('compare-mode-btn')?.remove?.();
 }
 
 function initKmaPrecipOverlay() {
