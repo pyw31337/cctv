@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-world-tour-global3';
+const APP_BUILD_VERSION = '20260521-world-tour-global4';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -110,12 +110,32 @@ const WORLD_TOUR_SOURCE_LABELS = {
     roundshot: 'Roundshot',
     twlivecam: 'TW Live CAM',
     worldcamlive: 'WorldCam.Live',
+    liveworldwebcams: 'Live World Webcams',
+    webcamhopper: 'Webcam Hopper',
+    worldcamtv: 'WorldCam.tv',
+    livecamcroatia: 'LiveCamCroatia',
+    openwebcamdb: 'OpenWebcamDB',
     alertcalifornia: 'ALERTCalifornia',
     wetter: 'wetter.com',
     panoramask: 'Panorama.sk',
     idokep: 'Idokep',
     ptztv: 'PTZtv',
     railcam: 'Railcam',
+    railcamuk: 'Railcam UK',
+    airportwebcams: 'AirportWebcams.net',
+    viewsurf: 'ViewSurf',
+    panomax: 'Panomax',
+    webcamsdemexico: 'Webcams de Mexico',
+    climaaovivo: 'Clima Ao Vivo',
+    hktraffic: 'HK Transport',
+    usgsvolcano: 'USGS Volcano',
+    aurorainfo: 'AuroraInfo',
+    nswtraffic: 'NSW Live Traffic',
+    dctraffic: 'Open Data DC',
+    africam: 'Africam',
+    weatherbug: 'WeatherBug',
+    surfline: 'Surfline',
+    japanwebcams: 'Japan Webcams',
     publictraffic: 'Public Traffic',
     spacecam: 'Space Cams',
     animalcam: 'Animal Cams',
@@ -123,6 +143,7 @@ const WORLD_TOUR_SOURCE_LABELS = {
     cctvworld: 'CCTV World',
     tabi: 'TabiCam',
     webcamera24: 'WebCamera24',
+    'youtube-search': 'YouTube Search',
     youtube: 'YouTube',
     external: 'External'
 };
@@ -4927,7 +4948,6 @@ function renderWorldTourListToggle(cams) {
             title="세계 CCTV 리스트"
         >
             ${WORLD_TOUR_LIST_SVG}
-            <span>${cams.length}</span>
         </button>
     `;
 }
