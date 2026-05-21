@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-jindo-z3-fix1';
+const APP_BUILD_VERSION = '20260521-world-tour-global3';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -28,6 +28,7 @@ const QUALITY_SUMMARY_FALLBACK_URL = 'data/quality_summary.json';
 const WORLD_TOUR_DATA_URL = `data/world_tour_cams.json?v=${APP_BUILD_VERSION}`;
 const WORLD_TOUR_CHEVRON_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const WORLD_TOUR_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
+const WORLD_TOUR_LIST_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>';
 const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
 const QUALITY_SUMMARY_TIMEOUT_MS = 1800;
 const QUALITY_TELEMETRY_SAMPLE_RATE = 0.35;
@@ -95,6 +96,30 @@ const WORLD_TOUR_REGION_COLORS = {
 const WORLD_TOUR_SOURCE_LABELS = {
     earthcam: 'EarthCam',
     skyline: 'Skyline',
+    webcamtaxi: 'Webcamtaxi',
+    worldcam: 'WorldCam',
+    baltic: 'Baltic Live Cam',
+    windy: 'Windy Webcams',
+    livebeaches: 'Live Beaches',
+    camscape: 'Camscape',
+    explore: 'Explore.org',
+    whatsupcams: "What's Up Cam",
+    bergfex: 'Bergfex',
+    feratel: 'feratel',
+    hdontap: 'HDOnTap',
+    roundshot: 'Roundshot',
+    twlivecam: 'TW Live CAM',
+    worldcamlive: 'WorldCam.Live',
+    alertcalifornia: 'ALERTCalifornia',
+    wetter: 'wetter.com',
+    panoramask: 'Panorama.sk',
+    idokep: 'Idokep',
+    ptztv: 'PTZtv',
+    railcam: 'Railcam',
+    publictraffic: 'Public Traffic',
+    spacecam: 'Space Cams',
+    animalcam: 'Animal Cams',
+    golfcam: 'Golf Cams',
     cctvworld: 'CCTV World',
     tabi: 'TabiCam',
     webcamera24: 'WebCamera24',
@@ -304,6 +329,11 @@ const state = {
     worldTourViewMode: 'map',
     worldTourCardScrollLeft: 0,
     worldTourRegionScrollLeft: 0,
+    worldTourListOpen: false,
+    worldTourListSearch: '',
+    worldTourListRegion: 'All',
+    worldTourListCountry: 'All',
+    worldTourListSource: 'All',
     worldTourFavorites: new Set(),
     geoIndex: new Map(),
     markers: [], // Array to store Kakao map markers
@@ -654,7 +684,10 @@ function switchMode(mode) {
     updateContextActionButton();
 
     // Map Initialization (Lazy)
-    if (mode === 'map' && !state.mapInitialized) {
+    const hasKakaoMaps = Boolean(window.kakao?.maps);
+    if (mode === 'map' && !hasKakaoMaps) {
+        console.warn('[Map] Kakao Maps SDK is not available; skipping domestic map initialization.');
+    } else if (mode === 'map' && !state.mapInitialized) {
         initMap();
     } else if (mode === 'map' && map) {
         map.relayout();
@@ -4552,6 +4585,7 @@ function closeWeather(options = {}) {
     layer?.classList.remove('active', 'world-tour-layer');
     content?.classList.remove('world-tour-content');
     document.body.classList.remove('world-tour-active');
+    state.worldTourListOpen = false;
     $('#weather-btn')?.classList.remove('active');
     $('#dim-overlay')?.classList.remove('active');
     const list = $('#weather-list');
@@ -4579,6 +4613,7 @@ async function openWorldTourPanel() {
     content?.classList.add('world-tour-content');
     document.body.classList.add('world-tour-active');
     state.worldTourViewMode = 'map';
+    state.worldTourListOpen = false;
     $('#weather-title').textContent = '세계 관광 라이브 지도';
     if (!isWorldTourRegionAvailable(state.worldTourRegion)) {
         state.worldTourRegion = 'All';
@@ -4593,7 +4628,7 @@ async function loadWorldTourCams() {
     if (!response.ok) throw new Error(`World tour data failed: ${response.status}`);
     const payload = await response.json();
     state.worldTourCams = (payload.items || [])
-        .filter(item => item && (item.videoId || item.embedUrl))
+        .filter(item => item && (item.videoId || item.embedUrl || item.playUrl || item.sourceUrl))
         .sort((a, b) => (
             Number(b.qualityScore || b.stabilityScore || b.priority || 0)
             - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
@@ -4604,6 +4639,7 @@ async function loadWorldTourCams() {
 
 function getWorldTourEmbedUrl(cam) {
     if (cam.embedUrl) return cam.embedUrl;
+    if (cam.playUrl) return cam.playUrl;
     if (!cam.videoId) return null;
     return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
 }
@@ -4646,7 +4682,98 @@ function renderWorldTourHashTags(cam) {
 }
 
 function canPlayWorldTourInApp(cam) {
-    return Boolean(cam?.videoId || cam?.embedUrl);
+    return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
+}
+
+function isWorldTourHlsUrl(url) {
+    return /\.m3u8(?:[?#].*)?$/i.test(String(url || '').trim());
+}
+
+function isWorldTourDirectVideoUrl(url) {
+    return /\.(?:mp4|webm|ogv)(?:[?#].*)?$/i.test(String(url || '').trim());
+}
+
+function normalizeWorldTourText(value) {
+    return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function getWorldTourSearchText(cam) {
+    return normalizeWorldTourText([
+        cam?.title,
+        cam?.subtitle,
+        cam?.city,
+        cam?.country,
+        cam?.region,
+        cam?.channel,
+        getWorldTourRegionLabel(cam?.region),
+        getWorldTourSourceLabel(cam),
+        ...(Array.isArray(cam?.tags) ? cam.tags : [])
+    ].filter(Boolean).join(' '));
+}
+
+function getWorldTourListBaseCams(cams) {
+    const region = isWorldTourRegionAvailable(state.worldTourListRegion)
+        ? state.worldTourListRegion
+        : 'All';
+    if (region === WORLD_TOUR_FAVORITE_REGION) {
+        const favorites = getWorldTourFavoriteIds();
+        return cams.filter(cam => favorites.has(String(cam.id)));
+    }
+    if (region === 'All') return cams;
+    return cams.filter(cam => cam.region === region);
+}
+
+function getWorldTourListCountries(cams) {
+    const counts = getWorldTourListBaseCams(cams).reduce((acc, cam) => {
+        const country = cam.country || 'Unknown';
+        acc[country] = (acc[country] || 0) + 1;
+        return acc;
+    }, {});
+    return Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function getWorldTourListSources(cams) {
+    const counts = getWorldTourListBaseCams(cams).reduce((acc, cam) => {
+        const sourceType = String(cam.sourceType || (cam.videoId ? 'youtube' : 'external')).toLowerCase();
+        const label = getWorldTourSourceLabel(cam);
+        const key = `${sourceType}::${label}`;
+        acc[key] = acc[key] || { sourceType, label, count: 0 };
+        acc[key].count += 1;
+        return acc;
+    }, {});
+    return Object.values(counts).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function getWorldTourListFilteredCams(cams) {
+    const search = normalizeWorldTourText(state.worldTourListSearch);
+    let filtered = getWorldTourListBaseCams(cams);
+
+    if (state.worldTourListCountry && state.worldTourListCountry !== 'All') {
+        filtered = filtered.filter(cam => cam.country === state.worldTourListCountry);
+    }
+    if (state.worldTourListSource && state.worldTourListSource !== 'All') {
+        filtered = filtered.filter(cam => String(cam.sourceType || (cam.videoId ? 'youtube' : 'external')).toLowerCase() === state.worldTourListSource);
+    }
+    if (search) {
+        filtered = filtered.filter(cam => getWorldTourSearchText(cam).includes(search));
+    }
+
+    return filtered;
+}
+
+function sanitizeWorldTourListFilters(cams) {
+    const region = isWorldTourRegionAvailable(state.worldTourListRegion) ? state.worldTourListRegion : 'All';
+    state.worldTourListRegion = region;
+
+    const countries = new Set(getWorldTourListCountries(cams).map(([country]) => country));
+    if (state.worldTourListCountry !== 'All' && !countries.has(state.worldTourListCountry)) {
+        state.worldTourListCountry = 'All';
+    }
+
+    const sources = new Set(getWorldTourListSources(cams).map(source => source.sourceType));
+    if (state.worldTourListSource !== 'All' && !sources.has(state.worldTourListSource)) {
+        state.worldTourListSource = 'All';
+    }
 }
 
 function isWorldTourRegionAvailable(region) {
@@ -4790,6 +4917,30 @@ function renderWorldTourRegionTabs(cams) {
     `;
 }
 
+function renderWorldTourListToggle(cams) {
+    return `
+        <button
+            type="button"
+            class="world-tour-list-toggle ${state.worldTourListOpen ? 'active' : ''}"
+            data-world-tour-list-toggle
+            aria-label="세계 CCTV 리스트 열기"
+            title="세계 CCTV 리스트"
+        >
+            ${WORLD_TOUR_LIST_SVG}
+            <span>${cams.length}</span>
+        </button>
+    `;
+}
+
+function renderWorldTourRegionControls(cams) {
+    return `
+        <div class="world-tour-region-bar">
+            ${renderWorldTourRegionTabs(cams)}
+            ${renderWorldTourListToggle(cams)}
+        </div>
+    `;
+}
+
 function renderWorldTourCard(cam, selectedId) {
     const isActive = cam.id === selectedId;
     const regionColor = WORLD_TOUR_REGION_COLORS[cam.region] || '#86efac';
@@ -4807,6 +4958,121 @@ function renderWorldTourCard(cam, selectedId) {
                 <span class="world-tour-source-tag ${canPlayWorldTourInApp(cam) ? 'playable' : 'external'}">${escapeWorldTourHtml(sourceLabel)}</span>
             </span>
         </article>
+    `;
+}
+
+function renderWorldTourListRegionChips(cams) {
+    const counts = getWorldTourRegionCounts(cams);
+    const regions = [WORLD_TOUR_FAVORITE_REGION, ...WORLD_TOUR_REGIONS]
+        .filter(region => region === WORLD_TOUR_FAVORITE_REGION || counts[region] > 0);
+
+    return regions.map(region => `
+        <button
+            type="button"
+            class="world-tour-list-chip ${state.worldTourListRegion === region ? 'active' : ''}"
+            data-world-tour-list-region="${escapeWorldTourHtml(region)}"
+        >
+            ${region === WORLD_TOUR_FAVORITE_REGION ? `<span class="world-tour-favorite-tab-icon active">${WORLD_TOUR_STAR_SVG}</span>` : ''}
+            <span>${escapeWorldTourHtml(getWorldTourRegionLabel(region))}</span>
+            <b>${counts[region] || 0}</b>
+        </button>
+    `).join('');
+}
+
+function renderWorldTourListSelectOptions(entries, selectedValue, allLabel) {
+    const options = [`<option value="All">${escapeWorldTourHtml(allLabel)}</option>`];
+    entries.forEach(entry => {
+        const value = Array.isArray(entry) ? entry[0] : entry.sourceType;
+        const label = Array.isArray(entry) ? entry[0] : entry.label;
+        const count = Array.isArray(entry) ? entry[1] : entry.count;
+        options.push(`
+            <option value="${escapeWorldTourHtml(value)}" ${selectedValue === value ? 'selected' : ''}>
+                ${escapeWorldTourHtml(label)} (${count})
+            </option>
+        `);
+    });
+    return options.join('');
+}
+
+function renderWorldTourListItems(items, selectedId) {
+    if (!items.length) {
+        return '<div class="world-tour-list-empty">조건에 맞는 세계 CCTV가 없습니다. 검색어나 필터를 줄여보세요.</div>';
+    }
+
+    return items.map(cam => {
+        const isActive = cam.id === selectedId;
+        const sourceLabel = getWorldTourSourceLabel(cam);
+        return `
+            <article class="world-tour-list-item ${isActive ? 'active' : ''}" data-world-tour-list-item="${escapeWorldTourHtml(cam.id)}" tabindex="0">
+                ${renderWorldTourFavoriteButton(cam, 'list')}
+                <div class="world-tour-list-item-main">
+                    <strong>${escapeWorldTourHtml(cam.title)}</strong>
+                    <span>${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
+                    <em>${escapeWorldTourHtml(getWorldTourRegionLabel(cam.region))} · ${escapeWorldTourHtml(sourceLabel)}</em>
+                </div>
+                <div class="world-tour-list-item-actions">
+                    <button type="button" data-world-tour-list-map="${escapeWorldTourHtml(cam.id)}">지도</button>
+                    <button type="button" data-world-tour-list-video="${escapeWorldTourHtml(cam.id)}">영상</button>
+                </div>
+            </article>
+        `;
+    }).join('');
+}
+
+function renderWorldTourListPanel(cams, selected) {
+    sanitizeWorldTourListFilters(cams);
+    const filteredCams = getWorldTourListFilteredCams(cams);
+    const countryOptions = renderWorldTourListSelectOptions(
+        getWorldTourListCountries(cams),
+        state.worldTourListCountry,
+        '모든 국가'
+    );
+    const sourceOptions = renderWorldTourListSelectOptions(
+        getWorldTourListSources(cams),
+        state.worldTourListSource,
+        '모든 수집처'
+    );
+
+    return `
+        <div class="world-tour-list-overlay" data-world-tour-list-overlay>
+            <aside class="world-tour-list-panel" role="dialog" aria-modal="true" aria-label="세계 CCTV 리스트">
+                <div class="world-tour-list-head">
+                    <div>
+                        <span>WORLD CCTV LIST</span>
+                        <strong>세계 관광 라이브 검색</strong>
+                    </div>
+                    <button type="button" class="world-tour-list-close" data-world-tour-list-close aria-label="리스트 닫기">×</button>
+                </div>
+                <label class="world-tour-list-search">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>
+                    </svg>
+                    <input
+                        type="search"
+                        data-world-tour-list-search
+                        value="${escapeWorldTourHtml(state.worldTourListSearch)}"
+                        placeholder="국가, 도시, 영상명 검색"
+                        autocomplete="off"
+                    >
+                </label>
+                <div class="world-tour-list-filter-group">
+                    <div class="world-tour-list-chip-row" aria-label="대륙/즐겨찾기 필터">
+                        ${renderWorldTourListRegionChips(cams)}
+                    </div>
+                    <div class="world-tour-list-select-row">
+                        <select data-world-tour-list-country aria-label="국가 필터">${countryOptions}</select>
+                        <select data-world-tour-list-source aria-label="수집처 필터">${sourceOptions}</select>
+                    </div>
+                </div>
+                <div class="world-tour-list-count" data-world-tour-list-count>
+                    ${filteredCams.length}개 영상 · 선택 ${escapeWorldTourHtml(selected.title)}
+                </div>
+                <div class="world-tour-list-results" data-world-tour-list-results>
+                    ${renderWorldTourListItems(filteredCams, selected.id)}
+                </div>
+            </aside>
+        </div>
     `;
 }
 
@@ -4924,7 +5190,7 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
                 </div>
             </div>
             <div class="world-tour-bottom-main">
-                ${renderWorldTourRegionTabs(cams)}
+                ${renderWorldTourRegionControls(cams)}
                 <div class="world-tour-card-rail" aria-label="선택 가능한 세계 관광 라이브">
                     ${visibleCams.length
                         ? visibleCams.map(cam => renderWorldTourCard(cam, selected.id)).join('')
@@ -4938,10 +5204,24 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
 function renderWorldTourVideoHero(selected) {
     const embedUrl = getWorldTourEmbedUrl(selected);
     const sourceLabel = getWorldTourSourceLabel(selected);
+    const isDirectVideo = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl);
 
     return `
         <section class="world-tour-hero">
-            ${embedUrl ? `
+            ${embedUrl && isDirectVideo ? `
+                <div class="world-tour-video">
+                    <video
+                        class="world-tour-direct-video"
+                        data-world-tour-stream="${escapeWorldTourHtml(embedUrl)}"
+                        data-world-tour-title="${escapeWorldTourHtml(selected.title)}"
+                        autoplay
+                        muted
+                        playsinline
+                        controls
+                    ></video>
+                    <div class="world-tour-video-loading">영상을 불러오는 중...</div>
+                </div>
+            ` : embedUrl ? `
                 <div class="world-tour-video">
                     <iframe
                         src="${escapeWorldTourHtml(embedUrl)}"
@@ -5060,9 +5340,181 @@ function enableHorizontalDragScroll(scroller, onScroll) {
     }, true);
 }
 
+function cleanupWorldTourVideoPlayers(root = document) {
+    root.querySelectorAll?.('.world-tour-direct-video').forEach(video => {
+        if (video.hls) {
+            video.hls.destroy();
+            video.hls = null;
+        }
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+    });
+}
+
+function initWorldTourVideoPlayback() {
+    const video = document.querySelector('.world-tour-direct-video');
+    if (!video) return;
+
+    const streamUrl = video.dataset.worldTourStream;
+    if (!streamUrl) return;
+
+    const loading = video.parentElement?.querySelector('.world-tour-video-loading');
+    const markReady = () => {
+        video.classList.add('is-ready');
+        loading?.classList.add('hidden');
+    };
+    const playSafely = () => video.play().then(markReady).catch(() => markReady());
+
+    if (isWorldTourHlsUrl(streamUrl)) {
+        if (window.Hls && window.Hls.isSupported()) {
+            const hls = new window.Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                manifestLoadingTimeOut: 12000,
+                levelLoadingTimeOut: 12000,
+                fragLoadingTimeOut: 16000,
+                manifestLoadingMaxRetry: 3,
+                levelLoadingMaxRetry: 3,
+                fragLoadingMaxRetry: 3
+            });
+            hls.on(window.Hls.Events.MANIFEST_PARSED, playSafely);
+            hls.on(window.Hls.Events.ERROR, (event, data) => {
+                if (!data?.fatal) return;
+                loading?.classList.add('is-error');
+                if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR && typeof hls.recoverMediaError === 'function') {
+                    hls.recoverMediaError();
+                    return;
+                }
+                hls.destroy();
+            });
+            hls.attachMedia(video);
+            hls.loadSource(streamUrl);
+            video.hls = hls;
+            return;
+        }
+
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = streamUrl;
+            video.addEventListener('loadedmetadata', playSafely, { once: true });
+            return;
+        }
+    }
+
+    video.src = streamUrl;
+    video.addEventListener('loadedmetadata', playSafely, { once: true });
+}
+
+function bindWorldTourListPanel(root, cams, selected) {
+    const overlay = root.querySelector('[data-world-tour-list-overlay]');
+    const panel = root.querySelector('.world-tour-list-panel');
+    if (!overlay || !panel) return;
+
+    const rerenderWithList = (selectedId = state.selectedWorldTourId, extraOptions = {}) => {
+        const cardRail = root.querySelector('.world-tour-card-rail');
+        const regionTabs = root.querySelector('.world-tour-region-tabs');
+        renderWorldTourCams(selectedId, {
+            viewMode: state.worldTourViewMode,
+            cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+            regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+            ...extraOptions
+        });
+    };
+
+    const refreshResults = () => {
+        const results = panel.querySelector('[data-world-tour-list-results]');
+        const count = panel.querySelector('[data-world-tour-list-count]');
+        const filtered = getWorldTourListFilteredCams(cams);
+        if (count) {
+            count.textContent = `${filtered.length}개 영상 · 선택 ${selected.title}`;
+        }
+        if (results) {
+            results.innerHTML = renderWorldTourListItems(filtered, state.selectedWorldTourId);
+        }
+    };
+
+    overlay.addEventListener('click', event => {
+        if (event.target !== overlay) return;
+        state.worldTourListOpen = false;
+        rerenderWithList();
+    });
+
+    panel.querySelector('[data-world-tour-list-search]')?.addEventListener('input', event => {
+        state.worldTourListSearch = event.target.value;
+        refreshResults();
+    });
+
+    panel.querySelector('[data-world-tour-list-country]')?.addEventListener('change', event => {
+        state.worldTourListCountry = event.target.value;
+        rerenderWithList();
+    });
+
+    panel.querySelector('[data-world-tour-list-source]')?.addEventListener('change', event => {
+        state.worldTourListSource = event.target.value;
+        rerenderWithList();
+    });
+
+    panel.addEventListener('click', event => {
+        const closeButton = event.target.closest('[data-world-tour-list-close]');
+        if (closeButton) {
+            state.worldTourListOpen = false;
+            rerenderWithList();
+            return;
+        }
+
+        const regionButton = event.target.closest('[data-world-tour-list-region]');
+        if (regionButton) {
+            state.worldTourListRegion = regionButton.dataset.worldTourListRegion || 'All';
+            state.worldTourListCountry = 'All';
+            state.worldTourListSource = 'All';
+            rerenderWithList();
+            return;
+        }
+
+        const favoriteButton = event.target.closest('.world-tour-favorite-btn');
+        if (favoriteButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleWorldTourFavorite(favoriteButton.dataset.worldTourFavorite);
+            rerenderWithList();
+            return;
+        }
+
+        const videoButton = event.target.closest('[data-world-tour-list-video]');
+        if (videoButton) {
+            state.worldTourListOpen = false;
+            renderWorldTourCams(videoButton.dataset.worldTourListVideo, { viewMode: 'video' });
+            return;
+        }
+
+        const mapButton = event.target.closest('[data-world-tour-list-map]');
+        if (mapButton) {
+            state.worldTourListOpen = false;
+            renderWorldTourCams(mapButton.dataset.worldTourListMap, { viewMode: 'map' });
+            return;
+        }
+
+        const item = event.target.closest('[data-world-tour-list-item]');
+        if (item) {
+            state.worldTourListOpen = false;
+            renderWorldTourCams(item.dataset.worldTourListItem, { viewMode: state.worldTourViewMode });
+        }
+    });
+
+    panel.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const item = event.target.closest('[data-world-tour-list-item]');
+        if (!item) return;
+        event.preventDefault();
+        state.worldTourListOpen = false;
+        renderWorldTourCams(item.dataset.worldTourListItem, { viewMode: state.worldTourViewMode });
+    });
+}
+
 async function renderWorldTourCams(selectedId = state.selectedWorldTourId, options = {}) {
     const list = $('#weather-list');
     if (!list) return;
+    cleanupWorldTourVideoPlayers(list);
     const previousCardRail = list.querySelector('.world-tour-card-rail');
     const previousRegionTabs = list.querySelector('.world-tour-region-tabs');
     const nextCardScrollLeft = Number.isFinite(Number(options.cardScrollLeft))
@@ -5079,6 +5531,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             list.innerHTML = '<div style="padding:20px;">등록된 관광지 영상이 없습니다.</div>';
             return;
         }
+        sanitizeWorldTourListFilters(cams);
 
         if (options.region && isWorldTourRegionAvailable(options.region)) {
             state.worldTourRegion = options.region;
@@ -5106,8 +5559,23 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                     ? renderWorldTourMapHero(selected, visibleCams)
                     : renderWorldTourVideoHero(selected)}
                 ${renderWorldTourBottomMenu(cams, visibleCams, selected)}
+                ${state.worldTourListOpen ? renderWorldTourListPanel(cams, selected) : ''}
             </div>
         `;
+
+        list.querySelector('[data-world-tour-list-toggle]')?.addEventListener('click', () => {
+            state.worldTourListOpen = true;
+            state.worldTourListRegion = state.worldTourRegion || 'All';
+            const cardRail = list.querySelector('.world-tour-card-rail');
+            const regionTabs = list.querySelector('.world-tour-region-tabs');
+            renderWorldTourCams(state.selectedWorldTourId, {
+                viewMode: state.worldTourViewMode,
+                cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+                regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
+            });
+        });
+
+        bindWorldTourListPanel(list, cams, selected);
 
         list.querySelectorAll('.world-tour-card').forEach(card => {
             const selectCard = () => {
@@ -5220,6 +5688,8 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
 
         if (state.worldTourViewMode === 'map') {
             requestAnimationFrame(() => initWorldTourMap(selected, visibleCams));
+        } else {
+            requestAnimationFrame(initWorldTourVideoPlayback);
         }
     } catch (error) {
         console.error('[WorldTour] failed to load:', error);
