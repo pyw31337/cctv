@@ -254,6 +254,19 @@
         };
     </script>
     <script src="js/app.js?v=20260521-snapshot-playback"></script>
+    <script>
+        // Register the offline-friendly service worker. Wrapped in a load
+        // listener so SW registration never blocks first paint; wrapped in a
+        // try/catch + protocol check so file://-served previews and SW-less
+        // browsers degrade silently.
+        if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(err => {
+                    console.warn('[sw] registration failed:', err);
+                });
+            });
+        }
+    </script>
 </body>
 
 </html>

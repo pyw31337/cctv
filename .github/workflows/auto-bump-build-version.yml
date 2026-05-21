@@ -1,0 +1,85 @@
+name: Auto-bump build version
+
+# Replaces the manually-maintained `APP_BUILD_VERSION` token and `?v=…`
+# cache-busting query strings with the current commit's short SHA whenever
+# anything affecting the frontend changes on main. Prevents the "I shipped
+# a new app.js but users keep seeing the stale version" failure mode.
+#
+# Guarded against infinite loops with two layers:
+#  1. The commit body always contains `[skip ci]`, which GitHub Actions
+#     respects for scheduled/push events.
+#  2. The workflow short-circuits if the commit was authored by this same
+#     bot, so a developer can still push a manual bump without restart.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'js/**'
+      - 'css/**'
+      - 'index.html'
+      - 'sw.js'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-bump-build-version
+  cancel-in-progress: true
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute version token
+        id: ver
+        run: |
+          short_sha="$(git rev-parse --short=8 HEAD)"
+          date_tag="$(date -u +%Y%m%d)"
+          version="${date_tag}-${short_sha}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Build version: ${version}"
+
+      - name: Rewrite build version tokens
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          # js/app.js — single source-of-truth constant
+          if grep -q "APP_BUILD_VERSION = '" js/app.js; then
+            sed -i.bak "s/APP_BUILD_VERSION = '[^']*';/APP_BUILD_VERSION = '${VERSION}';/" js/app.js
+            rm -f js/app.js.bak
+          fi
+          # index.html / sw.js — ?v=… cache-busting queries on assets
+          for f in index.html sw.js; do
+            [ -f "$f" ] || continue
+            sed -i.bak -E "s|\\?v=[a-zA-Z0-9._-]+|?v=${VERSION}|g" "$f"
+            rm -f "$f.bak"
+          done
+          # sw.js — CACHE_VERSION constant (controls cache namespacing)
+          if [ -f sw.js ] && grep -q "CACHE_VERSION = '" sw.js; then
+            sed -i.bak "s/CACHE_VERSION = '[^']*';/CACHE_VERSION = 'v${VERSION}';/" sw.js
+            rm -f sw.js.bak
+          fi
+
+      - name: Commit if changed
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No version token changes needed; skipping commit."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/app.js index.html sw.js 2>/dev/null || true
+          git commit -m "chore: bump build version to ${VERSION} [skip ci]"
+          git push

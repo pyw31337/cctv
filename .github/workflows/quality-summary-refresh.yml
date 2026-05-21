@@ -1,0 +1,75 @@
+name: Refresh quality_summary.json
+
+# Pulls the aggregated telemetry summary from the Cloudflare Workers endpoint
+# (/v1/summary) and writes a static fallback into data/quality_summary.json so
+# that first-load users get telemetry-informed quality scores even before any
+# client-side fetch completes. Runs hourly + on demand.
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # 매시 17분 (정시 트래픽 회피)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-quality-summary
+  cancel-in-progress: true
+
+env:
+  SUMMARY_ENDPOINT: https://cctv-quality.pyw31337.workers.dev/v1/summary
+  OUTPUT_PATH: data/quality_summary.json
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch summary
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          tmp="$(mktemp --suffix=.json)"
+          http_code=$(curl -sSL --retry 3 --max-time 30 \
+            -H 'Accept: application/json' \
+            -H 'User-Agent: github-actions-quality-refresh/1.0' \
+            -w '%{http_code}' \
+            -o "$tmp" \
+            "$SUMMARY_ENDPOINT" || echo '000')
+          echo "endpoint returned http=$http_code"
+          if [ "$http_code" != "200" ]; then
+            echo "::warning::Unexpected status $http_code — keeping previous fallback file"
+            exit 0
+          fi
+          if ! python3 -c "import json,sys; json.load(open('$tmp'))" 2>/dev/null; then
+            echo "::warning::Endpoint returned non-JSON — keeping previous fallback file"
+            exit 0
+          fi
+          TMP_PATH="$tmp" python3 <<'PY'
+          import json, os, datetime
+          tmp = os.environ['TMP_PATH']
+          out = os.environ['OUTPUT_PATH']
+          data = json.load(open(tmp))
+          if not data.get('generated_at'):
+              data['generated_at'] = datetime.datetime.utcnow().isoformat() + 'Z'
+          with open(out, 'w', encoding='utf-8') as fh:
+              json.dump(data, fh, ensure_ascii=False, indent=2, sort_keys=True)
+              fh.write('\n')
+          print('Wrote', out, os.path.getsize(out), 'bytes')
+          PY
+
+      - name: Commit if changed
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- "$OUTPUT_PATH"; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add "$OUTPUT_PATH"
+            git commit -m "chore(data): refresh quality_summary.json [skip ci]"
+            git push
+          else
+            echo "No change in $OUTPUT_PATH — skipping commit."
+          fi
