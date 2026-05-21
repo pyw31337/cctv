@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-3be845da';
+const APP_BUILD_VERSION = '20260521-pr10-world-search';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -1003,16 +1003,13 @@ function renderWorldTourFavoriteSearchItem(cam) {
     return `
         <div class="search-result-item cctv-favorite-item cctv-favorite-item--world" data-world-cam-id="${escape(cam.id)}">
             <div class="search-result-info">
-                <div class="search-result-name">
-                    <span class="source-dot" style="background:#34d399" aria-hidden="true"></span>
-                    ${escape(title)}
-                </div>
+                <div class="search-result-name">${escape(title)}</div>
                 <div class="search-result-address">전세계 · ${escape(city)}</div>
             </div>
             <div class="search-result-actions">
-                <button class="btn-delete" data-action="remove-favorite-world" title="즐겨찾기 해제">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                <button class="btn-bookmark active" data-action="remove-favorite-world" title="즐겨찾기 해제" aria-pressed="true" aria-label="즐겨찾기 해제">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                     </svg>
                 </button>
             </div>
@@ -1146,12 +1143,24 @@ function performHybridSearch(query) {
         // Execute Parallel
         const [places, regions] = await Promise.all([placePromise, regionPromise]);
 
-        // Merge: Regions FIRST, then Places
-        // Deduplicate?
-        // Sometimes Region "Chuncheon" and Place "Chuncheon City Hall" might coexist.
-        // We want generic "Chuncheon-si" (Region) at top.
+        // 3. Korean World Tour cams (경복궁/광안대교/남산타워 등) — surface
+        //    in the same dropdown so the user can jump straight to the
+        //    global player for Korean famous landmarks.
+        const worldCams = (typeof searchWorldTourCamsByQuery === 'function'
+            ? searchWorldTourCamsByQuery(query)
+            : []
+        ).map(cam => ({
+            place_name: cam.title,
+            address_name: `${cam.city || ''} · ${cam.country || ''}`.replace(/^ ·\s+/, ''),
+            y: cam.lat,
+            x: cam.lng,
+            isWorldTourCam: true,
+            worldCamId: cam.id
+        }));
 
-        const combined = [...regions, ...places];
+        // Merge order: world-tour Korean cams → regions → places. World Tour
+        // entries are the most specific (landmark name match), so they win.
+        const combined = [...worldCams, ...regions, ...places];
         resolve(combined);
     });
 }
@@ -1161,6 +1170,20 @@ function renderSearchResults(data) {
 
     if (data.length > 0) {
         resultsEl.innerHTML = data.slice(0, SEARCH_RESULT_LIMIT).map(place => {
+            if (place.isWorldTourCam) {
+                // Distinct row: jumps into the world-tour player on click.
+                return `
+                <div class="search-result-item world-tour-search-result" data-world-cam-id="${place.worldCamId}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+                    <div class="search-result-icon">🌐</div>
+                    <div class="search-result-info">
+                        <div class="search-result-name">${place.place_name}</div>
+                        <div class="search-result-address">전세계 라이브 · ${place.address_name || ''}</div>
+                    </div>
+                    <div class="search-result-actions">
+                        <span class="search-result-tag">World</span>
+                    </div>
+                </div>`;
+            }
             const icon = place.isRegion ? '🏙️' : '📍';
             return `
             <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
@@ -5309,6 +5332,26 @@ async function openWorldTourPanel() {
         state.worldTourRegion = 'All';
     }
     await renderWorldTourCams();
+}
+
+
+// Returns Korean World Tour cams whose title/city/country/region matches the
+// query — used so the domestic Kakao search box can surface global webcams
+// hosted inside Korea (경복궁/광안대교/남산타워/롯데월드타워/해운대 등).
+function searchWorldTourCamsByQuery(query, limit = 8) {
+    const cams = (state.worldTourCams && state.worldTourCams.items)
+        || (Array.isArray(state.worldTourCams) ? state.worldTourCams : []);
+    if (!Array.isArray(cams) || !cams.length || !query) return [];
+    const q = String(query).trim().toLowerCase();
+    if (!q) return [];
+    return cams
+        .filter(cam => {
+            if (cam.country !== 'South Korea') return false;
+            const haystack = [cam.title, cam.city, cam.subtitle, cam.country]
+                .filter(Boolean).map(s => String(s).toLowerCase()).join(' | ');
+            return haystack.includes(q);
+        })
+        .slice(0, limit);
 }
 
 async function loadWorldTourCams() {
