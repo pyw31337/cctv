@@ -1,15 +1,20 @@
 import concurrent.futures
+import csv
 import datetime as dt
 import html
+import io
 import json
+import math
 import os
 import re
+import signal
 import ssl
 import shutil
 import subprocess
 import time
 import unicodedata
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urljoin, urlparse
@@ -17,6 +22,7 @@ from urllib.parse import quote, urljoin, urlparse
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data/world_tour_cams.json'
 GEOCODE_CACHE_PATH = ROOT / '.cache/world_tour_geocode_cache.json'
+HTTP_CACHE_PATH = ROOT / '.cache/world_tour_http_cache.json'
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7',
@@ -55,7 +61,7 @@ REGION_BY_COUNTRY = {
     'Brazil': 'South America', 'Chile': 'South America', 'Argentina': 'South America', 'Bolivia': 'South America',
     'Colombia': 'South America', 'Ecuador': 'South America', 'Peru': 'South America', 'Uruguay': 'South America',
     'Venezuela': 'South America',
-    'South Africa': 'Africa', 'Kenya': 'Africa', 'Cape Verde': 'Africa', 'Egypt': 'Africa', 'Namibia': 'Africa',
+    'South Africa': 'Africa', 'Kenya': 'Africa', 'Botswana': 'Africa', 'Cape Verde': 'Africa', 'Egypt': 'Africa', 'Namibia': 'Africa',
     'Mauritius': 'Africa', 'Morocco': 'Africa', 'Senegal': 'Africa', 'Seychelles': 'Africa', 'Tanzania': 'Africa',
     'Zambia': 'Africa'
 }
@@ -65,7 +71,7 @@ COUNTRY_BY_SLUG = {
     'united-kingdom': 'United Kingdom', 'brazil': 'Brazil', 'germany': 'Germany', 'switzerland': 'Switzerland',
     'netherlands': 'Netherlands', 'china': 'China', 'taiwan': 'Taiwan', 'mexico': 'Mexico', 'norway': 'Norway',
     'finland': 'Finland', 'south-africa': 'South Africa', 'new-zealand': 'New Zealand', 'indonesia': 'Indonesia',
-    'turkey': 'Turkey', 'israel': 'Israel', 'kenya': 'Kenya', 'denmark': 'Denmark', 'austria': 'Austria',
+    'turkey': 'Turkey', 'israel': 'Israel', 'kenya': 'Kenya', 'botswana': 'Botswana', 'denmark': 'Denmark', 'austria': 'Austria',
     'belarus': 'Belarus', 'belgium': 'Belgium', 'bulgaria': 'Bulgaria', 'cape-verde': 'Cape Verde',
     'chile': 'Chile', 'croatia': 'Croatia', 'czech': 'Czech Republic', 'egypt': 'Egypt', 'estonia': 'Estonia',
     'georgia': 'Georgia', 'greenland': 'Greenland', 'hungary': 'Hungary', 'iceland': 'Iceland', 'india': 'India',
@@ -174,6 +180,27 @@ WORLD_TOUR_IDOKEP_LIMIT = int(os.getenv('WORLD_TOUR_IDOKEP_LIMIT', '35'))
 WORLD_TOUR_PTZTV_LIMIT = int(os.getenv('WORLD_TOUR_PTZTV_LIMIT', '22'))
 WORLD_TOUR_RAILCAM_LIMIT = int(os.getenv('WORLD_TOUR_RAILCAM_LIMIT', '4'))
 WORLD_TOUR_PUBLIC_TRAFFIC_LIMIT = int(os.getenv('WORLD_TOUR_PUBLIC_TRAFFIC_LIMIT', '12'))
+WORLD_TOUR_HTTP_CACHE_TTL_HOURS = float(os.getenv('WORLD_TOUR_HTTP_CACHE_TTL_HOURS', '24'))
+WORLD_TOUR_STALE_CACHE_HOURS = float(os.getenv('WORLD_TOUR_STALE_CACHE_HOURS', '168'))
+WORLD_TOUR_HTTP_TIMEOUT_CAP = float(os.getenv('WORLD_TOUR_HTTP_TIMEOUT_CAP', '14'))
+WORLD_TOUR_SOURCE_ENRICH_LIMIT = int(os.getenv('WORLD_TOUR_SOURCE_ENRICH_LIMIT', '160'))
+WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS = int(os.getenv('WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS', '150'))
+WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT = int(os.getenv('WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT', '24'))
+WORLD_TOUR_WEBCAMHOPPER_LIMIT = int(os.getenv('WORLD_TOUR_WEBCAMHOPPER_LIMIT', '24'))
+WORLD_TOUR_WORLDCAMTV_LIMIT = int(os.getenv('WORLD_TOUR_WORLDCAMTV_LIMIT', '12'))
+WORLD_TOUR_LIVECAMCROATIA_LIMIT = int(os.getenv('WORLD_TOUR_LIVECAMCROATIA_LIMIT', '18'))
+WORLD_TOUR_OPENWEBCAMDB_LIMIT = int(os.getenv('WORLD_TOUR_OPENWEBCAMDB_LIMIT', '0'))
+WORLD_TOUR_VIEWSURF_LIMIT = int(os.getenv('WORLD_TOUR_VIEWSURF_LIMIT', '24'))
+WORLD_TOUR_AIRPORTWEBCAMS_LIMIT = int(os.getenv('WORLD_TOUR_AIRPORTWEBCAMS_LIMIT', '24'))
+WORLD_TOUR_PANOMAX_LIMIT = int(os.getenv('WORLD_TOUR_PANOMAX_LIMIT', '40'))
+WORLD_TOUR_WEBCAMSMEXICO_LIMIT = int(os.getenv('WORLD_TOUR_WEBCAMSMEXICO_LIMIT', '60'))
+WORLD_TOUR_CLIMAAOVIVO_LIMIT = int(os.getenv('WORLD_TOUR_CLIMAAOVIVO_LIMIT', '70'))
+WORLD_TOUR_HKTRAFFIC_LIMIT = int(os.getenv('WORLD_TOUR_HKTRAFFIC_LIMIT', '70'))
+WORLD_TOUR_USGS_VOLCANO_LIMIT = int(os.getenv('WORLD_TOUR_USGS_VOLCANO_LIMIT', '45'))
+WORLD_TOUR_AURORAINFO_LIMIT = int(os.getenv('WORLD_TOUR_AURORAINFO_LIMIT', '12'))
+WORLD_TOUR_NSW_TRAFFIC_LIMIT = int(os.getenv('WORLD_TOUR_NSW_TRAFFIC_LIMIT', '28'))
+WORLD_TOUR_DC_TRAFFIC_LIMIT = int(os.getenv('WORLD_TOUR_DC_TRAFFIC_LIMIT', '28'))
+WORLD_TOUR_AFRICAM_LIMIT = int(os.getenv('WORLD_TOUR_AFRICAM_LIMIT', '18'))
 YOUTUBE_SEARCH_QUERIES = [
     'live cam',
     'tourist live webcam',
@@ -220,7 +247,27 @@ SOURCE_QUALITY_BONUS = {
     'idokep': 4,
     'ptztv': 4,
     'railcam': 5,
+    'railcamuk': 5,
     'publictraffic': 3,
+    'liveworldwebcams': 4,
+    'webcamhopper': 4,
+    'worldcamtv': 4,
+    'livecamcroatia': 4,
+    'openwebcamdb': 4,
+    'airportwebcams': 4,
+    'viewsurf': 5,
+    'panomax': 5,
+    'webcamsdemexico': 5,
+    'climaaovivo': 5,
+    'hktraffic': 4,
+    'usgsvolcano': 5,
+    'aurorainfo': 5,
+    'nswtraffic': 4,
+    'dctraffic': 4,
+    'africam': 5,
+    'weatherbug': 3,
+    'surfline': 3,
+    'japanwebcams': 4,
     'spacecam': 8,
     'animalcam': 8,
     'golfcam': 6,
@@ -228,7 +275,7 @@ SOURCE_QUALITY_BONUS = {
     'youtube-search': 0,
     'external': -8,
 }
-WILDLIFE_SOURCE_TYPES = {'explore', 'hdontap', 'animalcam'}
+WILDLIFE_SOURCE_TYPES = {'explore', 'hdontap', 'animalcam', 'africam'}
 YOUTUBE_LOCATION_HINTS = [
     (('shibuya', '渋谷'), '시부야 스크램블', 'Tokyo', 'Japan', 'Asia', 35.6595, 139.7005),
     (('shinjuku', '新宿'), '신주쿠', 'Tokyo', 'Japan', 'Asia', 35.6938, 139.7034),
@@ -359,6 +406,29 @@ CCTV_WORLD_META = {
     'osaka-dotonbori': ('오사카 도톤보리', '도톤보리 강변과 번화가', 'Osaka', 'Japan', 34.6687, 135.5013, 84),
 }
 
+CCTV_WORLD_ORIGIN_META = {
+    # CCTV World embeds several Korea National Park Service cameras through
+    # originUrl + /api/knps-m3u8 instead of YouTube. These direct HLS streams
+    # are CORS-enabled and can be played in-app, so they should not be lost.
+    'ulsan-bawui': ('울산바위', '설악산 울산바위와 국립공원 전망', 'Sokcho', 'South Korea', 38.1190, 128.4650, 84, 'national-park'),
+    'baekundae': ('백운대', '북한산 백운대 국립공원 전망', 'Seoul', 'South Korea', 37.6580, 126.9780, 78, 'national-park'),
+    'sapaesan': ('사패산', '북한산국립공원 사패산 전망', 'Uijeongbu', 'South Korea', 37.7240, 127.0120, 74, 'national-park'),
+    'duroryeong': ('두로령', '오대산 두로령 국립공원 전망', 'Pyeongchang', 'South Korea', 37.7800, 128.5900, 72, 'national-park'),
+    'sangwonsa': ('상원사', '오대산 상원사 국립공원 전망', 'Pyeongchang', 'South Korea', 37.7900, 128.5630, 72, 'national-park'),
+    'hakampo': ('학암포', '태안해안 학암포 해변 국립공원 전망', 'Taean', 'South Korea', 36.8970, 126.1980, 74, 'national-park'),
+    'cheonjaedan': ('천제단', '태백산 천제단 국립공원 전망', 'Taebaek', 'South Korea', 37.0950, 128.9160, 74, 'national-park'),
+    'cheonhwangbong': ('천황봉', '지리산 천왕봉 국립공원 전망', 'Sancheong', 'South Korea', 35.3360, 127.7310, 78, 'national-park'),
+    'cheonwangbong': ('천왕봉', '지리산 천왕봉 국립공원 전망', 'Sancheong', 'South Korea', 35.3360, 127.7310, 78, 'national-park'),
+    'yeonhwabong': ('연화봉', '소백산 연화봉 국립공원 전망', 'Danyang', 'South Korea', 36.9570, 128.4840, 74, 'national-park'),
+    'giam': ('기암', '주왕산 기암 국립공원 전망', 'Cheongsong', 'South Korea', 36.3940, 129.1620, 72, 'national-park'),
+    'jookmaktambangro': ('죽막탐방로', '변산반도 죽막탐방로 국립공원 전망', 'Buan', 'South Korea', 35.6350, 126.4700, 72, 'national-park'),
+    'seolcheonbong': ('설천봉', '덕유산 설천봉 국립공원 전망', 'Muju', 'South Korea', 35.8940, 127.7460, 76, 'national-park'),
+    'jangteomok': ('장터목', '지리산 장터목 국립공원 전망', 'Sancheong', 'South Korea', 35.3150, 127.7550, 74, 'national-park'),
+    'gaksan': ('각산', '한려해상 각산 전망', 'Sacheon', 'South Korea', 34.9800, 128.0600, 70, 'national-park'),
+    'jangbuljae': ('장불재', '무등산 장불재 국립공원 전망', 'Gwangju', 'South Korea', 35.1340, 126.9940, 73, 'national-park'),
+    'jiricheongsong-beach': ('지리청송해변', '해안 국립공원 실시간 전망', 'South Korea', 'South Korea', 35.3300, 127.7300, 68, 'national-park'),
+}
+
 TABI_SEEDS = [
     ('sydney-harbour', '시드니 하버', '시드니 오페라하우스와 하버브리지', 'Sydney', 'Australia', 'Oceania', -33.8568, 151.2153, 'https://tabi.cam/ko/australia/sydney-harbour-86450/', 83),
     ('perth-city-view', '퍼스 시티뷰', '서호주 퍼스 도심 전망', 'Perth', 'Australia', 'Oceania', -31.9505, 115.8605, 'https://tabi.cam/ko/australia/perth-city-view-329175/', 70),
@@ -416,6 +486,28 @@ WEBCAMTAXI_SEEDS = [
     ('sydney-harbour-webcamtaxi', 'Sydney Harbour Cam', 'Sydney Harbour and city waterfront live webcam', 'Sydney', 'Australia', 'Oceania', -33.8568, 151.2153, 'https://www.webcamtaxi.com/en/australia/new-south-wales/sydney-harbour.html', 68),
     ('london-heathrow', 'London Heathrow Airport Cam', 'London Heathrow airport runway live webcam', 'London', 'United Kingdom', 'Europe', 51.4700, -0.4543, 'https://www.webcamtaxi.com/en/england/london/london-heathrow-airport.html', 66),
     ('benidorm-playa-levante', 'Playa de Levante, Benidorm', 'Benidorm beach live webcam', 'Benidorm', 'Spain', 'Europe', 38.5382, -0.1291, 'https://www.webcamtaxi.com/en/spain/alicante/playa-de-levante-benidorm.html', 66),
+    ('times-square-webcamtaxi', 'Times Square, New York', 'New York City street and square live webcam', 'New York', 'United States', 'North America', 40.7580, -73.9855, 'https://www.webcamtaxi.com/en/usa/new-york/times-square.html', 70),
+    ('miami-airport-webcamtaxi', 'Miami Airport Cam', 'Miami International Airport runway live webcam', 'Miami', 'United States', 'North America', 25.7959, -80.2870, 'https://www.webcamtaxi.com/en/usa/florida/miami-airport.html', 66),
+    ('amsterdam-dam-square-webcamtaxi', 'Amsterdam Dam Square', 'Amsterdam city square live webcam', 'Amsterdam', 'Netherlands', 'Europe', 52.3731, 4.8933, 'https://www.webcamtaxi.com/en/netherlands/north-holland/amsterdam-dam-square.html', 67),
+    ('venice-rialto-webcamtaxi', 'Venice Rialto Bridge', 'Grand Canal and Rialto Bridge live webcam', 'Venice', 'Italy', 'Europe', 45.4380, 12.3359, 'https://www.webcamtaxi.com/en/italy/veneto/venice-rialto-bridge.html', 68),
+    ('abbey-road-webcamtaxi', 'Abbey Road Crossing', 'London Abbey Road crossing live webcam', 'London', 'United Kingdom', 'Europe', 51.5321, -0.1774, 'https://www.webcamtaxi.com/en/england/london/abbey-road.html', 66),
+    ('niagara-falls-webcamtaxi', 'Niagara Falls Cam', 'Niagara Falls live webcam view', 'Niagara Falls', 'Canada', 'North America', 43.0828, -79.0742, 'https://www.webcamtaxi.com/en/canada/ontario/niagara-falls.html', 67),
+    ('waikiki-beach-webcamtaxi', 'Waikiki Beach Cam', 'Honolulu Waikiki Beach live webcam', 'Honolulu', 'United States', 'North America', 21.2766, -157.8268, 'https://www.webcamtaxi.com/en/usa/hawaii/waikiki-beach.html', 66),
+    ('las-vegas-strip-webcamtaxi', 'Las Vegas Strip Cam', 'Las Vegas Strip street live webcam', 'Las Vegas', 'United States', 'North America', 36.1147, -115.1728, 'https://www.webcamtaxi.com/en/usa/nevada/las-vegas-strip.html', 66),
+    ('dublin-port-webcamtaxi', 'Dublin Port Cam', 'Dublin harbour and ferry terminal live webcam', 'Dublin', 'Ireland', 'Europe', 53.3498, -6.1967, 'https://www.webcamtaxi.com/en/ireland/dublin/dublin-port.html', 64),
+    ('lisbon-port-webcamtaxi', 'Lisbon Port Cam', 'Tagus river and port live webcam', 'Lisbon', 'Portugal', 'Europe', 38.7071, -9.1364, 'https://www.webcamtaxi.com/en/portugal/lisbon/lisbon-port.html', 64),
+]
+LIVEBEACHES_SOURCE_SEEDS = [
+    ('webcams-ocean-city-md-boardwalk-cam', 'Ocean City, MD Boardwalk Cam', 'Ocean City boardwalk and beach live webcam', 'Ocean City', 'United States', 38.3365, -75.0849, 'https://www.livebeaches.com/webcams/ocean-city-md-boardwalk-cam/', 69, ''),
+    ('webcams-watermans-webcam-on-virginia-beach-boardwalk', 'Watermans Virginia Beach Boardwalk', 'Virginia Beach boardwalk live webcam', 'Virginia Beach', 'United States', 36.8529, -75.9780, 'https://www.livebeaches.com/webcams/watermans-webcam-on-virginia-beach-boardwalk/', 69, ''),
+    ('webcams-rehoboth-beach-boardwalk-webcam', 'Rehoboth Beach Boardwalk', 'Delaware beach boardwalk live webcam', 'Rehoboth Beach', 'United States', 38.7209, -75.0760, 'https://www.livebeaches.com/webcams/rehoboth-beach-boardwalk-webcam/', 68, ''),
+    ('webcams-southernmost-point-webcam-key-west', 'Southernmost Point, Key West', 'Key West Southernmost Point live webcam', 'Key West', 'United States', 24.5465, -81.7975, 'https://www.livebeaches.com/webcams/southernmost-point-webcam-key-west/', 70, 'HDlmUp4JBLg'),
+    ('webcams-huntington-beach-pier-live-cam', 'Huntington Beach Pier', 'California surf beach and pier live webcam', 'Huntington Beach', 'United States', 33.6553, -118.0038, 'https://www.livebeaches.com/webcams/huntington-beach-pier-live-cam/', 69, 'mhQjsLBfOoY'),
+    ('webcams-kauai-marriott-resort-webcam-kalapaki-beach', 'Kalapaki Beach, Kauai', 'Kauai Kalapaki Beach resort live webcam', 'Lihue', 'United States', 21.9637, -159.3510, 'https://www.livebeaches.com/webcams/kauai-marriott-resort-webcam-kalapaki-beach/', 74, ''),
+    ('webcams-maui-sea-shell-condo-beach-cam', 'Maui Sea Shell Condo Beach Cam', 'Maui beach live webcam', 'Maui', 'United States', 20.7310, -156.4500, 'https://www.livebeaches.com/webcams/maui-sea-shell-condo-beach-cam/', 68, ''),
+    ('webcams-elvis-beach-bar-live-cam-anguilla', 'Elvis Beach Bar, Anguilla', 'Sandy Ground beach live webcam', 'Sandy Ground', 'Anguilla', 18.2010, -63.0890, 'https://www.livebeaches.com/webcams/elvis-beach-bar-live-cam-anguilla/', 67, ''),
+    ('webcams-semiahmoo-marina-live-webcam', 'Semiahmoo Marina Live Webcam', 'Blaine marina and harbor live webcam', 'Blaine', 'United States', 48.9881, -122.7705, 'https://www.livebeaches.com/webcams/semiahmoo-marina-live-webcam/', 67, ''),
+    ('webcams-four-seasons-resort-lanai-hawaii', 'Four Seasons Resort Lanai', 'Lanai beach resort live webcam', 'Lanai City', 'United States', 20.7416, -156.8964, 'https://www.livebeaches.com/webcams/four-seasons-resort-lanai-hawaii/', 67, ''),
 ]
 ROUNDSHOT_ROOTS = [
     ('https://zuerichtourismus.roundshot.com/', 'Zürich', 'Switzerland'),
@@ -444,6 +536,70 @@ WETTER_LIST_URLS = [
     ('https://www.wetter.com/hd-live-webcams/italien/', 'Italy'),
 ]
 PANORAMASK_START_URL = 'https://www.panorama.sk/en/slovakia/webcams'
+VIEWSURF_LIST_URLS = [
+    ('https://www.viewsurf.com/univers/ville', 'city'),
+    ('https://www.viewsurf.com/univers/plage', 'beach'),
+    ('https://www.viewsurf.com/univers/montagne', 'mountain'),
+    ('https://www.viewsurf.com/univers/trafic', 'traffic'),
+]
+AIRPORTWEBCAMS_CATEGORY_URLS = [
+    'https://airportwebcams.net/category/usa/',
+    'https://airportwebcams.net/category/united-kingdom/',
+    'https://airportwebcams.net/category/europe/',
+    'https://airportwebcams.net/category/international/',
+    'https://airportwebcams.net/category/australia/',
+    'https://airportwebcams.net/category/canada/',
+    'https://airportwebcams.net/category/germany/',
+    'https://airportwebcams.net/category/france/',
+    'https://airportwebcams.net/category/spain/',
+    'https://airportwebcams.net/category/japan/',
+]
+MEXICO_LOCATION_OVERRIDES = {
+    'acapulco': ('Acapulco', 'Mexico', 16.8531, -99.8237),
+    'altzomoni': ('Altzomoni', 'Mexico', 19.1182, -98.6546),
+    'amealco': ('Amealco', 'Mexico', 20.1877, -100.1446),
+    'amecameca': ('Amecameca', 'Mexico', 19.1238, -98.7663),
+    'bacalar': ('Bacalar', 'Mexico', 18.6781, -88.3936),
+    'cabo san lucas': ('Cabo San Lucas', 'Mexico', 22.8905, -109.9167),
+    'cancun': ('Cancun', 'Mexico', 21.1619, -86.8515),
+    'ciudad de mexico': ('Mexico City', 'Mexico', 19.4326, -99.1332),
+    'cdmx': ('Mexico City', 'Mexico', 19.4326, -99.1332),
+    'cozumel': ('Cozumel', 'Mexico', 20.4229, -86.9223),
+    'durango': ('Durango', 'Mexico', 24.0277, -104.6532),
+    'guadalajara': ('Guadalajara', 'Mexico', 20.6597, -103.3496),
+    'guanajuato': ('Guanajuato', 'Mexico', 21.019, -101.2574),
+    'hermosillo': ('Hermosillo', 'Mexico', 29.0729, -110.9559),
+    'huatulco': ('Huatulco', 'Mexico', 15.7753, -96.2626),
+    'isla mujeres': ('Isla Mujeres', 'Mexico', 21.2322, -86.7341),
+    'ixtapa zihuatanejo': ('Ixtapa Zihuatanejo', 'Mexico', 17.6615, -101.6046),
+    'iztapalapa': ('Mexico City', 'Mexico', 19.3574, -99.0671),
+    'leon': ('Leon', 'Mexico', 21.125, -101.686),
+    'loreto': ('Loreto', 'Mexico', 26.0118, -111.3438),
+    'los cabos': ('Los Cabos', 'Mexico', 22.8905, -109.9167),
+    'mazatlan': ('Mazatlan', 'Mexico', 23.2494, -106.4111),
+    'monterrey': ('Monterrey', 'Mexico', 25.6866, -100.3161),
+    'nuevo vallarta': ('Nuevo Vallarta', 'Mexico', 20.7017, -105.2942),
+    'pachuca': ('Pachuca', 'Mexico', 20.1011, -98.7591),
+    'patzcuaro': ('Patzcuaro', 'Mexico', 19.5159, -101.6092),
+    'playa del carmen': ('Playa del Carmen', 'Mexico', 20.6296, -87.0739),
+    'puerto escondido': ('Puerto Escondido', 'Mexico', 15.8719, -97.0767),
+    'puerto vallarta': ('Puerto Vallarta', 'Mexico', 20.6534, -105.2253),
+    'queretaro': ('Queretaro', 'Mexico', 20.5888, -100.3899),
+    'real de catorce': ('Real de Catorce', 'Mexico', 23.6891, -100.8861),
+    'san carlos': ('San Carlos', 'Mexico', 27.9586, -111.043),
+    'san joaquin': ('San Joaquin', 'Mexico', 20.9157, -99.5681),
+    'sisal': ('Sisal', 'Mexico', 21.1667, -90.0333),
+    'teotihuacan': ('Teotihuacan', 'Mexico', 19.6925, -98.8438),
+    'tequisquiapan': ('Tequisquiapan', 'Mexico', 20.5225, -99.8912),
+    'tianguismanalco': ('Tianguismanalco', 'Mexico', 18.9765, -98.4481),
+    'tijuana': ('Tijuana', 'Mexico', 32.5149, -117.0382),
+    'tlamacas': ('Tlamacas', 'Mexico', 19.0665, -98.6279),
+    'tlaxiaco': ('Tlaxiaco', 'Mexico', 17.2692, -97.6805),
+    'uruapan': ('Uruapan', 'Mexico', 19.4208, -102.0628),
+    'villa de alvarez': ('Villa de Alvarez', 'Mexico', 19.2672, -103.7378),
+    'volcan de colima': ('Volcan de Colima', 'Mexico', 19.5141, -103.617),
+    'volcan popocatepetl': ('Popocatepetl', 'Mexico', 19.023, -98.622),
+}
 THEMATIC_SOURCE_SEEDS = [
     ('spacecam', 'nasa-live', 'NASA Live', 'Official NASA live programming and mission streams', 'Kennedy Space Center', 'United States', 28.572872, -80.64898, 'https://www.nasa.gov/live/', 72, 'NASA'),
     ('spacecam', 'iss-earth-views', 'ISS Earth Views', 'NASA external camera views and ISS live video resources', 'Johnson Space Center', 'United States', 29.559684, -95.083097, 'https://eol.jsc.nasa.gov/ESRS/HDEV/', 70, 'NASA'),
@@ -452,11 +608,53 @@ THEMATIC_SOURCE_SEEDS = [
     ('animalcam', 'monterey-bay-kelp-forest', 'Monterey Bay Kelp Forest Cam', 'Official Monterey Bay Aquarium live camera', 'Monterey', 'United States', 36.618259, -121.901394, 'https://www.montereybayaquarium.org/animals/live-cams/kelp-forest-cam', 67, 'Monterey Bay Aquarium'),
     ('animalcam', 'monterey-bay-cam', 'Monterey Bay Cam', 'Official Monterey Bay Aquarium ocean-view live camera', 'Monterey', 'United States', 36.618259, -121.901394, 'https://www.montereybayaquarium.org/animals/live-cams/monterey-bay-cam/', 66, 'Monterey Bay Aquarium'),
     ('golfcam', 'pebble-beach-golf-links', 'Pebble Beach Golf Links', 'Official live golf course cameras from Pebble Beach Golf Links', 'Pebble Beach', 'United States', 36.568918, -121.950625, 'https://www.pebblebeach.com/golf/pebble-beach-golf-links/live-golf-cams/', 66, 'Pebble Beach'),
+    ('airportwebcams', 'london-heathrow', 'London Heathrow Airport', 'AirportWebcams.net airport runway and apron camera directory page', 'London', 'United Kingdom', 51.4700, -0.4543, 'https://airportwebcams.net/london-heathrow-airport-webcam/', 66, 'AirportWebcams.net'),
+    ('airportwebcams', 'los-angeles-lax', 'Los Angeles LAX Airport', 'AirportWebcams.net airport camera directory page', 'Los Angeles', 'United States', 33.9416, -118.4085, 'https://airportwebcams.net/los-angeles-lax-airport-webcam/', 66, 'AirportWebcams.net'),
+    ('airportwebcams', 'princess-juliana', 'St Maarten Princess Juliana Airport', 'AirportWebcams.net airport beach approach camera directory page', 'Simpson Bay', 'Sint Maarten', 18.0410, -63.1089, 'https://airportwebcams.net/st-maarten-princess-juliana-airport-webcam/', 66, 'AirportWebcams.net'),
+    ('airportwebcams', 'new-york-jfk', 'New York JFK International Airport', 'AirportWebcams.net airport camera directory page', 'New York', 'United States', 40.6413, -73.7781, 'https://airportwebcams.net/new-york-jfk-airport-webcam/', 65, 'AirportWebcams.net'),
+    ('airportwebcams', 'zurich-airport', 'Zurich Airport', 'AirportWebcams.net airport camera directory page', 'Zurich', 'Switzerland', 47.4581, 8.5555, 'https://airportwebcams.net/zurich-airport-webcam/', 66, 'AirportWebcams.net'),
+    ('airportwebcams', 'naha-airport', 'Naha Airport', 'AirportWebcams.net airport camera directory page', 'Naha', 'Japan', 26.1958, 127.6458, 'https://airportwebcams.net/naha-airport-webcam/', 65, 'AirportWebcams.net'),
+    ('airportwebcams', 'prague-vaclav-havel', 'Prague Vaclav Havel Airport', 'AirportWebcams.net airport camera directory page', 'Prague', 'Czech Republic', 50.1008, 14.2632, 'https://airportwebcams.net/prague-vaclav-havel-airport-webcam/', 65, 'AirportWebcams.net'),
+    ('airportwebcams', 'faro-airport', 'Faro International Airport', 'AirportWebcams.net airport camera directory page', 'Faro', 'Portugal', 37.0144, -7.9659, 'https://airportwebcams.net/faro-international-airport-webcam/', 64, 'AirportWebcams.net'),
+    ('weatherbug', 'weatherbug-new-york', 'New York Weather Cameras', 'WeatherBug local weather camera page for New York City', 'New York', 'United States', 40.7128, -74.0060, 'https://www.weatherbug.com/weather-camera/new-york-ny-10001/', 63, 'WeatherBug'),
+    ('weatherbug', 'weatherbug-atlanta', 'Atlanta Weather Cameras', 'WeatherBug local weather camera page for Atlanta including Mercedes-Benz Stadium', 'Atlanta', 'United States', 33.7490, -84.3880, 'https://www.weatherbug.com/weather-camera/atlanta-ga-30303', 63, 'WeatherBug'),
+    ('weatherbug', 'weatherbug-naples', 'Naples Weather Cameras', 'WeatherBug local weather camera page for Naples and Kalea Bay', 'Naples', 'United States', 26.1420, -81.7948, 'https://www.weatherbug.com/weather-camera/naples-fl-34102', 62, 'WeatherBug'),
+    ('weatherbug', 'weatherbug-sedona', 'Sedona Weather Cameras', 'WeatherBug local weather camera page for Sedona airport and red rock weather views', 'Sedona', 'United States', 34.8697, -111.7610, 'https://www.weatherbug.com/weather-camera/sedona-az-86336', 62, 'WeatherBug'),
+    ('surfline', 'pipeline-oahu', 'Pipeline Surf Cam', 'Surfline surf report and webcam page for Pipeline on Oahu', 'Oahu', 'United States', 21.6651, -158.0534, 'https://www.surfline.com/surf-report/pipeline/5842041f4e65fad6a7708df3', 62, 'Surfline'),
+    ('surfline', 'huntington-beach', 'Huntington Beach Pier Surf Cam', 'Surfline surf report and webcam page for Huntington Beach Pier', 'Huntington Beach', 'United States', 33.6553, -118.0030, 'https://www.surfline.com/surf-report/huntington-pier/5842041f4e65fad6a7708827', 62, 'Surfline'),
+    ('surfline', 'bondi-beach', 'Bondi Beach Surf Cam', 'Surfline surf report and webcam page for Bondi Beach', 'Sydney', 'Australia', -33.8915, 151.2767, 'https://www.surfline.com/surf-report/bondi-beach/5842041f4e65fad6a7708993', 62, 'Surfline'),
+    ('surfline', 'uluwatu', 'Uluwatu Surf Cam', 'Surfline surf report and webcam page for Uluwatu, Bali', 'Bali', 'Indonesia', -8.8154, 115.0873, 'https://www.surfline.com/surf-report/uluwatu/5842041f4e65fad6a7708b1a', 62, 'Surfline'),
+    ('railcamuk', 'crewe', 'Railcam UK - Crewe', 'Railcam UK main-line railway camera network location', 'Crewe', 'United Kingdom', 53.0890, -2.4320, 'https://www.railcam.uk/caminfo.php', 64, 'Railcam UK'),
+    ('railcamuk', 'peterborough', 'Railcam UK - Peterborough', 'Railcam UK main-line railway camera network location', 'Peterborough', 'United Kingdom', 52.5740, -0.2500, 'https://www.railcam.uk/caminfo.php', 64, 'Railcam UK'),
+    ('railcamuk', 'settle-carlisle', 'Railcam UK - Settle & Carlisle Line', 'Railcam UK scenic railway camera network location', 'Settle', 'United Kingdom', 54.0680, -2.2770, 'https://www.railcam.uk/caminfo.php', 63, 'Railcam UK'),
+    ('japanwebcams', 'sakuralivecams-tokyo', 'Tokyo Live Webcams', 'Sakura Live Cams Tokyo directory with Shibuya, Shinjuku and Tokyo Tower cameras', 'Tokyo', 'Japan', 35.6762, 139.6503, 'https://sakuralivecams.com/', 65, 'Sakura Live Cams'),
+    ('japanwebcams', 'sakuralivecams-osaka', 'Osaka Live Webcams', 'Sakura Live Cams Osaka directory with Dotonbori, airport and skyline cameras', 'Osaka', 'Japan', 34.6937, 135.5023, 'https://sakuralivecams.com/', 64, 'Sakura Live Cams'),
+    ('japanwebcams', 'sakuralivecams-mount-fuji', 'Mount Fuji Live Webcams', 'Sakura Live Cams Mount Fuji directory with multiple Fuji viewpoints', 'Fujikawaguchiko', 'Japan', 35.5013, 138.7657, 'https://sakuralivecams.com/', 65, 'Sakura Live Cams'),
 ]
 EXPLORE_SOURCE_SEEDS = [
     ('northern-lights-cam', 'Northern Lights Cam', 'Aurora borealis live camera from Churchill, Manitoba', 'Churchill', 'Canada', 58.7684, -94.16496, 'https://explore.org/livecams/aurora-borealis-northern-lights/northern-lights-cam', 70),
     ('waikiki-aquarium-cam', 'Waikiki Aquarium Cam', 'Ocean-view live camera near Waikiki Beach', 'Honolulu', 'United States', 21.2659, -157.8212, 'https://explore.org/livecams/hawaii/waikiki-aquarium-cam', 68),
     ('bracken-bat-cave', 'Bracken Bat Cave Viewing Area', 'Live nature camera near Bracken Cave Preserve', 'San Antonio', 'United States', 29.692, -98.354, 'https://explore.org/livecams/bats/bracken-bat-cave', 64),
+    ('brooks-falls-brown-bears', 'Brooks Falls Brown Bears', 'Katmai National Park river live camera', 'Katmai National Park', 'United States', 58.5540, -155.7750, 'https://explore.org/livecams/brown-bears/brown-bear-salmon-cam-brooks-falls', 66),
+    ('shark-lagoon-cam', 'Shark Lagoon Cam', 'Aquarium of the Pacific live lagoon camera', 'Long Beach', 'United States', 33.7633, -118.1968, 'https://explore.org/livecams/aquarium-of-the-pacific/shark-lagoon-cam', 65),
+    ('african-watering-hole', 'African Watering Hole', 'Mpala Research Centre watering hole live camera', 'Laikipia County', 'Kenya', 0.2830, 36.9000, 'https://explore.org/livecams/african-wildlife/african-watering-hole-animal-camera', 65),
+    ('tembe-elephant-park', 'Tembe Elephant Park', 'KwaZulu-Natal reserve live camera', 'Tembe Elephant Park', 'South Africa', -27.0330, 32.4200, 'https://explore.org/livecams/african-wildlife/tembe-elephant-park', 64),
+    ('channel-islands-ocean', 'Channel Islands Ocean Cam', 'Channel Islands National Park ocean live camera', 'Channel Islands National Park', 'United States', 34.0150, -119.3670, 'https://explore.org/livecams/oceans/channel-islands-national-park', 64),
+    ('blue-spring-state-park', 'Blue Spring State Park', 'Florida spring and river live camera', 'Orange City', 'United States', 28.9474, -81.3396, 'https://explore.org/livecams/manatees/blue-spring-state-park-manatee-cam', 64),
+    ('bella-hummingbird-nest', 'Bella Hummingbird Nest', 'Southern California garden live camera', 'La Verne', 'United States', 34.1008, -117.7678, 'https://explore.org/livecams/hummingbirds/bella-hummingbird-nest', 62),
+]
+AFRICAM_SOURCE_SEEDS = [
+    ('africam-live-streams', 'Africam Live Streams', 'Official Africam live safari camera directory', 'Greater Kruger', 'South Africa', -24.0000, 31.5000, 'https://live.africam.com/wildlife/live-african-wildlife-safari-streams', 70),
+    ('kwa-maritane-live', 'Kwa Maritane Waterhole', 'Pilanesberg Game Reserve waterhole live camera', 'Pilanesberg National Park', 'South Africa', -25.2600, 27.0800, 'https://www.africam.com/wildlife/stream/kwa-maritane-live', 68),
+    ('nkorho-pan', 'Nkorho Pan Waterhole', 'Sabi Sand Game Reserve waterhole live camera', 'Sabi Sand Game Reserve', 'South Africa', -24.8040, 31.4660, 'https://www.africam.com/wildlife/stream/nkorho-pan', 68),
+    ('tau-waterhole', 'Tau Waterhole', 'Madikwe Game Reserve waterhole live camera', 'Madikwe Game Reserve', 'South Africa', -24.7560, 26.2430, 'https://www.africam.com/wildlife/stream/tau', 67),
+    ('tembe-waterhole', 'Tembe Waterhole', 'Tembe Elephant Park waterhole live camera', 'Tembe Elephant Park', 'South Africa', -27.0330, 32.4200, 'https://www.africam.com/wildlife/stream/tembe', 66),
+    ('naledi-cat-eye', 'Naledi Cat-Eye', 'Balule Game Reserve low-angle waterhole live camera', 'Balule Game Reserve', 'South Africa', -24.1800, 31.1350, 'https://www.africam.com/wildlife/stream/naledi-cat-eye', 66),
+    ('ol-donyo-lodge', 'ol Donyo Lodge Wildlife Cam', 'Chyulu Hills wildlife waterhole live camera', 'Chyulu Hills', 'Kenya', -2.6330, 37.9000, 'https://www.africam.com/wildlife/stream/ol-donyo', 66),
+    ('hyena-pan', 'Hyena Pan', 'Khwai Private Reserve waterhole live camera', 'Khwai Private Reserve', 'Botswana', -19.1500, 23.9000, 'https://www.africam.com/wildlife/stream/hyena-pan', 65),
+    ('okaukuejo-waterhole', 'Okaukuejo Waterhole', 'Etosha National Park waterhole live camera', 'Etosha National Park', 'Namibia', -19.1810, 15.9160, 'https://www.africam.com/wildlife/stream/okaukuejo', 65),
+    ('finch-hattons', 'Finch Hattons Tsavo', 'Tsavo West National Park safari camp live camera', 'Tsavo West National Park', 'Kenya', -2.9800, 37.8500, 'https://www.africam.com/new-camera-alert-finch-hattons/', 65),
+    ('kruger-shalati', 'Kruger Shalati Live Camera', 'Sabie River bridge safari live camera', 'Kruger National Park', 'South Africa', -24.9940, 31.5920, 'https://www.krugershelati.com/live-camera/', 65),
 ]
 WHATSUPCAM_SOURCE_SEEDS = [
     ('moscenicka-draga-center', 'Moscenicka Draga Center', 'Town center live view from the Istrian coast', 'Moscenicka Draga', 'Croatia', 45.2376, 14.2521, 'https://www.whatsupcams.com/en/webcams/croatia/istria/moscenicka-draga/webcam-moscenicka-draga-center/', 66),
@@ -509,6 +707,14 @@ PUBLIC_TRAFFIC_SEEDS = [
     ('virginia-hrbt', 'Virginia 511 Hampton Roads Bridge-Tunnel', 'Official Virginia 511 traffic camera map source', 'Norfolk', 'United States', 36.966, -76.301, 'https://511.vdot.virginia.gov/', 59),
     ('virginia-i95-richmond', 'Virginia 511 I-95 Richmond', 'Official Virginia 511 traffic camera map source', 'Richmond', 'United States', 37.5407, -77.436, 'https://511.vdot.virginia.gov/', 59),
     ('virginia-i66-arlington', 'Virginia 511 I-66 Arlington', 'Official Virginia 511 traffic camera map source', 'Arlington', 'United States', 38.8828, -77.103, 'https://511.vdot.virginia.gov/', 59),
+    ('virginia-i64-richmond', 'Virginia 511 I-64 Richmond', 'Official Virginia 511 traffic camera map source', 'Richmond', 'United States', 37.5623, -77.4572, 'https://511.vdot.virginia.gov/', 59),
+    ('virginia-i81-roanoke', 'Virginia 511 I-81 Roanoke', 'Official Virginia 511 traffic camera map source', 'Roanoke', 'United States', 37.2709, -79.9414, 'https://511.vdot.virginia.gov/', 59),
+    ('virginia-i495-tysons', 'Virginia 511 I-495 Tysons', 'Official Virginia 511 traffic camera map source', 'Tysons', 'United States', 38.9187, -77.2311, 'https://511.vdot.virginia.gov/', 59),
+    ('virginia-i264-virginia-beach', 'Virginia 511 I-264 Virginia Beach', 'Official Virginia 511 traffic camera map source', 'Virginia Beach', 'United States', 36.8440, -76.1300, 'https://511.vdot.virginia.gov/', 59),
+    ('virginia-route-29-charlottesville', 'Virginia 511 Route 29 Charlottesville', 'Official Virginia 511 traffic camera map source', 'Charlottesville', 'United States', 38.0600, -78.4900, 'https://511.vdot.virginia.gov/', 58),
+    ('durham-a167-durham-road', 'Durham A167 Durham Road Traffic Camera', 'Official Durham traffic web camera location via data.gov.uk', 'Bishop Auckland', 'United Kingdom', 54.6559, -1.6770, 'https://www.data.gov.uk/dataset/2c4818e4-3da2-4bdb-a8d9-894d700f889a/traffic-web-cameras', 60),
+    ('plymouth-marsh-mills', 'Plymouth Marsh Mills Roundabout', 'Official data.gov.uk CCTV location record', 'Plymouth', 'United Kingdom', 50.3943, -4.0893, 'https://www.data.gov.uk/dataset/603331e3-5505-44c1-adf4-8278c02535d6/cctv-locations-in-plymouth', 60),
+    ('plymouth-royal-parade', 'Plymouth Royal Parade CCTV', 'Official data.gov.uk CCTV location record', 'Plymouth', 'United Kingdom', 50.3710, -4.1427, 'https://www.data.gov.uk/dataset/603331e3-5505-44c1-adf4-8278c02535d6/cctv-locations-in-plymouth', 60),
 ]
 IDOKEP_LOCATION_OVERRIDES = {
     'aszod': ('Aszod', 'Hungary', 47.6514, 19.4785),
@@ -539,7 +745,98 @@ IDOKEP_LOCATION_OVERRIDES = {
 }
 
 
+HTTP_CACHE = None
+HTTP_CACHE_DIRTY = False
+HTTP_CACHE_STATS = {
+    'hits': 0,
+    'misses': 0,
+    'staleFallbacks': 0,
+    'errors': 0,
+    'writes': 0,
+}
+
+
+def utc_now():
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def parse_iso_stamp(value):
+    try:
+        return dt.datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def load_http_cache():
+    global HTTP_CACHE
+    if HTTP_CACHE is not None:
+        return HTTP_CACHE
+    if not HTTP_CACHE_PATH.exists():
+        HTTP_CACHE = {}
+        return HTTP_CACHE
+    try:
+        payload = json.loads(HTTP_CACHE_PATH.read_text())
+        HTTP_CACHE = payload if isinstance(payload, dict) else {}
+    except Exception:
+        HTTP_CACHE = {}
+    return HTTP_CACHE
+
+
+def save_http_cache():
+    global HTTP_CACHE_DIRTY
+    if not HTTP_CACHE_DIRTY or HTTP_CACHE is None:
+        return
+    HTTP_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    HTTP_CACHE_PATH.write_text(json.dumps(HTTP_CACHE, ensure_ascii=False, indent=2) + '\n')
+    HTTP_CACHE_DIRTY = False
+
+
+class CollectorTimeoutError(TimeoutError):
+    pass
+
+
+def run_with_collector_timeout(collector, timeout_seconds=WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS):
+    if timeout_seconds <= 0 or not hasattr(signal, 'SIGALRM'):
+        return collector()
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def timeout_handler(signum, frame):
+        raise CollectorTimeoutError(f'collector exceeded {timeout_seconds}s')
+
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout_seconds)
+    try:
+        return collector()
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
+def cache_age_hours(entry):
+    fetched_at = parse_iso_stamp(entry.get('fetchedAt') if isinstance(entry, dict) else None)
+    if not fetched_at:
+        return None
+    return max(0, (utc_now() - fetched_at).total_seconds() / 3600)
+
+
+def http_cache_key(url, headers=None):
+    accept = (headers or HEADERS).get('Accept', '')
+    return f'{url}||{accept}'
+
+
+def effective_timeout(timeout):
+    try:
+        requested = float(timeout)
+    except (TypeError, ValueError):
+        requested = 18
+    if WORLD_TOUR_HTTP_TIMEOUT_CAP <= 0:
+        return requested
+    return max(1, min(requested, WORLD_TOUR_HTTP_TIMEOUT_CAP))
+
+
 def urlopen_with_fallback(req, timeout=18):
+    timeout = effective_timeout(timeout)
     try:
         return urllib.request.urlopen(req, timeout=timeout)
     except URLError as error:
@@ -548,9 +845,43 @@ def urlopen_with_fallback(req, timeout=18):
         return urllib.request.urlopen(req, timeout=timeout, context=UNVERIFIED_SSL_CONTEXT)
 
 
-def fetch_text(url, timeout=18):
-    req = urllib.request.Request(url, headers=HEADERS)
-    return urlopen_with_fallback(req, timeout=timeout).read().decode('utf-8', 'replace')
+def fetch_text(url, timeout=18, headers=None, cache=True):
+    global HTTP_CACHE_DIRTY
+    request_headers = headers or HEADERS
+    key = http_cache_key(url, request_headers)
+    if cache and WORLD_TOUR_HTTP_CACHE_TTL_HOURS > 0:
+        entry = load_http_cache().get(key)
+        age = cache_age_hours(entry)
+        if age is not None and age <= WORLD_TOUR_HTTP_CACHE_TTL_HOURS and 'text' in entry:
+            HTTP_CACHE_STATS['hits'] += 1
+            return entry['text']
+
+    req = urllib.request.Request(url, headers=request_headers)
+    try:
+        text = urlopen_with_fallback(req, timeout=timeout).read().decode('utf-8', 'replace')
+        if cache:
+            load_http_cache()[key] = {
+                'fetchedAt': utc_now().isoformat(),
+                'text': text,
+            }
+            HTTP_CACHE_DIRTY = True
+            HTTP_CACHE_STATS['writes'] += 1
+        HTTP_CACHE_STATS['misses'] += 1
+        return text
+    except Exception:
+        HTTP_CACHE_STATS['errors'] += 1
+        if cache and WORLD_TOUR_STALE_CACHE_HOURS > 0:
+            entry = load_http_cache().get(key)
+            age = cache_age_hours(entry)
+            if age is not None and age <= WORLD_TOUR_STALE_CACHE_HOURS and 'text' in entry:
+                HTTP_CACHE_STATS['staleFallbacks'] += 1
+                return entry['text']
+        raise
+
+
+def fetch_bytes(url, timeout=18, headers=None):
+    req = urllib.request.Request(url, headers=headers or HEADERS)
+    return urlopen_with_fallback(req, timeout=timeout).read()
 
 
 def fetch_json(url, timeout=12):
@@ -558,8 +889,7 @@ def fetch_json(url, timeout=12):
 
 
 def fetch_json_with_headers(url, timeout=12, headers=None):
-    req = urllib.request.Request(url, headers=headers or HEADERS)
-    return json.loads(urlopen_with_fallback(req, timeout=timeout).read().decode('utf-8', 'replace'))
+    return json.loads(fetch_text(url, timeout=timeout, headers=headers or HEADERS))
 
 
 def load_geocode_cache():
@@ -604,6 +934,12 @@ def title_from_slug(slug):
 def ascii_key(text):
     value = unicodedata.normalize('NFKD', str(text or '')).encode('ascii', 'ignore').decode('ascii')
     return re.sub(r'[^a-z0-9]+', '', value.lower())
+
+
+def latin_slug(text):
+    value = unicodedata.normalize('NFKD', str(text or '')).encode('ascii', 'ignore').decode('ascii')
+    value = re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-')
+    return value or slugify(text)
 
 
 def extract_meta_content(text, key):
@@ -667,24 +1003,30 @@ def country_from_coordinates(lat, lng, fallback=''):
         ('Poland', 49.0, 55.1, 14.0, 24.5),
         ('Germany', 47.0, 55.5, 5.0, 15.6),
         ('Italy', 36.0, 47.3, 6.0, 18.9),
+        ('United Kingdom', 49.0, 61.0, -8.5, 2.2),
         ('France', 41.0, 51.2, -5.5, 10.0),
         ('Spain', 27.0, 44.5, -18.5, 5.0),
         ('Portugal', 36.5, 42.2, -9.8, -6.0),
         ('Netherlands', 50.7, 53.8, 3.2, 7.3),
         ('Belgium', 49.4, 51.6, 2.4, 6.5),
         ('Denmark', 54.5, 57.9, 8.0, 15.5),
-        ('Norway', 57.0, 72.0, 4.0, 32.0),
+        ('Finland', 59.0, 70.4, 19.0, 32.0),
         ('Sweden', 55.0, 69.5, 10.0, 24.5),
+        ('Norway', 57.0, 72.0, 4.0, 32.0),
         ('Greece', 34.0, 41.9, 19.0, 29.5),
         ('Bulgaria', 41.0, 44.5, 22.0, 29.0),
         ('Romania', 43.5, 48.5, 20.0, 30.0),
         ('Ireland', 51.0, 56.0, -10.8, -5.2),
-        ('United Kingdom', 49.0, 61.0, -8.5, 2.2),
+        ('Greenland', 59.0, 84.0, -74.0, -11.0),
         ('Latvia', 55.5, 58.2, 20.5, 28.5),
         ('Lithuania', 53.8, 56.6, 20.8, 26.9),
         ('Estonia', 57.4, 59.8, 21.5, 28.4),
         ('United Arab Emirates', 22.4, 26.5, 51.0, 56.6),
+        ('Israel', 29.0, 34.0, 34.0, 36.0),
+        ('Saudi Arabia', 16.0, 33.0, 34.0, 56.0),
+        ('Iran', 24.0, 40.0, 44.0, 64.0),
         ('Turkey', 35.5, 42.5, 25.0, 45.0),
+        ('Curaçao', 11.7, 12.5, -69.3, -68.5),
         ('United States', 24.0, 50.0, -125.0, -66.0),
         ('Canada', 41.0, 84.0, -141.0, -52.0),
         ('Mexico', 14.0, 33.0, -119.0, -86.0),
@@ -708,16 +1050,26 @@ def country_hint_from_title(title):
         (r'\b(germany|deutschland|deutsch|berlin|munich|hamburg|selb)\b', 'Germany'),
         (r'\b(czech|czechia|praha|prague|brno|ostrava|karlovy vary)\b', 'Czech Republic'),
         (r'\b(ireland|dublin|galway|cork)\b', 'Ireland'),
-        (r'\b(united kingdom|england|london|scotland|wales)\b', 'United Kingdom'),
+        (r'\b(united kingdom|england|london|scotland|wales|cornwall|boscastle)\b', 'United Kingdom'),
         (r'\b(austria|wien|vienna|innsbruck|salzburg|gasteinertal)\b', 'Austria'),
         (r'\b(switzerland|swiss|zermatt|davos|basel|zurich|zürich)\b', 'Switzerland'),
         (r'\b(sweden|stockholm|gothenburg|malmo|malmö)\b', 'Sweden'),
+        (r'\b(finland|finnish|hankasalmi|rovaniemi|lapland)\b', 'Finland'),
+        (r'\b(norway|norwegian|skibotn|tromso|tromsø|svalbard|alta)\b', 'Norway'),
+        (r'\b(iceland|reykjavik|akureyri)\b', 'Iceland'),
         (r'\b(spain|lanzarote|canary|granada|formigal)\b', 'Spain'),
         (r'\b(italy|venice|venezia|bozen|livigno)\b', 'Italy'),
         (r'\b(poland|zakopane|gniezno|krakow|kraków|łukow|łuków)\b', 'Poland'),
         (r'\b(slovakia|tatras|bratislava|poprad|strbske|tatranska)\b', 'Slovakia'),
-        (r'\b(united states|new york|manhattan|brooklyn|california)\b', 'United States'),
+        (r'\b(united states|new york|manhattan|brooklyn|california|alaska)\b', 'United States'),
+        (r'\b(canada|yellowknife|whitehorse|churchill|alberta|ontario|british columbia)\b', 'Canada'),
         (r'\b(dubai|united arab emirates|uae)\b', 'United Arab Emirates'),
+        (r'\b(saudi arabia|medina|mecca|riyadh|jeddah)\b', 'Saudi Arabia'),
+        (r'\b(curacao|curaçao|klein curaçao|willemstad)\b', 'Curaçao'),
+        (r'\b(greenland|kulusuk|nuuk)\b', 'Greenland'),
+        (r'\b(israel|eilat|tel aviv|jerusalem)\b', 'Israel'),
+        (r'\b(iran|tehran)\b', 'Iran'),
+        (r'\b(croatia|hrvatska|zagreb|split|dubrovnik|zlatni rat|brac|brač)\b', 'Croatia'),
     ]
     for pattern, country in hints:
         if re.search(pattern, value, re.I):
@@ -767,6 +1119,7 @@ def json_type_matches(obj, value):
 def extract_maps_coords(text):
     decoded = html.unescape(text)
     patterns = [
+        r'maps\.google\.com/maps\?ll=([-0-9.]+),([-0-9.]+)',
         r'maps\.google\.com/maps\?q=([-0-9.]+)%2C([-0-9.]+)',
         r'maps\.google\.com/maps\?q=([-0-9.]+),([-0-9.]+)',
         r'"latitude"\s*:\s*([-0-9.]+)\s*,\s*"longitude"\s*:\s*([-0-9.]+)',
@@ -1105,16 +1458,69 @@ def existing_playable_items():
 def collect_cctv_world():
     sitemap = fetch_text('https://www.cctv-world.kr/sitemap.xml')
     urls = re.findall(r'<loc>(https://www\.cctv-world\.kr/cctv/[^<]+)</loc>', sitemap)
-    urls = [url for url in urls if url.rstrip('/').split('/')[-1] in CCTV_WORLD_META]
+    supported_slugs = set(CCTV_WORLD_META) | set(CCTV_WORLD_ORIGIN_META)
+    urls = [url for url in urls if url.rstrip('/').split('/')[-1] in supported_slugs]
+
+    def extract_origin_url(text):
+        patterns = [
+            r'"originUrl"\s*:\s*"([^"]+)"',
+            r'originUrl\\":\\"([^\\"]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return html.unescape(match.group(1)).replace('\\/', '/')
+        return ''
+
+    def resolve_origin_stream(origin_url):
+        if not origin_url:
+            return ''
+        if '.m3u8' in origin_url:
+            return origin_url
+        if 'knps.or.kr' in origin_url:
+            try:
+                payload = fetch_json(
+                    'https://www.cctv-world.kr/api/knps-m3u8?pageUrl=' + quote(origin_url, safe=''),
+                    timeout=12,
+                )
+                stream_url = str(payload.get('m3u8Url') or '')
+                if '.m3u8' in stream_url:
+                    return stream_url
+            except Exception:
+                return ''
+        return ''
 
     def parse(url):
         try:
             text = fetch_text(url, timeout=12)
-            vid = extract_youtube_id(text)
-            if not vid:
-                return None
             slug = url.rstrip('/').split('/')[-1]
-            title, subtitle, city, country, lat, lng, priority = CCTV_WORLD_META[slug]
+            vid = extract_youtube_id(text)
+            if vid and slug in CCTV_WORLD_META:
+                title, subtitle, city, country, lat, lng, priority = CCTV_WORLD_META[slug]
+                return {
+                    'id': f'cctvworld-{slug}',
+                    'title': title,
+                    'subtitle': subtitle,
+                    'city': city,
+                    'country': country,
+                    'region': REGION_BY_COUNTRY[country],
+                    'lat': lat,
+                    'lng': lng,
+                    'videoId': vid,
+                    'channel': 'CCTV World',
+                    'sourceUrl': url,
+                    'tags': ['tourism', 'city', 'cctvworld'],
+                    'priority': priority,
+                    'status': 'is_live',
+                    'sourceType': 'cctvworld'
+                }
+            if slug not in CCTV_WORLD_ORIGIN_META:
+                return None
+            origin_url = extract_origin_url(text)
+            stream_url = resolve_origin_stream(origin_url)
+            if not stream_url:
+                return None
+            title, subtitle, city, country, lat, lng, priority, category = CCTV_WORLD_ORIGIN_META[slug]
             return {
                 'id': f'cctvworld-{slug}',
                 'title': title,
@@ -1124,13 +1530,15 @@ def collect_cctv_world():
                 'region': REGION_BY_COUNTRY[country],
                 'lat': lat,
                 'lng': lng,
-                'videoId': vid,
+                'embedUrl': stream_url,
                 'channel': 'CCTV World',
                 'sourceUrl': url,
-                'tags': ['tourism', 'city', 'cctvworld'],
+                'tags': ['tourism', category, 'cctvworld', 'hls'],
                 'priority': priority,
                 'status': 'is_live',
-                'sourceType': 'cctvworld'
+                'sourceType': 'cctvworld',
+                'streamType': 'hls',
+                'originUrl': origin_url,
             }
         except Exception:
             return None
@@ -1478,6 +1886,7 @@ def collect_baltic(limit=WORLD_TOUR_BALTIC_LIMIT):
         cards.append((thumbnail.strip(' "\''), url, title, city, country))
 
     items = []
+    cache = load_geocode_cache()
     country_counts = {}
     for thumbnail, url, title, city, country in cards:
         if region_for_country(country) == 'Other':
@@ -1726,6 +2135,36 @@ def collect_camscape(limit=WORLD_TOUR_CAMSCAPE_LIMIT):
 def collect_livebeaches(limit=WORLD_TOUR_LIVEBEACHES_LIMIT):
     if limit <= 0:
         return []
+    items = []
+    country_counts = {}
+    seeded_ids = set()
+    for sid, title, subtitle, city, country, lat, lng, url, priority, video_id in LIVEBEACHES_SOURCE_SEEDS:
+        item = make_source_item(
+            'livebeaches',
+            sid,
+            title,
+            subtitle,
+            city,
+            country,
+            lat,
+            lng,
+            url,
+            priority=priority,
+            tags=['tourism', 'beach', 'livebeaches'],
+            channel='Live Beaches',
+        )
+        if not item:
+            continue
+        if video_id:
+            item['videoId'] = video_id
+            item['status'] = 'is_live'
+            item['sourceOnly'] = False
+        seeded_ids.add(item['id'])
+        country_counts[item['country']] = country_counts.get(item['country'], 0) + 1
+        items.append(item)
+        if len(items) >= limit:
+            return items
+
     sitemaps = [
         loc for loc in extract_sitemap_locs('https://www.livebeaches.com/sitemap_index.xml', timeout=18)
         if '/webcams-sitemap' in loc
@@ -1739,8 +2178,6 @@ def collect_livebeaches(limit=WORLD_TOUR_LIVEBEACHES_LIMIT):
             seen.add(loc)
             links.append(loc)
     cache = load_geocode_cache()
-    items = []
-    country_counts = {}
     for url in links[:limit * 5]:
         try:
             text = fetch_text(url, timeout=16)
@@ -1775,6 +2212,8 @@ def collect_livebeaches(limit=WORLD_TOUR_LIVEBEACHES_LIMIT):
             channel='Live Beaches',
         )
         if not item:
+            continue
+        if item['id'] in seeded_ids:
             continue
         video_id = extract_youtube_id(text)
         if video_id:
@@ -2275,6 +2714,1088 @@ def collect_worldcamlive(limit=WORLD_TOUR_WORLDCAMLIVE_LIMIT):
     return items
 
 
+def collect_liveworldwebcams(limit=WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT):
+    if limit <= 0:
+        return []
+    try:
+        text = fetch_text('https://liveworldwebcams.com/', timeout=22)
+    except Exception:
+        return []
+    links = []
+    seen = set()
+    for match in re.finditer(r'href=["\'](https://liveworldwebcams\.com/[^"\']*webcam[^"\']*/)["\']', text, re.I):
+        url = html.unescape(match.group(1))
+        if '/category/' in url or url in seen:
+            continue
+        seen.add(url)
+        links.append(url)
+
+    items = []
+    for url in links[:limit * 4]:
+        try:
+            page = fetch_text(url, timeout=16)
+        except Exception:
+            continue
+        coords = re.search(r'id=["\']webcam-map["\'][^>]+data-lat=["\']([-0-9.]+)["\'][^>]+data-lng=["\']([-0-9.]+)', page, re.I)
+        if not coords:
+            continue
+        lat, lng = coords.group(1), coords.group(2)
+        title = clean_title(extract_meta_content(page, 'og:title') or text_from_tag(page, 'h1'))
+        subtitle = extract_meta_content(page, 'og:description') or f'{title} live webcam'
+        country = country_hint_from_title(title) or country_hint_from_title(subtitle) or country_from_coordinates(lat, lng)
+        city = re.split(r'\s+Webcam|,|-', title)[0].strip() or country
+        item = make_source_item(
+            'liveworldwebcams',
+            urlparse(url).path.strip('/'),
+            title,
+            subtitle,
+            city,
+            country,
+            lat,
+            lng,
+            url,
+            priority=66,
+            thumbnail_url=extract_meta_content(page, 'og:image'),
+            tags=['tourism', 'liveworldwebcams', 'source-site'],
+            channel='Live World Webcams',
+        )
+        if not item:
+            continue
+        video_id = extract_youtube_id(page)
+        if video_id:
+            item['videoId'] = video_id
+            item['status'] = 'is_live'
+            item['sourceOnly'] = False
+        else:
+            iframe_match = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', page, re.I)
+            if iframe_match:
+                item['embedUrl'] = html.unescape(iframe_match.group(1))
+                item['status'] = 'is_live'
+                item['sourceOnly'] = False
+        items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def collect_webcamhopper(limit=WORLD_TOUR_WEBCAMHOPPER_LIMIT):
+    if limit <= 0:
+        return []
+    list_urls = [
+        'https://www.webcamhopper.com/',
+        'https://www.webcamhopper.com/airport.html',
+        'https://www.webcamhopper.com/beach.html',
+        'https://www.webcamhopper.com/europe/uk.html',
+        'https://www.webcamhopper.com/asia/japan.html',
+        'https://www.webcamhopper.com/asia/south_korea.html',
+        'https://www.webcamhopper.com/asia/thailand.html',
+        'https://www.webcamhopper.com/north_america/canada.html',
+    ]
+    links = []
+    seen = set()
+    for list_url in list_urls:
+        try:
+            text = fetch_text(list_url, timeout=16)
+        except Exception:
+            continue
+        for match in re.finditer(r'href=["\']([^"\']*/map/\d+\.html(?:#[^"\']+)?)["\']', text, re.I):
+            url = urljoin(list_url, html.unescape(match.group(1)))
+            if url not in seen:
+                seen.add(url)
+                links.append(url)
+
+    items = []
+    for url in links[:limit * 4]:
+        try:
+            page = fetch_text(url, timeout=14)
+        except Exception:
+            continue
+        coords = extract_maps_coords(page)
+        if not coords:
+            continue
+        title = clean_title(extract_meta_content(page, 'og:title') or text_from_tag(page, 'title'))
+        subtitle = extract_meta_content(page, 'og:description') or f'{title} webcam from Webcam Hopper'
+        country_match = re.search(r'<div>Location</div><div><a[^>]+>([^<]+)</a>', page, re.I)
+        country = normalize_country_name(country_match.group(1)) if country_match else ''
+        if region_for_country(country) == 'Other':
+            country = country_hint_from_title(f'{title} {subtitle}') or country_from_coordinates(coords[0], coords[1])
+        city = re.split(r'\s+Webcam|,|-', title)[0]
+        city = re.sub(r'^Live\s+(?:Webcam\s+)?(?:at|of)\s+', '', city, flags=re.I).strip() or country
+        item = make_source_item(
+            'webcamhopper',
+            urlparse(url).path.strip('/'),
+            title,
+            subtitle,
+            city,
+            country,
+            coords[0],
+            coords[1],
+            url,
+            priority=65,
+            thumbnail_url='https://www.webcamhopper.com/thumb/' + urlparse(url).path.strip('/').split('/')[-1].split('.')[0] + '.jpg',
+            tags=['tourism', 'webcamhopper', 'source-site'],
+            channel='Webcam Hopper',
+        )
+        if item:
+            video_id = extract_youtube_id(page)
+            if video_id:
+                item['videoId'] = video_id
+                item['status'] = 'is_live'
+                item['sourceOnly'] = False
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def collect_worldcamtv(limit=WORLD_TOUR_WORLDCAMTV_LIMIT):
+    if limit <= 0:
+        return []
+    try:
+        payload = fetch_json('https://lsikrghvxtbyveqqctqf.supabase.co/storage/v1/object/public/page-cache/homepage-hero.json', timeout=18)
+    except Exception:
+        return []
+    cache = load_geocode_cache()
+    items = []
+    for raw in payload.get('webcams', []):
+        if not raw.get('is_live'):
+            continue
+        location_text = raw.get('location') or raw.get('country') or ''
+        location = (
+            source_location_hint(f'{raw.get("title", "")} {location_text}') or
+            youtube_location_hint(f'{raw.get("title", "")} {location_text}') or
+            geocode_location(location_text, cache)
+        )
+        if not location:
+            continue
+        slug = raw.get('slug') or raw.get('id') or raw.get('title')
+        source_url = 'https://worldcam.tv/webcam/' + str(slug)
+        item = make_source_item(
+            'worldcamtv',
+            raw.get('id') or slug,
+            raw.get('title') or location_text,
+            f'{location_text} WorldCam.tv live webcam',
+            location['city'],
+            location['country'],
+            location['lat'],
+            location['lng'],
+            source_url,
+            priority=66,
+            thumbnail_url=raw.get('thumbnail_url') or '',
+            tags=['tourism', 'worldcamtv', 'source-site'],
+            channel='WorldCam.tv',
+        )
+        if item:
+            items.append(item)
+        if len(items) >= limit:
+            break
+    save_geocode_cache(cache)
+    return items
+
+
+def collect_livecamcroatia(limit=WORLD_TOUR_LIVECAMCROATIA_LIMIT):
+    if limit <= 0:
+        return []
+    try:
+        text = fetch_text('https://www.livecamcroatia.com/', timeout=22)
+    except Exception:
+        return []
+    links = []
+    seen = set()
+    for match in re.finditer(r'href=["\'](/hr/kamera/[^"\']+)["\']', text, re.I):
+        url = urljoin('https://www.livecamcroatia.com/', html.unescape(match.group(1)))
+        if url in seen:
+            continue
+        if re.search(r'(gradiliste|poslovnog|king-cross|roda|cigoc)', url, re.I):
+            continue
+        seen.add(url)
+        links.append(url)
+
+    items = []
+    for url in links[:limit * 4]:
+        try:
+            page = fetch_text(url, timeout=16)
+        except Exception:
+            continue
+        coords = re.search(r'/hr/karta\?lon=([-0-9.]+)&lat=([-0-9.]+)', page)
+        if not coords:
+            continue
+        title = clean_title(extract_meta_content(page, 'og:title') or text_from_tag(page, 'title'))
+        title = re.sub(r', \[.*$', '', title).strip()
+        subtitle = extract_meta_content(page, 'og:description') or f'{title} live camera from Croatia'
+        city = title.split(',')[-1].strip() if ',' in title else title_from_slug(urlparse(url).path.strip('/').split('/')[-1])
+        item = make_source_item(
+            'livecamcroatia',
+            urlparse(url).path.strip('/'),
+            title,
+            subtitle,
+            city,
+            'Croatia',
+            coords.group(2),
+            coords.group(1),
+            url,
+            priority=65,
+            thumbnail_url=extract_meta_content(page, 'og:image'),
+            tags=['tourism', 'croatia', 'livecamcroatia', 'source-site'],
+            channel='LiveCamCroatia',
+        )
+        if item:
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def collect_openwebcamdb(limit=WORLD_TOUR_OPENWEBCAMDB_LIMIT):
+    api_key = os.getenv('OPENWEBCAMDB_API_KEY')
+    if limit <= 0 or not api_key:
+        return []
+    headers = {**HEADERS, 'Accept': 'application/json', 'Authorization': f'Bearer {api_key}'}
+    items = []
+    page = 1
+    while len(items) < limit and page <= 5:
+        url = f'https://openwebcamdb.com/api/v1/webcams?per_page={min(100, limit)}&page={page}'
+        try:
+            payload = fetch_json_with_headers(url, timeout=18, headers=headers)
+        except Exception:
+            break
+        raw_items = payload.get('data') or payload.get('webcams') or payload.get('items') or []
+        if isinstance(raw_items, dict):
+            raw_items = raw_items.get('data') or raw_items.get('webcams') or raw_items.get('items') or []
+        if not isinstance(raw_items, list) or not raw_items:
+            break
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                continue
+            loc = raw.get('location') if isinstance(raw.get('location'), dict) else {}
+            lat = raw.get('latitude') or raw.get('lat') or loc.get('latitude') or loc.get('lat')
+            lng = raw.get('longitude') or raw.get('lng') or raw.get('lon') or loc.get('longitude') or loc.get('lng') or loc.get('lon')
+            if not (is_finite_number(lat) and is_finite_number(lng)):
+                continue
+            country = raw.get('country') or loc.get('country') or country_from_coordinates(lat, lng)
+            if isinstance(country, dict):
+                country = country.get('name') or country.get('title') or country.get('code')
+            city = raw.get('city') or loc.get('city') or loc.get('name') or country
+            title = clean_title(raw.get('title') or raw.get('name') or f'{city} webcam')
+            source_url = (
+                raw.get('source_url') or raw.get('sourceUrl') or raw.get('page_url') or raw.get('pageUrl') or
+                raw.get('url') or raw.get('webcam_url') or raw.get('webcamUrl') or 'https://openwebcamdb.com/'
+            )
+            item = make_source_item(
+                'openwebcamdb',
+                raw.get('id') or raw.get('uuid') or source_url or title,
+                title,
+                raw.get('description') or f'{city}, {country} OpenWebcamDB live webcam',
+                city,
+                country,
+                lat,
+                lng,
+                source_url,
+                priority=64,
+                thumbnail_url=raw.get('thumbnail_url') or raw.get('thumbnailUrl') or raw.get('image_url') or raw.get('imageUrl') or '',
+                tags=['tourism', 'openwebcamdb', 'source-site'],
+                channel='OpenWebcamDB',
+            )
+            if not item:
+                continue
+            embed_url = raw.get('embed_url') or raw.get('embedUrl') or raw.get('player_url') or raw.get('playerUrl')
+            if embed_url:
+                item['embedUrl'] = embed_url
+                item['status'] = 'is_live'
+                item['sourceOnly'] = False
+            items.append(item)
+            if len(items) >= limit:
+                break
+        page += 1
+    return items
+
+
+def collect_viewsurf(limit=WORLD_TOUR_VIEWSURF_LIMIT):
+    if limit <= 0:
+        return []
+    links = []
+    seen = set()
+    for list_url, category in VIEWSURF_LIST_URLS:
+        try:
+            text = fetch_text(list_url, timeout=20)
+        except Exception:
+            continue
+        for match in re.finditer(r'href=["\'](/univers/[^"\']+/vue/\d+-[^"\']+)["\']', text, re.I):
+            url = urljoin('https://www.viewsurf.com/', html.unescape(match.group(1)))
+            if url in seen:
+                continue
+            seen.add(url)
+            links.append((url, category))
+
+    cache = load_geocode_cache()
+    items = []
+    country_counts = {}
+    for url, category in links[:limit * 5]:
+        try:
+            page = fetch_text(url, timeout=16)
+        except Exception:
+            continue
+        description = extract_meta_content(page, 'description')
+        parts = [part.strip() for part in re.split(r'\s+-\s+', description) if part.strip()]
+        if len(parts) >= 5 and parts[1].lower() == 'france':
+            country = 'France'
+            city = parts[3]
+            place = ' - '.join(parts[4:])
+        else:
+            slug_parts = urlparse(url).path.strip('/').split('/')[-1].split('-')
+            if len(slug_parts) < 5:
+                continue
+            country = country_from_slug(slug_parts[1])
+            city = title_from_slug(slug_parts[3])
+            place = title_from_slug('-'.join(slug_parts[4:]))
+        combined = f'{city} {place} {description}'
+        if HARD_NEGATIVE_TITLE.search(combined):
+            continue
+        if NEGATIVE_TITLE.search(combined) and not POSITIVE_TITLE.search(combined):
+            continue
+        if country_counts.get(country, 0) >= 24:
+            continue
+        location = (
+            geocode_location(f'{place}, {city}, {country}', cache) or
+            geocode_location(f'{city}, {country}', cache)
+        )
+        if not location:
+            continue
+        title = clean_title(f'{city} - {place}' if place else city)
+        iframe_match = re.search(r'<iframe[^>]+src=["\']([^"\']*joada\.net/[^"\']+)["\']', page, re.I)
+        thumb_match = re.search(r'data-source=["\']([^"\']+)["\']', page, re.I)
+        item = make_source_item(
+            'viewsurf',
+            urlparse(url).path.strip('/'),
+            title,
+            description or f'{city}, {country} ViewSurf live webcam',
+            location.get('city') or city,
+            location.get('country') or country,
+            location['lat'],
+            location['lng'],
+            url,
+            priority=66 if category in {'city', 'beach'} else 63,
+            thumbnail_url=html.unescape(thumb_match.group(1)) if thumb_match else '',
+            tags=['tourism', category, 'viewsurf', 'source-site'],
+            channel='ViewSurf',
+        )
+        if not item:
+            continue
+        if iframe_match:
+            item['embedUrl'] = html.unescape(iframe_match.group(1))
+            item['status'] = 'is_live'
+            item['sourceOnly'] = False
+        country_counts[item['country']] = country_counts.get(item['country'], 0) + 1
+        items.append(item)
+        if len(items) >= limit:
+            break
+    save_geocode_cache(cache)
+    return items
+
+
+def collect_airportwebcams(limit=WORLD_TOUR_AIRPORTWEBCAMS_LIMIT):
+    if limit <= 0:
+        return []
+    links = []
+    seen = set()
+    for list_url in AIRPORTWEBCAMS_CATEGORY_URLS:
+        try:
+            text = fetch_text(list_url, timeout=20)
+        except Exception:
+            continue
+        for match in re.finditer(r'https://airportwebcams\.net/[a-z0-9-]+-airport-webcam/', text, re.I):
+            url = html.unescape(match.group(0))
+            if url in seen:
+                continue
+            seen.add(url)
+            links.append(url)
+
+    items = []
+    country_counts = {}
+    for url in links[:limit * 5]:
+        try:
+            page = fetch_text(url, timeout=16)
+        except Exception:
+            continue
+        coord_match = re.search(r'flightradar24\.com/([-0-9.]+),([-0-9.]+)/', page, re.I)
+        if not coord_match:
+            continue
+        lat, lng = coord_match.group(1), coord_match.group(2)
+        country = country_from_coordinates(lat, lng)
+        if region_for_country(country) == 'Other':
+            country = country_hint_from_title(page)
+        if region_for_country(country) == 'Other':
+            continue
+        if country_counts.get(country, 0) >= 8:
+            continue
+        title = clean_title(extract_meta_content(page, 'og:title') or text_from_tag(page, 'title'))
+        title = re.sub(r'\s*-\s*Airport Webcams\.net\s*$', '', title, flags=re.I)
+        subtitle = extract_meta_content(page, 'og:description') or f'{title} airport webcam directory page'
+        city = re.sub(r'\s+(?:International\s+)?Airport(?:\s+Webcam)?$', '', title, flags=re.I).strip() or country
+        item = make_source_item(
+            'airportwebcams',
+            urlparse(url).path.strip('/'),
+            title,
+            subtitle,
+            city,
+            country,
+            lat,
+            lng,
+            url,
+            priority=65,
+            thumbnail_url=extract_meta_content(page, 'og:image'),
+            tags=['airport', 'aviation', 'airportwebcams', 'source-site'],
+            channel='AirportWebcams.net',
+        )
+        if not item:
+            continue
+        video_id = extract_youtube_id(page)
+        if video_id:
+            item['videoId'] = video_id
+            item['status'] = 'is_live'
+            item['sourceOnly'] = False
+        country_counts[item['country']] = country_counts.get(item['country'], 0) + 1
+        items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def collect_panomax(limit=WORLD_TOUR_PANOMAX_LIMIT):
+    if limit <= 0:
+        return []
+    try:
+        payload = fetch_json('https://api.panomax.com/1.0/maps/panomaxweb', timeout=24)
+    except Exception:
+        return []
+    instances = payload.get('instances') if isinstance(payload, dict) else {}
+    if not isinstance(instances, dict):
+        return []
+    items = []
+    country_counts = {}
+    for raw in instances.values():
+        if not isinstance(raw, dict):
+            continue
+        cam = raw.get('cam') if isinstance(raw.get('cam'), dict) else {}
+        lat, lng = cam.get('latitude'), cam.get('longitude')
+        country = country_from_coordinates(lat, lng)
+        if region_for_country(country) == 'Other':
+            continue
+        if country_counts.get(country, 0) >= 10:
+            continue
+        raw_name = first_localized_text(raw.get('name'))
+        cam_name = first_localized_text(cam.get('name'))
+        title = clean_title(cam_name if re.search(r'^360', raw_name or '', re.I) else (raw_name or cam_name))
+        if not title or HARD_NEGATIVE_TITLE.search(title):
+            continue
+        city = re.split(r'\s+-\s+|,', title)[0].strip() or country
+        cam_id = cam.get('id') or raw.get('id') or title
+        thumbnail = f'https://panodata.panomax.com/cams/{cam_id}/preview_og.jpg' if cam_id else ''
+        item = make_source_item(
+            'panomax',
+            raw.get('id') or cam_id,
+            title,
+            f'{title} Panomax high-resolution panorama webcam',
+            city,
+            country,
+            lat,
+            lng,
+            'https://map.panomax.com/?id=panomaxweb',
+            priority=66,
+            thumbnail_url=thumbnail,
+            tags=['tourism', 'panorama', 'panomax', 'source-site'],
+            channel='Panomax',
+        )
+        if item:
+            country_counts[item['country']] = country_counts.get(item['country'], 0) + 1
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def mexico_location_override(place):
+    place_key = ascii_key(place)
+    for key, value in MEXICO_LOCATION_OVERRIDES.items():
+        if ascii_key(key) == place_key:
+            return value
+    return None
+
+
+def webcamsdemexico_terms():
+    terms = {}
+    for page in range(1, 5):
+        url = f'https://webcamsdemexico.com/wp-json/wp/v2/webcam_localidad?per_page=100&page={page}&_fields=id,name'
+        try:
+            payload = fetch_json(url, timeout=16)
+        except Exception:
+            break
+        if not isinstance(payload, list) or not payload:
+            break
+        for raw in payload:
+            terms[int(raw.get('id'))] = strip_html_text(raw.get('name'))
+        if len(payload) < 100:
+            break
+    return terms
+
+
+def collect_webcamsdemexico(limit=WORLD_TOUR_WEBCAMSMEXICO_LIMIT):
+    if limit <= 0:
+        return []
+    terms = webcamsdemexico_terms()
+    cache = load_geocode_cache()
+    items = []
+    seen = set()
+    skip_pattern = re.compile(r'(rancho-la-onza|bebedero|bordo|subacuatica|subacuática)', re.I)
+    for page_number in range(1, 5):
+        url = (
+            'https://webcamsdemexico.com/wp-json/wp/v2/webcammx'
+            f'?per_page=100&page={page_number}&_fields=id,link,title,content,webcam_localidad,yoast_head,slug'
+        )
+        try:
+            payload = fetch_json(url, timeout=20)
+        except Exception:
+            break
+        if not isinstance(payload, list) or not payload:
+            break
+        for raw in payload:
+            link = raw.get('link') or ''
+            slug = raw.get('slug') or urlparse(link).path.strip('/').split('/')[-1]
+            if not link or slug in seen or skip_pattern.search(f'{slug} {raw.get("title", {})}'):
+                continue
+            seen.add(slug)
+            title = clean_title(first_localized_text((raw.get('title') or {}).get('rendered')))
+            subtitle = clean_subtitle(first_localized_text((raw.get('content') or {}).get('rendered')), f'{title} live webcam')
+            term_ids = raw.get('webcam_localidad') if isinstance(raw.get('webcam_localidad'), list) else []
+            city = ''
+            for term_id in term_ids:
+                if int(term_id) in terms:
+                    city = terms[int(term_id)]
+                    break
+            yoast = raw.get('yoast_head') or ''
+            seo_title = extract_meta_content(yoast, 'og:title')
+            if not city and seo_title:
+                match = re.search(r'en vivo,\s*([^-]+)\s+-\s*Webcams', seo_title, re.I)
+                if match:
+                    city = match.group(1).strip()
+            if not city:
+                city = re.split(r'[,|-]', title)[0].strip()
+            country = 'Spain' if re.search(r'(ribera del duero|valladolid|españa)', f'{title} {subtitle}', re.I) else 'Mexico'
+            override = mexico_location_override(city) if country == 'Mexico' else None
+            if override:
+                city, country, lat, lng = override
+                location = {'city': city, 'country': country, 'lat': lat, 'lng': lng}
+            else:
+                location = geocode_location(f'{city}, {country}', cache)
+            if not location:
+                continue
+            combined = f'{title} {subtitle}'
+            if HARD_NEGATIVE_TITLE.search(combined):
+                continue
+            detail = ''
+            video_id = None
+            try:
+                detail = fetch_text(link, timeout=14)
+                video_match = re.search(r'"stream"\s*:\s*"([A-Za-z0-9_-]{11})"', detail)
+                if video_match and re.search(r'"mostrar_stream"\s*:\s*"1"', detail):
+                    video_id = video_match.group(1)
+                else:
+                    video_id = extract_youtube_id(detail)
+            except Exception:
+                detail = ''
+            thumbnail = extract_meta_content(detail, 'og:image') or extract_meta_content(yoast, 'og:image')
+            item = make_source_item(
+                'webcamsdemexico',
+                raw.get('id') or slug,
+                title,
+                subtitle,
+                location.get('city') or city,
+                location.get('country') or country,
+                location['lat'],
+                location['lng'],
+                link,
+                priority=66,
+                thumbnail_url=thumbnail,
+                tags=['tourism', 'mexico', 'webcamsdemexico', 'source-site'],
+                channel='Webcams de Mexico',
+            )
+            if not item:
+                continue
+            if video_id:
+                item['videoId'] = video_id
+                item['status'] = 'is_live'
+                item['sourceOnly'] = False
+            items.append(item)
+            if len(items) >= limit:
+                save_geocode_cache(cache)
+                return items
+        if len(payload) < 100:
+            break
+    save_geocode_cache(cache)
+    return items
+
+
+CLIMAAOVIVO_AUTH = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOjE1NzEyNDU4ODB9.WBl7Iy1pvYIWzM8RYdlFdTdTgeQ/s9YnHNvXQa9lR7c='
+
+
+def climaaovivo_source_url(raw):
+    state = latin_slug(raw.get('dessigla') or '')
+    city = latin_slug(raw.get('descidade') or '')
+    slug = str(raw.get('desurl') or '').strip('/')
+    if not state or not slug:
+        return 'https://www.climaaovivo.com.br/cidades'
+    if int(str(raw.get('totalcamerascidade') or '1') or '1') > 1 and city:
+        return f'https://www.climaaovivo.com.br/{state}/{city}/{slug}'
+    return f'https://www.climaaovivo.com.br/{state}/{slug}'
+
+
+def collect_climaaovivo(limit=WORLD_TOUR_CLIMAAOVIVO_LIMIT):
+    if limit <= 0:
+        return []
+    headers = {**HEADERS, 'Authorization': CLIMAAOVIVO_AUTH, 'Accept': 'application/json'}
+    try:
+        payload = fetch_json_with_headers('https://cmsv2.climaaovivo.com.br/api/cameras', timeout=24, headers=headers)
+    except Exception:
+        return []
+    raw_items = payload.get('data') if isinstance(payload, dict) else []
+    if not isinstance(raw_items, list):
+        return []
+    items = []
+    state_counts = {}
+    for raw in raw_items:
+        if not isinstance(raw, dict) or raw.get('inprivada') == '1':
+            continue
+        lat, lng = raw.get('deslatitude'), raw.get('deslongitude')
+        if not (is_finite_number(lat) and is_finite_number(lng)):
+            continue
+        state = str(raw.get('dessigla') or '').upper()
+        if state_counts.get(state, 0) >= 8:
+            continue
+        city = strip_html_text(raw.get('descidade') or 'Brazil')
+        title = clean_title(f'{city} - {raw.get("destitulo") or "Clima Ao Vivo"}')
+        item = make_source_item(
+            'climaaovivo',
+            raw.get('idcamera') or raw.get('descodigo') or title,
+            title,
+            f'{city}/{state} official Clima Ao Vivo weather camera',
+            city,
+            'Brazil',
+            lat,
+            lng,
+            climaaovivo_source_url(raw),
+            priority=64,
+            tags=['weather', 'city', 'climaaovivo', 'source-site'],
+            channel='Clima Ao Vivo',
+        )
+        if item:
+            state_counts[state] = state_counts.get(state, 0) + 1
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+HK_TRAFFIC_LOCATION_URLS = [
+    'https://static.data.gov.hk/td/traffic-snapshot-images/code/Traffic_Camera_Locations_En.xml',
+    'https://static.data.gov.hk/td/traffic-snapshot-images/code/Traffic_Camera_Locations_En.csv',
+]
+HK_TRAFFIC_SUMMARY_PDF_URL = 'https://www.gov.hk/en/theme/psi/datasets/Summary_of_traffic_snapshot_images%28Eng%29.pdf'
+
+
+def normalized_field_name(name):
+    return re.sub(r'[^a-z0-9]+', '', str(name or '').lower())
+
+
+def pick_field(row, *names):
+    for name in names:
+        key = normalized_field_name(name)
+        value = row.get(key)
+        if value not in (None, ''):
+            return strip_html_text(value)
+    return ''
+
+
+def hk_grid_to_wgs84(easting, northing):
+    easting = re.sub(r'[^0-9.-]+', '', str(easting or ''))
+    northing = re.sub(r'[^0-9.-]+', '', str(northing or ''))
+    if not (is_finite_number(easting) and is_finite_number(northing)):
+        return None
+    origin_lat = 22.3121333333333
+    origin_lng = 114.178555555556
+    false_easting = 836694.05
+    false_northing = 819069.80
+    meters_per_degree_lng = 111320 * math.cos(math.radians(origin_lat))
+    lat = origin_lat + (float(northing) - false_northing) / 110900
+    lng = origin_lng + (float(easting) - false_easting) / meters_per_degree_lng
+    if not (21.9 <= lat <= 22.7 and 113.7 <= lng <= 114.6):
+        return None
+    return round(lat, 6), round(lng, 6)
+
+
+def iter_hktraffic_csv_rows(text):
+    text = text.lstrip('\ufeff')
+    for delimiter in ('\t', ','):
+        reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+        if not reader.fieldnames or len(reader.fieldnames) < 3:
+            continue
+        for raw_row in reader:
+            yield {normalized_field_name(key): value for key, value in raw_row.items()}
+        return
+
+
+def iter_hktraffic_xml_rows(text):
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return
+    for node in root.iter():
+        children = list(node)
+        if len(children) < 3:
+            continue
+        row = {}
+        for child in children:
+            tag = normalized_field_name(child.tag.split('}', 1)[-1])
+            value = ''.join(child.itertext()).strip()
+            if tag and value:
+                row[tag] = value
+        if row:
+            yield row
+
+
+def iter_hktraffic_pdf_rows():
+    try:
+        from pypdf import PdfReader
+        raw = fetch_bytes(HK_TRAFFIC_SUMMARY_PDF_URL, timeout=30)
+        reader = PdfReader(io.BytesIO(raw))
+    except Exception:
+        return
+    text = ' '.join(page.extract_text() or '' for page in reader.pages)
+    text = re.sub(r'\s+', ' ', text)
+    pattern = re.compile(
+        r'\b([A-Z]{1,3}\d{3,4}F\d*)\s+\1\.JPG\s+(.*?)\s+'
+        r'(\d(?:\s?\d){5})\s+(\d(?:\s?\d){5})\s+'
+        r'http://tdcctv\.data\.one\.gov\.hk/([A-Z0-9]+)\s*\.JPG',
+        re.I,
+    )
+    for match in pattern.finditer(text):
+        key, description, easting, northing, url_key = match.groups()
+        url_key = url_key.upper()
+        yield {
+            'key': key.upper(),
+            'description': description,
+            'easting': easting,
+            'northing': northing,
+            'url': f'https://tdcctv.data.one.gov.hk/{url_key}.JPG',
+        }
+
+
+def make_hktraffic_item(row, district_counts):
+    key = pick_field(row, 'key', 'cameraid', 'camera', 'cameraimagefilename')
+    if key:
+        key = re.sub(r'\.jpg$', '', key, flags=re.I).strip()
+    description = pick_field(row, 'description', 'location', 'name') or key or 'Hong Kong traffic camera'
+    district = pick_field(row, 'district', 'region', 'area') or 'Hong Kong'
+    if district_counts.get(district, 0) >= 8:
+        return None
+    image_url = pick_field(row, 'url', 'imageurl', 'link')
+    if not image_url.startswith('http') and key:
+        image_url = f'https://tdcctv.data.one.gov.hk/{quote(key)}.JPG'
+    lat = pick_field(row, 'latitude', 'lat')
+    lng = pick_field(row, 'longitude', 'long', 'lng', 'lon')
+    if not (is_finite_number(lat) and is_finite_number(lng)):
+        coords = hk_grid_to_wgs84(
+            pick_field(row, 'easting', 'image location easting coordinate'),
+            pick_field(row, 'northing', 'image location northing coordinate'),
+        )
+        if not coords:
+            return None
+        lat, lng = coords
+    if not image_url.startswith('http'):
+        return None
+    item = make_source_item(
+        'hktraffic',
+        key or description,
+        f'Hong Kong Traffic - {description}',
+        f'{district} official Transport Department traffic snapshot camera',
+        district,
+        'Hong Kong',
+        lat,
+        lng,
+        image_url,
+        priority=61,
+        thumbnail_url=image_url,
+        tags=['traffic', 'public-data', 'hktraffic', 'source-site'],
+        channel='Hong Kong Transport Department',
+    )
+    if item:
+        district_counts[district] = district_counts.get(district, 0) + 1
+    return item
+
+
+def collect_hktraffic(limit=WORLD_TOUR_HKTRAFFIC_LIMIT):
+    if limit <= 0:
+        return []
+    row_sources = []
+    for url in HK_TRAFFIC_LOCATION_URLS:
+        try:
+            raw = fetch_bytes(url, timeout=24)
+        except Exception:
+            continue
+        if url.endswith('.xml'):
+            text = raw.decode('utf-8', 'replace')
+            row_sources.append(iter_hktraffic_xml_rows(text))
+        else:
+            for encoding in ('utf-16', 'utf-8-sig', 'utf-8', 'big5'):
+                try:
+                    text = raw.decode(encoding)
+                    break
+                except UnicodeError:
+                    text = ''
+            if text:
+                row_sources.append(iter_hktraffic_csv_rows(text))
+    if not row_sources:
+        row_sources.append(iter_hktraffic_pdf_rows())
+    items = []
+    district_counts = {}
+    seen = set()
+    for rows in row_sources:
+        for row in rows:
+            key = pick_field(row, 'key', 'cameraid', 'camera', 'cameraimagefilename')
+            normalized_key = ascii_key(key or pick_field(row, 'description', 'location', 'name'))
+            if not normalized_key or normalized_key in seen:
+                continue
+            seen.add(normalized_key)
+            item = make_hktraffic_item(row, district_counts)
+            if item:
+                items.append(item)
+            if len(items) >= limit:
+                return items
+        if items:
+            return items
+    return items
+
+
+def collect_usgsvolcano(limit=WORLD_TOUR_USGS_VOLCANO_LIMIT):
+    if limit <= 0:
+        return []
+    try:
+        payload = fetch_json('https://volcview.wr.usgs.gov/ashcam-api/webcamApi/webcams', timeout=28)
+    except Exception:
+        return []
+    raw_items = payload.get('webcams') if isinstance(payload, dict) else []
+    if not isinstance(raw_items, list):
+        return []
+    items = []
+    volcano_counts = {}
+    for raw in raw_items:
+        if not isinstance(raw, dict) or raw.get('hasImages') != 'Y':
+            continue
+        lat, lng = raw.get('latitude'), raw.get('longitude')
+        country = country_from_coordinates(lat, lng, fallback='United States')
+        if region_for_country(country) == 'Other':
+            continue
+        volcano = strip_html_text(raw.get('vName') or raw.get('webcamName') or 'Volcano')
+        if volcano_counts.get(volcano, 0) >= 4:
+            continue
+        code = raw.get('webcamCode') or raw.get('webcamName') or volcano
+        title = clean_title(f'{volcano} - {raw.get("webcamName") or "USGS Volcano Cam"}')
+        image_url = raw.get('currentImageUrl') or raw.get('currentMediumImageUrl') or raw.get('clearImageUrl') or ''
+        thumb_url = raw.get('currentThumbImageUrl') or raw.get('currentMediumImageUrl') or image_url
+        source_url = raw.get('externalUrl') or image_url or f'https://volcview.wr.usgs.gov/ashcam-api/webcamApi/webcam/{quote(str(code))}'
+        item = make_source_item(
+            'usgsvolcano',
+            code,
+            title,
+            f'Official USGS/AVO volcano monitoring webcam for {volcano}',
+            volcano,
+            country,
+            lat,
+            lng,
+            source_url,
+            priority=67,
+            thumbnail_url=thumb_url,
+            tags=['volcano', 'weather', 'usgs', 'source-site'],
+            channel='USGS VolcView',
+        )
+        if item:
+            if image_url and not item.get('thumbnailUrl'):
+                item['thumbnailUrl'] = image_url
+            volcano_counts[volcano] = volcano_counts.get(volcano, 0) + 1
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def parse_aurora_coordinate_pair(text):
+    text = html.unescape(strip_html_text(text)).replace('′', "'").replace('″', '"')
+    decimal = re.search(r'([-0-9.]+)\s*[°]?\s*([NS])\s*,?\s+([-0-9.]+)\s*[°]?\s*([EW])', text, re.I)
+    if decimal:
+        lat = float(decimal.group(1)) * (-1 if decimal.group(2).upper() == 'S' else 1)
+        lng = float(decimal.group(3)) * (-1 if decimal.group(4).upper() == 'W' else 1)
+        return lat, lng
+    signed = re.search(r'\b([-0-9]{1,3}\.\d+)\s*,\s*([-0-9]{1,3}\.\d+)\b', text)
+    if signed:
+        return float(signed.group(1)), float(signed.group(2))
+    dms = re.search(
+        r'(\d{1,3})°\s*(\d{1,2})?\'?\s*(\d{1,2})?"?\s*([NS]).*?'
+        r'(\d{1,3})°\s*(\d{1,2})?\'?\s*(\d{1,2})?"?\s*([EW])',
+        text,
+        re.I,
+    )
+    if not dms:
+        return None
+    lat = float(dms.group(1)) + float(dms.group(2) or 0) / 60 + float(dms.group(3) or 0) / 3600
+    lng = float(dms.group(5)) + float(dms.group(6) or 0) / 60 + float(dms.group(7) or 0) / 3600
+    if dms.group(4).upper() == 'S':
+        lat *= -1
+    if dms.group(8).upper() == 'W':
+        lng *= -1
+    return lat, lng
+
+
+def collect_aurorainfo(limit=WORLD_TOUR_AURORAINFO_LIMIT):
+    if limit <= 0:
+        return []
+    page_url = 'https://aurorainfo.eu/aurora-live-cameras/'
+    try:
+        text = fetch_text(page_url, timeout=20)
+    except Exception:
+        return []
+    items = []
+    for match in re.finditer(r'<h2[^>]*id=["\']([^"\']+)["\'][^>]*>(.*?)</h2>(.*?)(?=<h2|</article>)', text, re.I | re.S):
+        sid, raw_title, block = match.groups()
+        title = clean_title(strip_html_text(raw_title))
+        coords = parse_aurora_coordinate_pair(block)
+        if not coords:
+            continue
+        country = country_hint_from_title(title) or country_from_coordinates(coords[0], coords[1])
+        if region_for_country(country) == 'Other':
+            continue
+        city = re.split(r',|-', title)[0].strip() or country
+        image_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', block, re.I)
+        links = [
+            html.unescape(href) for href in re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', block, re.I)
+            if 'google.com/maps' not in href
+        ]
+        item = make_source_item(
+            'aurorainfo',
+            sid,
+            title,
+            f'{city}, {country} northern lights live/all-sky camera',
+            city,
+            country,
+            coords[0],
+            coords[1],
+            links[0] if links else f'{page_url}#{sid}',
+            priority=65,
+            thumbnail_url=urljoin(page_url, html.unescape(image_match.group(1))) if image_match else '',
+            tags=['aurora', 'night-sky', 'weather', 'aurorainfo', 'source-site'],
+            channel='AuroraInfo',
+        )
+        if item:
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def collect_nswtraffic(limit=WORLD_TOUR_NSW_TRAFFIC_LIMIT):
+    if limit <= 0:
+        return []
+    try:
+        payload = fetch_json('https://data.livetraffic.com/cameras/traffic-cam.json', timeout=20)
+    except Exception:
+        return []
+    features = payload.get('features') if isinstance(payload, dict) else []
+    items = []
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        geometry = feature.get('geometry') or {}
+        coords = geometry.get('coordinates') if isinstance(geometry, dict) else None
+        if not isinstance(coords, list) or len(coords) < 2:
+            continue
+        lng, lat = coords[0], coords[1]
+        props = feature.get('properties') or {}
+        title = clean_title(props.get('title') or feature.get('id') or 'NSW Traffic Camera')
+        view = props.get('view') or f'{title} official NSW traffic camera'
+        region = str(props.get('region') or '')
+        city = 'Sydney' if region.startswith('SYD') else 'New South Wales'
+        item = make_source_item(
+            'nswtraffic',
+            feature.get('id') or title,
+            title,
+            view,
+            city,
+            'Australia',
+            lat,
+            lng,
+            'https://www.livetraffic.com/traffic-cameras',
+            priority=62,
+            thumbnail_url=props.get('href') or '',
+            tags=['traffic', 'public-data', 'nswtraffic', 'source-site'],
+            channel='Transport for NSW',
+        )
+        if item:
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def collect_dctraffic(limit=WORLD_TOUR_DC_TRAFFIC_LIMIT):
+    if limit <= 0:
+        return []
+    endpoints = [
+        ('cctv', 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Transportation_Sensors_WebMercator/MapServer/11/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&f=geojson'),
+        ('traffic', 'https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Transportation_Sensors_WebMercator/MapServer/93/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&f=geojson'),
+    ]
+    items = []
+    seen = set()
+    for layer, url in endpoints:
+        try:
+            payload = fetch_json(url, timeout=20)
+        except Exception:
+            continue
+        features = payload.get('features') if isinstance(payload, dict) else []
+        for feature in features:
+            if not isinstance(feature, dict):
+                continue
+            geometry = feature.get('geometry') or {}
+            coords = geometry.get('coordinates') if isinstance(geometry, dict) else None
+            if not isinstance(coords, list) or len(coords) < 2:
+                continue
+            lng, lat = coords[0], coords[1]
+            props = feature.get('properties') or {}
+            sid = props.get('GLOBALID') or props.get('OBJECTID') or props.get('CAMERAID') or feature.get('id')
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            name = props.get('NAME') or props.get('FACILITYID') or props.get('CAMERAID') or sid
+            address = props.get('ADDRESS') or props.get('DESCRIPTION') or 'Washington, DC traffic camera'
+            title = clean_title(f'DC {name}')
+            item = make_source_item(
+                'dctraffic',
+                sid,
+                title,
+                str(address),
+                'Washington',
+                'United States',
+                lat,
+                lng,
+                url,
+                priority=61 if layer == 'cctv' else 59,
+                tags=['traffic', 'public-data', 'dctraffic', 'source-site'],
+                channel='Open Data DC',
+            )
+            if item:
+                items.append(item)
+            if len(items) >= limit:
+                return items
+    return items
+
+
 def collect_alertcalifornia(limit=WORLD_TOUR_ALERTCALIFORNIA_LIMIT):
     if limit <= 0:
         return []
@@ -2607,11 +4128,42 @@ def collect_public_traffic(limit=WORLD_TOUR_PUBLIC_TRAFFIC_LIMIT):
     return items
 
 
+def collect_africam_seeds(limit=WORLD_TOUR_AFRICAM_LIMIT):
+    if limit <= 0:
+        return []
+    items = []
+    for sid, title, subtitle, city, country, lat, lng, url, priority in AFRICAM_SOURCE_SEEDS:
+        item = make_source_item(
+            'africam',
+            sid,
+            title,
+            subtitle,
+            city,
+            country,
+            lat,
+            lng,
+            url,
+            priority=priority,
+            tags=['nature', 'wildlife', 'africam', 'source-site'],
+            channel='Africam',
+        )
+        if item:
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
 def collect_thematic_seeds():
     tag_by_type = {
         'spacecam': ['space', 'science', 'spacecam', 'source-site'],
         'animalcam': ['wildlife', 'animalcam', 'source-site'],
         'golfcam': ['sports', 'golf', 'golfcam', 'source-site'],
+        'airportwebcams': ['airport', 'aviation', 'airportwebcams', 'source-site'],
+        'weatherbug': ['weather', 'weatherbug', 'source-site'],
+        'surfline': ['surf', 'beach', 'surfline', 'source-site'],
+        'railcamuk': ['rail', 'transport', 'railcamuk', 'source-site'],
+        'japanwebcams': ['tourism', 'japan', 'japanwebcams', 'source-site'],
     }
     items = []
     for source_type, sid, title, subtitle, city, country, lat, lng, url, priority, channel in THEMATIC_SOURCE_SEEDS:
@@ -2714,6 +4266,55 @@ def collect_youtube_search(limit=YOUTUBE_SEARCH_LIMIT):
 
     save_geocode_cache(cache)
     return items
+
+
+def extract_iframe_embed(text):
+    match = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', text or '', re.I)
+    if not match:
+        return None
+    embed_url = html.unescape(match.group(1)).strip()
+    if embed_url.startswith('//'):
+        embed_url = 'https:' + embed_url
+    if embed_url.startswith(('http://', 'https://')):
+        return embed_url
+    return None
+
+
+def enrich_source_only_embeds(items, limit=WORLD_TOUR_SOURCE_ENRICH_LIMIT):
+    """Opportunistically convert source-site-only entries into embeddable entries.
+
+    This is intentionally conservative: it only promotes clearly public YouTube
+    and iframe players already present on the source page. It does not crawl raw
+    RTSP/IP-camera URLs or bypass source-site players.
+    """
+    if limit <= 0:
+        return {'checked': 0, 'promoted': 0}
+    checked = 0
+    promoted = 0
+    for item in items:
+        if checked >= limit:
+            break
+        if item.get('videoId') or item.get('embedUrl') or not item.get('sourceUrl'):
+            continue
+        checked += 1
+        try:
+            page = fetch_text(item['sourceUrl'], timeout=8)
+        except Exception:
+            continue
+        video_id = extract_youtube_id(page)
+        if video_id:
+            item['videoId'] = video_id
+            item['playbackStatus'] = 'unchecked'
+            item['sourceOnly'] = False
+            promoted += 1
+            continue
+        embed_url = extract_iframe_embed(page)
+        if embed_url and not re.search(r'(google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)', embed_url, re.I):
+            item['embedUrl'] = embed_url
+            item['playbackStatus'] = 'verified'
+            item['sourceOnly'] = False
+            promoted += 1
+    return {'checked': checked, 'promoted': promoted}
 
 
 def validate_youtube_item(item):
@@ -2855,6 +4456,21 @@ def main():
         ('roundshot', collect_roundshot),
         ('twlivecam', collect_twlivecam),
         ('worldcamlive', collect_worldcamlive),
+        ('liveworldwebcams', collect_liveworldwebcams),
+        ('webcamhopper', collect_webcamhopper),
+        ('worldcamtv', collect_worldcamtv),
+        ('livecamcroatia', collect_livecamcroatia),
+        ('openwebcamdb', collect_openwebcamdb),
+        ('viewsurf', collect_viewsurf),
+        ('airportwebcams', collect_airportwebcams),
+        ('panomax', collect_panomax),
+        ('webcamsdemexico', collect_webcamsdemexico),
+        ('climaaovivo', collect_climaaovivo),
+        ('hktraffic', collect_hktraffic),
+        ('usgsvolcano', collect_usgsvolcano),
+        ('aurorainfo', collect_aurorainfo),
+        ('nswtraffic', collect_nswtraffic),
+        ('dctraffic', collect_dctraffic),
         ('alertcalifornia', collect_alertcalifornia),
         ('wetter', collect_wetter),
         ('panoramask', collect_panoramask),
@@ -2862,20 +4478,34 @@ def main():
         ('ptztv', collect_ptztv),
         ('railcam', collect_railcam),
         ('public_traffic', collect_public_traffic),
+        ('africam', collect_africam_seeds),
         ('thematic_seeds', collect_thematic_seeds),
         ('webcamtaxi', collect_webcamtaxi_seeds),
         ('youtube_search', collect_youtube_search),
     ]
     additions = []
+    collector_health = []
     for name, collector in collector_steps:
         print(f'collecting {name}...', flush=True)
+        started = time.perf_counter()
+        error_summary = None
         try:
-            collected = collector()
+            collected = run_with_collector_timeout(collector)
         except Exception as error:
-            print(f'{name} error {type(error).__name__}: {error}', flush=True)
+            error_summary = f'{type(error).__name__}: {error}'
+            print(f'{name} error {error_summary}', flush=True)
             collected = []
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
         print(f'{name} {len(collected)}', flush=True)
+        collector_health.append({
+            'source': name,
+            'count': len(collected),
+            'elapsedMs': elapsed_ms,
+            'status': 'ok' if error_summary is None else 'error',
+            'error': error_summary,
+        })
         additions.extend(collected)
+    enrichment_stats = enrich_source_only_embeds(additions)
     by_key = {}
     video_seen = set()
     for item in base + additions:
@@ -2926,6 +4556,22 @@ def main():
             'roundshotLimit': WORLD_TOUR_ROUNDSHOT_LIMIT,
             'twlivecamLimit': WORLD_TOUR_TWLIVECAM_LIMIT,
             'worldCamLiveLimit': WORLD_TOUR_WORLDCAMLIVE_LIMIT,
+            'liveWorldWebcamsLimit': WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT,
+            'webcamHopperLimit': WORLD_TOUR_WEBCAMHOPPER_LIMIT,
+            'worldCamTvLimit': WORLD_TOUR_WORLDCAMTV_LIMIT,
+            'liveCamCroatiaLimit': WORLD_TOUR_LIVECAMCROATIA_LIMIT,
+            'openWebcamDbLimit': WORLD_TOUR_OPENWEBCAMDB_LIMIT,
+            'viewSurfLimit': WORLD_TOUR_VIEWSURF_LIMIT,
+            'airportWebcamsLimit': WORLD_TOUR_AIRPORTWEBCAMS_LIMIT,
+            'panomaxLimit': WORLD_TOUR_PANOMAX_LIMIT,
+            'webcamsMexicoLimit': WORLD_TOUR_WEBCAMSMEXICO_LIMIT,
+            'climaAoVivoLimit': WORLD_TOUR_CLIMAAOVIVO_LIMIT,
+            'hkTrafficLimit': WORLD_TOUR_HKTRAFFIC_LIMIT,
+            'usgsVolcanoLimit': WORLD_TOUR_USGS_VOLCANO_LIMIT,
+            'auroraInfoLimit': WORLD_TOUR_AURORAINFO_LIMIT,
+            'nswTrafficLimit': WORLD_TOUR_NSW_TRAFFIC_LIMIT,
+            'dcTrafficLimit': WORLD_TOUR_DC_TRAFFIC_LIMIT,
+            'africamLimit': WORLD_TOUR_AFRICAM_LIMIT,
             'alertCaliforniaLimit': WORLD_TOUR_ALERTCALIFORNIA_LIMIT,
             'wetterLimit': WORLD_TOUR_WETTER_LIMIT,
             'panoramaSkLimit': WORLD_TOUR_PANORAMASK_LIMIT,
@@ -2935,11 +4581,22 @@ def main():
             'publicTrafficLimit': WORLD_TOUR_PUBLIC_TRAFFIC_LIMIT,
             'qualityPolicy': 'verified playback, source trust, positive tourist context, and coordinate availability are scored before ranking.',
             'sourcePolicy': 'Only public official/source-site or embeddable tourist webcams are retained; raw exposed IP camera scanners and private RTSP feeds are excluded.',
-            'generationNote': 'Some source counts can include retained items from previous verified runs when a collector is disabled, API-key gated, or rate-limited during the latest run.'
+            'openWebcamDbStatus': 'API-key gated via OPENWEBCAMDB_API_KEY; default disabled until terms and attribution are configured.',
+            'insecamStatus': 'Excluded: unsecured private surveillance camera directory, not suitable for this curated public tourist dataset.',
+            'generationNote': 'Some source counts can include retained items from previous verified runs when a collector is disabled, API-key gated, or rate-limited during the latest run.',
+            'collectorHealth': collector_health,
+            'sourceOnlyEnrichment': enrichment_stats,
+            'httpCache': {
+                **HTTP_CACHE_STATS,
+                'ttlHours': WORLD_TOUR_HTTP_CACHE_TTL_HOURS,
+                'staleFallbackHours': WORLD_TOUR_STALE_CACHE_HOURS,
+                'timeoutCapSeconds': WORLD_TOUR_HTTP_TIMEOUT_CAP,
+            }
         },
         'items': items
     }
     DATA_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n')
+    save_http_cache()
     print('items', len(items))
     print('sources', dict(source_counts))
     print('regions', dict(region_counts))
