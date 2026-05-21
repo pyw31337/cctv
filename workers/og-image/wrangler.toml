@@ -1,0 +1,13 @@
+name = "cctv-og-image"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+SITE_BASE_URL = "https://pyw31337.github.io/cctv"
+ATTRIBUTION = "밖에 눈오나?"
+
+# Edge-cached for 6 hours; the image only depends on the cctv id+name which
+# rarely change. Bust by appending a hash to the query in shareCurrentView.
+[placement]
+mode = "smart"
