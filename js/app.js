@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-f9b86e3b';
+const APP_BUILD_VERSION = '20260521-search-active-clear';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -706,8 +706,17 @@ function setupEventListeners() {
     // Location Button
     $('#location-btn').addEventListener('click', handleCurrentLocation);
 
-    // Search Results Click (Delegation for items, bookmark, delete, cctv favorite)
+    // Search Results Click (Delegation for items, bookmark, delete, cctv favorite, open compare)
     $('#search-results').addEventListener('click', (e) => {
+        // 전국 주요 도시 라이브 (mobile entry point inside the search panel)
+        const compareBtn = e.target.closest('[data-action="open-compare-mode"]');
+        if (compareBtn) {
+            e.stopPropagation();
+            $('#search-results').classList.remove('active');
+            $('#dim-overlay').classList.remove('active');
+            openCompareMode();
+            return;
+        }
         // CCTV favorite item — opens video layer directly
         const favItem = e.target.closest('.cctv-favorite-item');
         if (favItem) {
@@ -859,6 +868,9 @@ function renderSearchSortPanel() {
                     <option value="${mode}" ${state.sortMode === mode ? 'selected' : ''}>${QUALITY_SORT_LABELS[mode]}</option>
                 `).join('')}
             </select>
+            <button type="button" class="search-compare-btn" data-action="open-compare-mode" title="전국 주요 도시 라이브" aria-label="전국 주요 도시 라이브">
+                ${COMPARE_MODE_ICON_SVG}
+            </button>
         </div>
     `;
 }
@@ -4923,6 +4935,18 @@ function closeCompareMode() {
     document.body.classList.remove('compare-mode-active');
 }
 
+// lucide-cctv icon — used for the "전국 주요 도시 라이브" button on both the
+// desktop header and inside the mobile search-results compact panel.
+const COMPARE_MODE_ICON_SVG = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cctv-icon lucide-cctv" aria-hidden="true">
+        <path d="M16.75 12h3.632a1 1 0 0 1 .894 1.447l-2.034 4.069a1 1 0 0 1-1.708.134l-2.124-2.97"/>
+        <path d="M17.106 9.053a1 1 0 0 1 .447 1.341l-3.106 6.211a1 1 0 0 1-1.342.447L3.61 12.3a2.92 2.92 0 0 1-1.3-3.91L3.69 5.6a2.92 2.92 0 0 1 3.92-1.3z"/>
+        <path d="M2 19h3.76a2 2 0 0 0 1.8-1.1L9 15"/>
+        <path d="M2 21v-4"/>
+        <path d="M7 9h.01"/>
+    </svg>
+`;
+
 function initCompareModeButton() {
     if (document.getElementById('compare-mode-btn')) return;
     const header = document.querySelector('.header-inner');
@@ -4931,16 +4955,9 @@ function initCompareModeButton() {
     btn.id = 'compare-mode-btn';
     btn.className = 'compare-mode-btn';
     btn.type = 'button';
-    btn.title = '전국 주요 도시 비교';
-    btn.setAttribute('aria-label', '전국 주요 도시 비교');
-    btn.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="7" rx="1"/>
-            <rect x="14" y="3" width="7" height="7" rx="1"/>
-            <rect x="3" y="14" width="7" height="7" rx="1"/>
-            <rect x="14" y="14" width="7" height="7" rx="1"/>
-        </svg>
-    `;
+    btn.title = '전국 주요 도시 라이브';
+    btn.setAttribute('aria-label', '전국 주요 도시 라이브');
+    btn.innerHTML = COMPARE_MODE_ICON_SVG;
     btn.addEventListener('click', openCompareMode);
     const weatherBtn = document.getElementById('weather-btn');
     if (weatherBtn && weatherBtn.parentElement === header) {
@@ -6220,6 +6237,30 @@ function bindWorldTourListPanel(root, cams, selected) {
     const panel = root.querySelector('.world-tour-list-panel');
     if (!overlay || !panel) return;
 
+    const shell = root.querySelector('.world-tour-shell');
+
+    // Toggle the "search active" state — overlay drops its blur/dim so the
+    // user can still see the map/video, and the bottom menu disappears so
+    // the left side is a clean canvas while they explore results.
+    let lastSearchActive = null;
+    const setSearchActive = (active) => {
+        const next = !!active;
+        if (lastSearchActive === next) return;
+        lastSearchActive = next;
+        overlay.classList.toggle('is-searching', next);
+        if (shell) shell.classList.toggle('is-searching', next);
+        // The map-stage resizes when the bottom menu disappears (and again
+        // when it reappears); Leaflet needs a kick so it paints tiles for
+        // the newly exposed area. Run on the next frame so the layout has
+        // already settled.
+        if (typeof worldTourLeafletMap !== 'undefined' && worldTourLeafletMap?.invalidateSize) {
+            requestAnimationFrame(() => {
+                try { worldTourLeafletMap.invalidateSize(false); } catch (e) { /* map gone */ }
+            });
+        }
+    };
+    setSearchActive(Boolean(state.worldTourListSearch));
+
     const rerenderWithList = (selectedId = state.selectedWorldTourId, extraOptions = {}) => {
         const cardRail = root.querySelector('.world-tour-card-rail');
         const regionTabs = root.querySelector('.world-tour-region-tabs');
@@ -6258,7 +6299,8 @@ function bindWorldTourListPanel(root, cams, selected) {
         rerenderWithList();
     });
 
-    panel.querySelector('[data-world-tour-list-search]')?.addEventListener('input', event => {
+    const searchInput = panel.querySelector('[data-world-tour-list-search]');
+    searchInput?.addEventListener('input', event => {
         state.worldTourListSearch = event.target.value;
         // Any active typing should force results to come from the full
         // dataset so users aren't accidentally filtered out by a region
@@ -6268,7 +6310,16 @@ function bindWorldTourListPanel(root, cams, selected) {
             state.worldTourListRegion = 'All';
             refreshRegionChips();
         }
+        setSearchActive(Boolean(state.worldTourListSearch));
         refreshResults();
+    });
+    // Treat focus/blur as a softer signal — while the input is focused,
+    // even an empty query keeps the left side clear so the user can
+    // glance at the map before typing. Once they tab away and the query
+    // is empty, revert to the default blurred backdrop.
+    searchInput?.addEventListener('focus', () => setSearchActive(true));
+    searchInput?.addEventListener('blur', () => {
+        setSearchActive(Boolean(state.worldTourListSearch));
     });
 
     panel.querySelector('[data-world-tour-list-country]')?.addEventListener('change', event => {

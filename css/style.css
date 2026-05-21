@@ -954,6 +954,9 @@ body {
 }
 
 .search-sort-panel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 10px 12px;
     border-bottom: 1px solid var(--border-color);
     background:
@@ -962,7 +965,9 @@ body {
 }
 
 .search-sort-select {
-    width: 100%;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
     max-width: none;
     height: 38px;
     padding: 0 38px 0 14px;
@@ -972,6 +977,35 @@ body {
         url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23a7f3d0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
         no-repeat right 13px center;
     background-size: 18px 18px;
+}
+
+/* "전국 주요 도시 라이브" entry — circular CCTV-icon button to the right
+ * of the sort selector in the mobile search panel. */
+.search-compare-btn {
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 1px solid rgba(52, 211, 153, 0.28);
+    border-radius: 999px;
+    background: rgba(30, 41, 59, 0.92);
+    color: #bbf7d0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+.search-compare-btn:hover,
+.search-compare-btn:focus-visible {
+    background: rgba(20, 83, 45, 0.55);
+    border-color: rgba(52, 211, 153, 0.55);
+    color: #d1fae5;
+    outline: none;
+}
+.search-compare-btn svg {
+    width: 20px;
+    height: 20px;
 }
 
 .search-history-scroll {
@@ -2117,6 +2151,30 @@ body.world-tour-active #pwa-install-prompt {
     justify-content: flex-end;
     background: rgba(2, 6, 23, 0.58);
     backdrop-filter: blur(10px);
+    transition: background var(--transition), backdrop-filter var(--transition);
+}
+
+/* While the user is actively searching, clear the dim+blur on the left
+ * side so they can still see the map / video underneath. Paired with
+ * `.world-tour-shell.is-searching .world-tour-bottom-menu { display:none }`
+ * below — together they give the panel a focused, side-by-side feel. */
+.world-tour-list-overlay.is-searching {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.world-tour-shell.is-searching .world-tour-bottom-menu {
+    display: none;
+}
+
+.world-tour-shell.is-searching .world-tour-hero,
+.world-tour-shell.is-searching .world-tour-map-stage {
+    /* The hero is normally constrained to the area above the bottom
+     * menu. Once the menu is hidden, let it stretch to fill the screen
+     * so the map/video reads as the background of the search session. */
+    inset: 0;
+    bottom: 0;
 }
 
 .world-tour-list-panel {
@@ -2433,15 +2491,17 @@ body.world-tour-active #pwa-install-prompt {
 }
 
 /* Yellow-highlighter look on every part of a row that matched the search.
- * Translucent yellow background + bold red text so it reads as a literal
- * highlighter pass over the matching characters. */
+ * Saturated amber background + bold white text. We use amber rather than
+ * pale yellow because white text needs a dark-enough background to stay
+ * legible. */
 .world-tour-search-highlight {
-    padding: 0 2px;
+    padding: 0 3px;
     border-radius: 3px;
-    background: rgba(250, 204, 21, 0.42);
-    color: #dc2626;
+    background: rgba(202, 138, 4, 0.85);
+    color: #ffffff;
     font-weight: 900;
-    -webkit-text-fill-color: #dc2626;
+    -webkit-text-fill-color: #ffffff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
 .world-tour-list-item-actions {
@@ -3929,6 +3989,14 @@ body.world-tour-active #pwa-install-prompt {
 .compare-mode-btn:hover {
     background: rgba(20, 83, 45, 0.42);
     color: #bbf7d0;
+}
+
+/* On narrow screens the compare button moves into the search panel
+ * (next to the sort selector), so hide the header copy. */
+@media (max-width: 600px) {
+    .compare-mode-btn {
+        display: none;
+    }
 }
 
 .compare-layer {
