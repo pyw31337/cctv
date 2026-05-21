@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-2eafdfb7';
+const APP_BUILD_VERSION = '20260521-pr5-unified-favorites';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -922,37 +922,33 @@ function showSearchHistory() {
     let html = '';
     if (compactPanel) {
         html += renderSearchSortPanel();
-        html += '<div class="search-history-scroll" aria-label="북마크 및 최근 검색">';
+        html += '<div class="search-history-scroll" aria-label="즐겨찾기 및 최근 검색">';
     }
 
-    // Unified favorites — domestic CCTV + World Tour cams together
+    // Unified favorites — places (formerly 북마크) + domestic CCTV + World Tour cams.
+    // Single section, star icon, no more separate "북마크" terminology.
     const favoriteCctvs = getFavoriteCctvs();
     const favoriteWorldCams = getFavoriteWorldTourCams();
-    const totalFavorites = favoriteCctvs.length + favoriteWorldCams.length;
+    const totalFavorites = bookmarks.length + favoriteCctvs.length + favoriteWorldCams.length;
+    const STAR_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+    html += `<div class="search-section-title">
+        ${STAR_SVG}
+        <span>즐겨찾기 · Favorite</span>
+        ${totalFavorites > 0 ? `<span class="search-section-count">${totalFavorites}</span>` : ''}
+    </div>`;
     if (totalFavorites > 0) {
-        const cap = compactPanel ? SEARCH_HISTORY_PANEL_ITEM_LIMIT : 12;
-        const cappedCctvs = favoriteCctvs.slice(0, cap);
-        const remainingForWorld = Math.max(cap - cappedCctvs.length, 0);
-        const cappedWorld = favoriteWorldCams.slice(0, remainingForWorld);
-        html += `<div class="search-section-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            <span>즐겨찾기 · Favorite</span>
-            <span class="search-section-count">${totalFavorites}</span>
-        </div>`;
+        const cap = compactPanel ? SEARCH_HISTORY_PANEL_ITEM_LIMIT : 24;
+        let remaining = cap;
+        const cappedBookmarks = bookmarks.slice(0, remaining); remaining -= cappedBookmarks.length;
+        const cappedCctvs = favoriteCctvs.slice(0, Math.max(0, remaining)); remaining -= cappedCctvs.length;
+        const cappedWorld = favoriteWorldCams.slice(0, Math.max(0, remaining));
+        html += cappedBookmarks.map(item => renderSearchItem(item, true)).join('');
         html += cappedCctvs.map(cctv => renderCctvFavoriteSearchItem(cctv)).join('');
         html += cappedWorld.map(cam => renderWorldTourFavoriteSearchItem(cam)).join('');
+    } else {
+        html += '<div class="search-section-empty">아직 즐겨찾기한 항목이 없습니다 — 검색 결과의 별 아이콘을 눌러 추가하세요.</div>';
     }
 
-    // Bookmarks Section (always show)
-    html += `<div class="search-section-title">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z"/></svg>
-        북마크
-    </div>`;
-    if (bookmarks.length > 0) {
-        html += bookmarks.map(item => renderSearchItem(item, true)).join('');
-    } else {
-        html += '<div class="search-section-empty">최근 북마크된 주소가 없습니다</div>';
-    }
 
     // History Section (always show)
     html += `<div class="search-section-title">최근 검색</div>`;
@@ -1031,9 +1027,9 @@ function renderSearchItem(item, isBookmarked) {
                 <div class="search-result-address">${item.address || ''}</div>
             </div>
             <div class="search-result-actions">
-                <button class="btn-bookmark ${bookmarkClass}" data-action="bookmark" title="북마크">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="${isBookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
-                        <path d="M5 5c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z"/>
+                <button class="btn-bookmark ${bookmarkClass}" data-action="bookmark" title="${isBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}" aria-pressed="${isBookmarked}" aria-label="${isBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="${isBookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                     </svg>
                 </button>
                 <button class="btn-delete" data-action="delete" title="삭제">
@@ -2620,14 +2616,11 @@ function renderSelectTrigger(panel, cctv, fallbackLabel) {
     const sourceMeta = getSourceMeta(cctv);
     trigger.innerHTML = '';
 
-    // Small colored dot identifies the source (SPATIC, UTIC, NTIC, ...)
-    if (cctv) {
-        const sourceDot = document.createElement('span');
-        sourceDot.className = 'cctv-source-dot';
-        sourceDot.style.background = sourceMeta.color;
-        sourceDot.setAttribute('aria-hidden', 'true');
-        trigger.append(sourceDot);
-    }
+    // The data-source dot (SPATIC / UTIC / NTIC) used to sit on the LEFT
+    // of the name, paired with the playback-status dot on the right.
+    // That made the trigger feel double-decorated. We keep only the
+    // status dot (right) which conveys playback health — the more useful
+    // signal — and surface the source label through the tooltip.
 
     const name = document.createElement('span');
     name.className = 'cctv-select-name';
@@ -4685,6 +4678,12 @@ function initMap() {
     };
 
     map = new kakao.maps.Map(container, options);
+    // Cap the zoom-out so users don't end up looking at the empty
+    // beige "kakaomap" background. Kakao's outer levels (>= 12) often
+    // have no tiles for South Korea, leaving the map blank.
+    if (typeof map.setMaxLevel === 'function') {
+        map.setMaxLevel(11);
+    }
     state.mapInitialized = true;
 
     // Map Move Event handler
@@ -5537,8 +5536,14 @@ function renderWorldTourFavoriteButton(cam, variant = 'card') {
 }
 
 function getWorldTourRegionCounts(cams) {
+    // Honor the "원본만 보기" toggle — when active, region chip counts
+    // (All / North America / Europe / ...) drop to the playable-only set
+    // so the count matches the map markers and card rail.
+    const source = state.worldTourListExcludeExternal
+        ? cams.filter(canPlayWorldTourInApp)
+        : cams;
     const favorites = getWorldTourFavoriteIds();
-    return cams.reduce((counts, cam) => {
+    return source.reduce((counts, cam) => {
         const region = cam.region || 'Other';
         counts.All = (counts.All || 0) + 1;
         if (favorites.has(String(cam.id))) {
