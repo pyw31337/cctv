@@ -1,0 +1,39 @@
+name: Daily UTIC Resurrect
+
+# audit_utic_broken.py 가 disabled 로 마킹한 카메라들을 매일 부활 시도.
+# 100 표본 검증 결과 약 56% 가 UTIC API 에서 살아있음 (URL 만 stale). API 로 fresh 정보 받아
+# URL 재구성 후 worker /utic 으로 검증해 OK 면 status=active 복원.
+
+on:
+  schedule:
+    # 매일 새벽 4시 KST (audit 1시간 후) = 19:00 UTC
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: utic-resurrect
+  cancel-in-progress: true
+
+jobs:
+  resurrect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run resurrect
+        run: python scripts/resurrect_utic.py
+
+      - name: Commit results
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "chore: daily UTIC resurrect"
+          file_pattern: "cctv_data.json data/utic_audit_history.json"
+          branch: main
