@@ -773,12 +773,16 @@ function setupEventListeners() {
                 state.selectedWorldTourId = id;
                 state.worldTourRegion = 'All';
                 state.worldTourViewMode = 'video';
+                // 즐겨찾기 → World Tour 진입을 위해 #weather-layer 와
+                // #weather-btn 도 active 상태로 만들어야 한다 (toggleWeather 와 동일).
+                const weatherLayerEl = $('#weather-layer');
+                const weatherBtnEl = $('#weather-btn');
+                if (weatherLayerEl) weatherLayerEl.classList.add('active');
+                if (weatherBtnEl) weatherBtnEl.classList.add('active');
                 if (typeof openWorldTourPanel === 'function') {
-                    Promise.resolve(openWorldTourPanel()).then(() => {
-                        if (typeof renderWorldTourCams === 'function') {
-                            renderWorldTourCams(id, { viewMode: 'video' });
-                        }
-                    }).catch(err => console.warn('[favorites] world tour open failed:', err));
+                    Promise.resolve(openWorldTourPanel({ selectedId: id, viewMode: 'video' })).catch(err =>
+                        console.warn('[favorites] world tour open failed:', err)
+                    );
                 } else if (typeof renderWorldTourCams === 'function') {
                     renderWorldTourCams(id, { viewMode: 'video' });
                 }
@@ -982,7 +986,8 @@ function showSearchHistory() {
         const cappedBookmarks = bookmarks.slice(0, remaining); remaining -= cappedBookmarks.length;
         const cappedCctvs = favoriteCctvs.slice(0, Math.max(0, remaining)); remaining -= cappedCctvs.length;
         const cappedWorld = favoriteWorldCams.slice(0, Math.max(0, remaining));
-        html += cappedBookmarks.map(item => renderSearchItem(item, true)).join('');
+        // 즐겨찾기 섹션: 별 버튼만 노출 (showDelete=false). 별을 누르면 토글 해제.
+        html += cappedBookmarks.map(item => renderSearchItem(item, true, { showDelete: false })).join('');
         html += cappedCctvs.map(cctv => renderCctvFavoriteSearchItem(cctv)).join('');
         html += cappedWorld.map(cam => renderWorldTourFavoriteSearchItem(cam)).join('');
     } else {
@@ -990,10 +995,11 @@ function showSearchHistory() {
     }
 
 
-    // History Section (always show)
+    // History Section (always show) — 별(즐겨찾기 토글) + X(목록에서 제거) 둘 다 노출.
     html += `<div class="search-section-title">최근 검색</div>`;
     if (history.length > 0) {
-        html += history.map(item => renderSearchItem(item, false)).join('');
+        const bookmarkNameSet = new Set(bookmarks.map(b => b && b.name).filter(Boolean));
+        html += history.map(item => renderSearchItem(item, bookmarkNameSet.has(item.name), { showDelete: true })).join('');
     } else {
         html += '<div class="search-section-empty">최근 검색 주소가 없습니다</div>';
     }
@@ -1045,9 +1051,9 @@ function renderCctvFavoriteSearchItem(cctv) {
                 <div class="search-result-address">${sourceMeta.label}</div>
             </div>
             <div class="search-result-actions">
-                <button class="btn-delete" data-action="remove-favorite" title="즐겨찾기 해제">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                <button class="btn-bookmark active" data-action="remove-favorite" title="즐겨찾기 해제" aria-pressed="true" aria-label="즐겨찾기 해제">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                     </svg>
                 </button>
             </div>
@@ -1055,8 +1061,18 @@ function renderCctvFavoriteSearchItem(cctv) {
     `;
 }
 
-function renderSearchItem(item, isBookmarked) {
+function renderSearchItem(item, isBookmarked, options = {}) {
+    // showDelete=false → 즐겨찾기 섹션 (별 토글만, X 없음)
+    // showDelete=true  → 최근 검색 섹션 (별 + X 둘 다)
+    const { showDelete = true } = options;
     const bookmarkClass = isBookmarked ? 'active' : '';
+    const deleteHtml = showDelete ? `
+                <button class="btn-delete" data-action="delete" title="삭제">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            ` : '';
     return `
         <div class="search-result-item" data-lat="${item.lat}" data-lng="${item.lng}" data-name="${item.name}" data-address="${item.address || ''}">
             <div class="search-result-info">
@@ -1068,12 +1084,7 @@ function renderSearchItem(item, isBookmarked) {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="${isBookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                     </svg>
-                </button>
-                <button class="btn-delete" data-action="delete" title="삭제">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
+                </button>${deleteHtml}
             </div>
         </div>
     `;
@@ -5331,19 +5342,23 @@ function openWeatherPanel() {
     fetchWeather();
 }
 
-async function openWorldTourPanel() {
+async function openWorldTourPanel(options = {}) {
     const layer = $('#weather-layer');
     const content = layer?.querySelector('.weather-content');
     layer?.classList.add('world-tour-layer');
     content?.classList.add('world-tour-content');
     document.body.classList.add('world-tour-active');
-    state.worldTourViewMode = 'map';
+    // 호출 측에서 viewMode 를 명시하지 않으면 기존 동작인 'map' 으로 시작한다.
+    state.worldTourViewMode = options.viewMode || 'map';
     state.worldTourListOpen = false;
     $('#weather-title').textContent = '세계 관광 라이브 지도';
+    if (options.selectedId) {
+        state.selectedWorldTourId = options.selectedId;
+    }
     if (!isWorldTourRegionAvailable(state.worldTourRegion)) {
         state.worldTourRegion = 'All';
     }
-    await renderWorldTourCams();
+    await renderWorldTourCams(state.selectedWorldTourId, { viewMode: state.worldTourViewMode });
 }
 
 
