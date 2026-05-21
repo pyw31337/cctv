@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-d2509965';
+const APP_BUILD_VERSION = '20260521-pr9-fav-lazyload';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -917,6 +917,27 @@ function renderSearchSortPanel() {
 function showSearchHistory() {
     // Close weather popup when opening search
     closeWeather();
+
+    // Lazy-load World Tour cams the first time the search panel opens so
+    // World Tour favorites (경복궁/광안대교/남산타워 등) appear in the
+    // unified 즐겨찾기 섹션 even before the user has opened the world
+    // tour view. Fire-and-forget; re-render when ready.
+    try {
+        const favIds = getUnifiedFavoriteIds();
+        const camsLoaded = Array.isArray(state.worldTourCams)
+            || Array.isArray(state.worldTourCams?.items);
+        if (favIds && favIds.size && !camsLoaded && typeof loadWorldTourCams === 'function') {
+            loadWorldTourCams()
+                .then(() => {
+                    const resultsEl = document.getElementById('search-results');
+                    if (resultsEl && resultsEl.classList.contains('active')) {
+                        showSearchHistory();
+                    }
+                })
+                .catch(err => console.warn('[favorites] world tour cams lazy-load failed:', err));
+        }
+    } catch (_) { /* defensive */ }
+
 
     const resultsEl = $('#search-results');
     const compactPanel = shouldUseCompactSearchPanel();
