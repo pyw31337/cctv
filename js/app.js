@@ -4956,6 +4956,8 @@ function getWorldTourSnapshotRefreshMs(cam) {
     const sourceType = (cam?.sourceType || '').toLowerCase();
     if (sourceType === 'hktraffic') return 30_000;     // HK CCTV: 30s
     if (sourceType === 'usgsvolcano') return 60_000;   // USGS volc: 1min
+    if (sourceType === 'baltic') return 2 * 60_000;    // Baltic thumbs CDN: ~2min
+    if (sourceType === 'worldcam') return 3 * 60_000;  // WorldCam live JPG: ~3min
     if (sourceType === 'panomax') return 5 * 60_000;   // Panomax: 5min
     if (sourceType === 'roundshot') return 0;          // Roundshot URL is dated; no refresh
     return 60_000;
