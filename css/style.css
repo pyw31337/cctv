@@ -1656,7 +1656,7 @@ body.world-tour-active #pwa-install-prompt {
     inset: 0;
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: cover;
     opacity: 0;
     transition: opacity var(--transition);
 }
@@ -2075,10 +2075,11 @@ body.world-tour-active #pwa-install-prompt {
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    min-width: 70px;
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
     min-height: 38px;
-    padding: 0 10px;
+    padding: 0;
     border: 1px solid rgba(148, 163, 184, 0.18);
     border-radius: var(--radius-full);
     background: rgba(15, 23, 42, 0.72);
@@ -2089,8 +2090,8 @@ body.world-tour-active #pwa-install-prompt {
 }
 
 .world-tour-list-toggle svg {
-    width: 20px;
-    height: 20px;
+    width: 19px;
+    height: 19px;
 }
 
 .world-tour-list-toggle.active,
@@ -2727,6 +2728,56 @@ body.world-tour-active #pwa-install-prompt {
     .video-grid {
         grid-template-columns: 1fr;
         grid-template-rows: repeat(4, 1fr);
+    }
+
+    /* === Mobile 1+3 layout (1 large top + 3 thumbs in horizontal scroll) === */
+    .video-grid.video-grid-mobile-1plus3 {
+        display: grid;
+        grid-template-columns: 100%;
+        grid-template-rows: minmax(0, 1fr) auto;
+        gap: 4px;
+        padding: 4px;
+    }
+
+    .video-grid.video-grid-mobile-1plus3 .video-panel[data-slot="0"] {
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .video-grid.video-grid-mobile-1plus3 .video-thumb-strip {
+        display: flex;
+        flex-direction: row;
+        gap: 6px;
+        flex: 0 0 28vh;
+        max-height: 28vh;
+        min-height: 110px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 2px;
+        scrollbar-width: thin;
+    }
+
+    .video-grid.video-grid-mobile-1plus3 .video-thumb-strip > .video-panel {
+        flex: 0 0 70%;
+        min-width: 70%;
+        scroll-snap-align: start;
+        border-radius: var(--radius-sm);
+        position: relative;
+    }
+
+    /* Compact the controls on thumbnail tiles so the small label still reads. */
+    .video-grid.video-grid-mobile-1plus3 .video-thumb-strip .cctv-select-trigger {
+        font-size: 11px;
+        padding: 6px 8px;
+        max-width: 78%;
+    }
+
+    .video-grid.video-grid-mobile-1plus3 .video-thumb-strip .panel-health-badge {
+        min-height: 24px;
+        padding: 4px 7px;
+        font-size: 10px;
     }
 
     /* Adjust controls for mobile in grid */
@@ -3469,4 +3520,111 @@ body.world-tour-active #pwa-install-prompt {
     opacity: 0.3;
     cursor: not-allowed;
     border-color: transparent;
+}
+
+/* === Source dot (SPATIC/UTIC/NTIC color-coded source pip) === */
+.source-dot,
+.cctv-source-dot {
+    display: inline-block;
+    flex: 0 0 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #94a3b8;
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.4);
+    vertical-align: middle;
+}
+
+.cctv-source-dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    margin-right: 2px;
+}
+
+.video-title-source {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.cctv-select-direction,
+.video-title-direction {
+    color: var(--text-secondary);
+    font-weight: 400;
+    font-size: 0.92em;
+}
+
+.cctv-select-main {
+    font-weight: 600;
+}
+
+/* === Friendly error placeholder additions === */
+.error-message-block {
+    align-items: center;
+    text-align: center;
+}
+
+.error-message-icon {
+    font-size: 26px;
+    line-height: 1;
+    margin-bottom: 2px;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+
+.try-another-btn {
+    border: none;
+    padding: 11px 18px;
+    border-radius: var(--radius-full);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.2s ease, background 0.2s ease;
+    background: rgba(34, 197, 94, 0.18);
+    color: #bbf7d0;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.try-another-btn:hover {
+    transform: translateY(-1px);
+    background: rgba(34, 197, 94, 0.28);
+}
+
+.try-another-btn.pressed {
+    transform: scale(0.96);
+}
+
+/* === Favorite (CCTV) toggle button in video layer header === */
+.layer-action-btn.favorite-toggle {
+    color: var(--text-secondary);
+}
+
+.layer-action-btn.favorite-toggle.active {
+    color: #facc15;
+}
+
+.layer-action-btn.favorite-toggle:hover {
+    color: #fde68a;
+}
+
+/* === Favorite CCTV entry inside the search history dropdown === */
+.cctv-favorite-item .search-result-name {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 600;
+}
+
+.cctv-favorite-item .cctv-favorite-direction {
+    color: var(--text-secondary);
+    font-weight: 400;
+    font-size: 0.92em;
+}
+
+.cctv-favorite-item .search-result-address {
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }

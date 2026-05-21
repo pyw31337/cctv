@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-world-tour-global4';
+const APP_BUILD_VERSION = '20260521-ui-refresh1';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -39,6 +39,7 @@ const QUALITY_SORT_STORAGE_KEY = 'cctv_quality_sort_mode';
 const TELEMETRY_SAMPLE_STORAGE_KEY = 'cctv_quality_sample_v1';
 const TELEMETRY_DAILY_STORAGE_KEY = 'cctv_quality_daily_v1';
 const WORLD_TOUR_FAVORITES_STORAGE_KEY = 'cctv_world_tour_favorites_v1';
+const CCTV_FAVORITES_STORAGE_KEY = 'cctv_favorites_v1';
 const NEAREST_RESULT_LIMIT = 100;
 const MAP_MARKER_LIMIT = 50;
 const PANEL_OPTION_LIMIT = 20;
@@ -154,6 +155,55 @@ const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오�
 const BLOCKED_YOUTUBE_VIDEO_IDS = new Set([
     'bKcdTWp6akg' // [YouTube] 대전 엑스포 한빛광장: owner-side private video.
 ]);
+
+// === Source metadata (label + accent color for dot/badge) ===
+const SOURCE_META = {
+    SPATIC: { label: '서울교통정보', color: '#3b82f6' },
+    TOPIS: { label: 'TOPIS', color: '#2563eb' },
+    UTIC: { label: 'UTIC', color: '#94a3b8' },
+    UTIC_DIRECT: { label: 'UTIC 직접영상', color: '#64748b' },
+    UTIC_LEGACY: { label: 'UTIC 구형', color: '#64748b' },
+    UTIC_Z3: { label: 'UTIC 국도', color: '#64748b' },
+    NTIC: { label: '고속도로', color: '#0ea5e9' },
+    BUSAN_ITS: { label: '부산 ITS', color: '#06b6d4' },
+    INCHEON_ITS: { label: '인천 ITS', color: '#14b8a6' },
+    DAEGU: { label: '대구', color: '#a855f7' },
+    GWANGJU: { label: '광주', color: '#f97316' },
+    ULSAN: { label: '울산', color: '#22c55e' },
+    SEJONG: { label: '세종', color: '#eab308' },
+    GANGWON: { label: '강원', color: '#10b981' },
+    GITS: { label: '경기 ITS', color: '#0d9488' },
+    GOYANG: { label: '고양', color: '#0d9488' },
+    PAJU: { label: '파주', color: '#0d9488' },
+    JEJU: { label: '제주', color: '#ec4899' },
+    NOWJEJU: { label: '나우제주', color: '#f472b6' },
+    KBS: { label: 'KBS', color: '#ef4444' },
+    KNPS: { label: '국립공원', color: '#16a34a' },
+    GIGAEYES: { label: '기가아이즈', color: '#84cc16' },
+    YOUTUBE: { label: 'YouTube', color: '#dc2626' },
+    YT_CUSTOM: { label: 'YouTube', color: '#dc2626' },
+    YT: { label: 'YouTube', color: '#dc2626' },
+    ICITS: { label: '인천도시공사', color: '#0ea5e9' },
+    UNKNOWN: { label: '기타', color: '#94a3b8' }
+};
+
+function getSourceMeta(cctv) {
+    if (!cctv) return SOURCE_META.UNKNOWN;
+    const key = (cctv.source || '').toUpperCase();
+    return SOURCE_META[key] || { label: cctv.source || '기타', color: '#94a3b8' };
+}
+
+// Parse a CCTV name into a main location label and a direction hint.
+// e.g. "백양터널(모라방향입구)" => { main: "백양터널", direction: "모라방향입구" }
+function parseCctvLabel(rawName) {
+    const name = String(rawName || '').trim();
+    if (!name) return { main: 'CCTV', direction: '', full: '' };
+    const match = name.match(/^(.*?)\s*\(([^()]+)\)\s*$/);
+    if (match && match[2]) {
+        return { main: match[1].trim() || name, direction: match[2].trim(), full: name };
+    }
+    return { main: name, direction: '', full: name };
+}
 
 let worldTourMapLibraryPromise = null;
 let worldTourLeafletMap = null;
@@ -356,6 +406,7 @@ const state = {
     worldTourListCountry: 'All',
     worldTourListSource: 'All',
     worldTourFavorites: new Set(),
+    cctvFavorites: new Set(),
     geoIndex: new Map(),
     markers: [], // Array to store Kakao map markers
     mapInitialized: false,
@@ -393,6 +444,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     renderQualityControls();
     hydrateWorldTourFavorites();
+    hydrateCctvFavorites();
 
     // Initial State
     updateNearestCctvs();
@@ -645,8 +697,31 @@ function setupEventListeners() {
     // Location Button
     $('#location-btn').addEventListener('click', handleCurrentLocation);
 
-    // Search Results Click (Delegation for items, bookmark, delete)
+    // Search Results Click (Delegation for items, bookmark, delete, cctv favorite)
     $('#search-results').addEventListener('click', (e) => {
+        // CCTV favorite item — opens video layer directly
+        const favItem = e.target.closest('.cctv-favorite-item');
+        if (favItem) {
+            const removeBtn = e.target.closest('[data-action="remove-favorite"]');
+            if (removeBtn) {
+                e.stopPropagation();
+                const id = favItem.dataset.cctvId;
+                if (id) {
+                    toggleCctvFavorite(id);
+                    showSearchHistory();
+                }
+                return;
+            }
+            const id = favItem.dataset.cctvId;
+            const cctv = id ? findCctvById(id) : null;
+            if (cctv) {
+                $('#search-results').classList.remove('active');
+                $('#dim-overlay').classList.remove('active');
+                openVideoLayer(cctv);
+            }
+            return;
+        }
+
         const item = e.target.closest('.search-result-item');
         if (!item) return;
 
@@ -797,6 +872,16 @@ function showSearchHistory() {
         html += '<div class="search-history-scroll" aria-label="북마크 및 최근 검색">';
     }
 
+    // CCTV Favorites Section (출근길 즐겨찾기) — only when user has at least one
+    const favoriteCctvs = getFavoriteCctvs().slice(0, compactPanel ? SEARCH_HISTORY_PANEL_ITEM_LIMIT : 10);
+    if (favoriteCctvs.length > 0) {
+        html += `<div class="search-section-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            즐겨찾는 CCTV
+        </div>`;
+        html += favoriteCctvs.map(cctv => renderCctvFavoriteSearchItem(cctv)).join('');
+    }
+
     // Bookmarks Section (always show)
     html += `<div class="search-section-title">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z"/></svg>
@@ -824,6 +909,32 @@ function showSearchHistory() {
     resultsEl.classList.add('active');
     $('#dim-overlay').classList.add('active');
     renderQualityControls();
+}
+
+function renderCctvFavoriteSearchItem(cctv) {
+    const parsed = parseCctvLabel(cctv.name || 'CCTV');
+    const sourceMeta = getSourceMeta(cctv);
+    const directionHtml = parsed.direction
+        ? `<span class="cctv-favorite-direction"> (${parsed.direction})</span>`
+        : '';
+    return `
+        <div class="search-result-item cctv-favorite-item" data-cctv-id="${cctv.id}">
+            <div class="search-result-info">
+                <div class="search-result-name">
+                    <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
+                    ${parsed.main}${directionHtml}
+                </div>
+                <div class="search-result-address">${sourceMeta.label}</div>
+            </div>
+            <div class="search-result-actions">
+                <button class="btn-delete" data-action="remove-favorite" title="즐겨찾기 해제">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    `;
 }
 
 function renderSearchItem(item, isBookmarked) {
@@ -2419,12 +2530,15 @@ function renderPanelHealthBadge(panel, cctv) {
     }
 
     const health = getCameraHealthMeta(cctv);
+    const sourceMeta = getSourceMeta(cctv);
     badge.className = `panel-health-badge tone-${health.tone}`;
     badge.innerHTML = `
-        <span>${formatDistance(cctv.distance)}</span>
+        <span class="panel-health-dot" aria-hidden="true"></span>
+        <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
+        <span class="panel-health-label">${health.shortLabel}</span>
     `;
-    badge.title = `${health.longLabel} · ${formatRelativeTime(health.lastUpdated)} · ${formatDistance(cctv.distance)}`;
-    badge.setAttribute('aria-label', formatDistance(cctv.distance));
+    badge.title = `${sourceMeta.label} · ${health.longLabel} · ${formatRelativeTime(health.lastUpdated)}`;
+    badge.setAttribute('aria-label', `${sourceMeta.label}, ${health.longLabel}`);
 }
 
 function renderSelectTrigger(panel, cctv, fallbackLabel) {
@@ -2433,20 +2547,42 @@ function renderSelectTrigger(panel, cctv, fallbackLabel) {
 
     const health = getCameraHealthMeta(cctv);
     const confidence = getCameraPlaybackConfidence(cctv, health);
-    const label = cctv?.name || fallbackLabel || 'CCTV 선택';
+    const fullLabel = cctv?.name || fallbackLabel || 'CCTV 선택';
+    const parsed = parseCctvLabel(fullLabel);
+    const sourceMeta = getSourceMeta(cctv);
     trigger.innerHTML = '';
+
+    // Small colored dot identifies the source (SPATIC, UTIC, NTIC, ...)
+    if (cctv) {
+        const sourceDot = document.createElement('span');
+        sourceDot.className = 'cctv-source-dot';
+        sourceDot.style.background = sourceMeta.color;
+        sourceDot.setAttribute('aria-hidden', 'true');
+        trigger.append(sourceDot);
+    }
 
     const name = document.createElement('span');
     name.className = 'cctv-select-name';
-    name.textContent = label;
+    if (parsed.direction) {
+        // "장소 (방향)" 형식 — direction은 흐리게 강조
+        const mainSpan = document.createElement('span');
+        mainSpan.className = 'cctv-select-main';
+        mainSpan.textContent = parsed.main;
+        const dirSpan = document.createElement('span');
+        dirSpan.className = 'cctv-select-direction';
+        dirSpan.textContent = ` (${parsed.direction})`;
+        name.append(mainSpan, dirSpan);
+    } else {
+        name.textContent = parsed.main;
+    }
 
     const dot = document.createElement('span');
     dot.className = `cctv-status-dot tone-${confidence.tone}`;
     dot.setAttribute('aria-hidden', 'true');
 
     trigger.append(name, dot);
-    trigger.title = `${label} · ${confidence.label} · ${confidence.title} · ${formatRelativeTime(health.lastUpdated)}`;
-    trigger.setAttribute('aria-label', `${label}, ${confidence.label}`);
+    trigger.title = `${parsed.full} · ${sourceMeta.label} · ${confidence.label} · ${confidence.title} · ${formatRelativeTime(health.lastUpdated)}`;
+    trigger.setAttribute('aria-label', `${parsed.full}, ${sourceMeta.label}, ${confidence.label}`);
 }
 
 function getPanelCctv(panel) {
@@ -2470,13 +2606,12 @@ function updateVideoLayerHealthUi(cctv) {
     const subTitle = $('#video-layer-title .video-title-sub');
     if (!subTitle) return;
 
-    const distance = Number.isFinite(cctv.distance)
-        ? cctv.distance
-        : getDistance(state.center.lat, state.center.lng, cctv.lat, cctv.lng);
     const health = getCameraHealthMeta(cctv);
+    const sourceMeta = getSourceMeta(cctv);
 
     subTitle.innerHTML = `
-        <span>${formatDistance(distance)}</span>
+        <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
+        <span class="video-title-source">${sourceMeta.label}</span>
         <span class="panel-health-sep">·</span>
         <span class="tone-${health.tone}">${health.shortLabel}</span>
         <span class="panel-health-sep">·</span>
@@ -2966,8 +3101,47 @@ function updateNearestCctvs() {
     state.nearestCctvs = ordered.slice(0, NEAREST_RESULT_LIMIT);
 }
 
+// Restructures #video-grid into a 1-big + 3-thumb layout on narrow screens.
+// Wraps slots 1-3 in a horizontal-scroll strip so users can swipe between them.
+function applyMobileVideoGridLayout() {
+    const grid = document.getElementById('video-grid');
+    if (!grid) return;
+    const isNarrow = window.matchMedia('(max-width: 600px)').matches;
+    const existingStrip = grid.querySelector(':scope > .video-thumb-strip');
+
+    if (isNarrow) {
+        if (existingStrip) return; // already wrapped
+        const strip = document.createElement('div');
+        strip.className = 'video-thumb-strip';
+        const thumbs = Array.from(grid.querySelectorAll(':scope > .video-panel'))
+            .filter(panel => panel.dataset.slot !== '0');
+        thumbs.forEach(thumb => strip.appendChild(thumb));
+        grid.appendChild(strip);
+        grid.classList.add('video-grid-mobile-1plus3');
+    } else if (existingStrip) {
+        Array.from(existingStrip.children).forEach(child => grid.appendChild(child));
+        existingStrip.remove();
+        grid.classList.remove('video-grid-mobile-1plus3');
+    }
+}
+
+let _mobileGridResizeBound = false;
+function bindMobileVideoGridResponsiveness() {
+    if (_mobileGridResizeBound) return;
+    _mobileGridResizeBound = true;
+    const handler = () => applyMobileVideoGridLayout();
+    if (window.matchMedia) {
+        try { window.matchMedia('(max-width: 600px)').addEventListener('change', handler); }
+        catch (_) { window.addEventListener('resize', handler); }
+    } else {
+        window.addEventListener('resize', handler);
+    }
+}
+
 function renderVideoGrid() {
     const grid = $('#video-grid');
+    applyMobileVideoGridLayout();
+    bindMobileVideoGridResponsiveness();
     const panels = grid.querySelectorAll('.video-panel');
     const visiblePanelCount = panels.length;
 
@@ -4296,6 +4470,34 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
     }
 }
 
+// Strip raw playback IDs / hash-like tokens that some embedded players (YouTube/HLS)
+// surface in their error text so we never expose stuff like
+// "재생 ID는 rTlVQwEQfepKr_Dy입니다" to the user.
+function sanitizeErrorMessage(text) {
+    if (text == null) return '';
+    let s = String(text);
+    s = s.replace(/재생\s*ID(?:는|은|:)?\s*[A-Za-z0-9_\-]{6,}\s*입?니?다?\.?/g, '');
+    s = s.replace(/playback\s*id\s*[:=]?\s*[A-Za-z0-9_\-]{6,}\.?/gi, '');
+    s = s.replace(/(error|err)\s*code\s*[:=]?\s*[A-Za-z0-9_\-]{4,}\.?/gi, '');
+    s = s.replace(/\b[A-Za-z0-9_\-]{16,}\b/g, '');
+    s = s.replace(/\s+/g, ' ').trim();
+    return s;
+}
+
+function findAnotherNearbyCctv(currentCctv) {
+    if (!currentCctv || !Array.isArray(state.nearestCctvs)) return null;
+    const list = state.nearestCctvs;
+    const idx = list.findIndex(item => item && item.id === currentCctv.id);
+    if (idx === -1) {
+        return list.find(item => item && item.id !== currentCctv.id) || null;
+    }
+    for (let offset = 1; offset < list.length; offset += 1) {
+        const candidate = list[(idx + offset) % list.length];
+        if (candidate && candidate.id !== currentCctv.id) return candidate;
+    }
+    return null;
+}
+
 function createErrorPlaceholder(options, legacyRetryFn) {
     const config = typeof options === 'string'
         ? { message: options, retryFn: legacyRetryFn }
@@ -4305,23 +4507,37 @@ function createErrorPlaceholder(options, legacyRetryFn) {
         detail = '',
         retryFn = null,
         retryLabel = '재시도',
-        cctv = null
+        cctv = null,
+        onTryAnother = null,
+        showTryAnother = true
     } = config;
+
+    // Sanitize first so raw playback IDs never reach the DOM.
+    const cleanMessage = sanitizeErrorMessage(message) || '영상을 불러올 수 없습니다';
+    const cleanDetail = sanitizeErrorMessage(detail);
+    const friendlyDetail = cleanDetail || '잠시 후 다시 시도하거나 다른 카메라를 골라 보세요.';
+
     const ph = document.createElement('div');
     ph.className = 'video-placeholder error';
     let html = `
         <div class="error-message-block">
-            <span class="error-message-title">연결 상태를 확인 중입니다</span>
-            <span class="error-message-body">${message}</span>
-            ${detail ? `<span class="error-message-meta">${detail}</span>` : ''}
+            <span class="error-message-icon" aria-hidden="true">📡</span>
+            <span class="error-message-title">영상 연결을 다시 시도해 주세요</span>
+            <span class="error-message-body">${cleanMessage}</span>
+            <span class="error-message-meta">${friendlyDetail}</span>
         </div>
     `;
+
     const actions = [];
     if (retryFn) {
-        actions.push(`<button class="retry-btn">${retryLabel}</button>`);
+        actions.push(`<button class="retry-btn" type="button">${retryLabel}</button>`);
+    }
+    const allowTryAnother = showTryAnother && cctv && (typeof onTryAnother === 'function' || findAnotherNearbyCctv(cctv));
+    if (allowTryAnother) {
+        actions.push(`<button class="try-another-btn" type="button">🔄 다른 카메라 시도</button>`);
     }
     if (cctv) {
-        actions.push('<button class="report-btn">문제 제보</button>');
+        actions.push('<button class="report-btn" type="button">문제 제보</button>');
     }
     if (actions.length > 0) {
         html += `<div class="error-actions">${actions.join('')}</div>`;
@@ -4337,6 +4553,26 @@ function createErrorPlaceholder(options, legacyRetryFn) {
                 btn.classList.remove('pressed');
                 retryFn();
             }, 100);
+        };
+    }
+    if (allowTryAnother) {
+        const tryBtn = ph.querySelector('.try-another-btn');
+        tryBtn.onclick = (e) => {
+            e.stopPropagation();
+            tryBtn.classList.add('pressed');
+            setTimeout(() => tryBtn.classList.remove('pressed'), 120);
+            try {
+                if (typeof onTryAnother === 'function') {
+                    onTryAnother();
+                } else {
+                    const next = findAnotherNearbyCctv(cctv);
+                    if (next && typeof openVideoLayer === 'function') {
+                        openVideoLayer(next);
+                    }
+                }
+            } catch (err) {
+                console.warn('[error-placeholder] tryAnother failed:', err);
+            }
         };
     }
     if (cctv) {
@@ -4860,6 +5096,69 @@ function toggleWorldTourFavorite(camId) {
     }
     persistWorldTourFavorites();
     return willActivate;
+}
+
+// === General CCTV favorites (출근길 카메라 등) ===
+function hydrateCctvFavorites() {
+    try {
+        const raw = localStorage.getItem(CCTV_FAVORITES_STORAGE_KEY);
+        const ids = raw ? JSON.parse(raw) : [];
+        state.cctvFavorites = new Set(Array.isArray(ids) ? ids.map(String).filter(Boolean) : []);
+    } catch (error) {
+        console.warn('[CCTV] failed to restore favorites:', error);
+        state.cctvFavorites = new Set();
+    }
+}
+
+function getCctvFavoriteIds() {
+    if (!(state.cctvFavorites instanceof Set)) hydrateCctvFavorites();
+    return state.cctvFavorites;
+}
+
+function persistCctvFavorites() {
+    try {
+        localStorage.setItem(CCTV_FAVORITES_STORAGE_KEY, JSON.stringify([...getCctvFavoriteIds()]));
+    } catch (error) {
+        console.warn('[CCTV] failed to save favorites:', error);
+    }
+}
+
+function isCctvFavorite(cctvOrId) {
+    const id = typeof cctvOrId === 'object' ? cctvOrId?.id : cctvOrId;
+    return Boolean(id && getCctvFavoriteIds().has(String(id)));
+}
+
+function toggleCctvFavorite(cctvOrId) {
+    const id = typeof cctvOrId === 'object' ? cctvOrId?.id : cctvOrId;
+    if (!id) return false;
+    const favorites = getCctvFavoriteIds();
+    const key = String(id);
+    const willActivate = !favorites.has(key);
+    if (willActivate) favorites.add(key); else favorites.delete(key);
+    persistCctvFavorites();
+    return willActivate;
+}
+
+function getFavoriteCctvs() {
+    const favorites = getCctvFavoriteIds();
+    if (!favorites.size) return [];
+    const result = [];
+    favorites.forEach(id => {
+        const found = findCctvById(id);
+        if (found) result.push(found);
+    });
+    return result;
+}
+
+function renderCctvFavoriteButton(cctv) {
+    const active = isCctvFavorite(cctv);
+    const title = active ? '즐겨찾기 해제' : '출근길 즐겨찾기에 추가';
+    return `
+        <button id="video-layer-favorite" class="layer-action-btn favorite-toggle ${active ? 'active' : ''}" title="${title}" aria-pressed="${active}" aria-label="${title}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="${active ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+        </button>`;
 }
 
 function renderWorldTourFavoriteButton(cam, variant = 'card') {
@@ -5970,12 +6269,19 @@ function openVideoLayer(cctv) {
         `;
     }
 
+    const parsedTitle = parseCctvLabel(cctv.name);
+    const sourceMeta = getSourceMeta(cctv);
+    const mainTitleHtml = parsedTitle.direction
+        ? `<span class="video-title-main">${parsedTitle.main}<span class="video-title-direction"> (${parsedTitle.direction})</span></span>`
+        : `<span class="video-title-main">${parsedTitle.main}</span>`;
+
     titleEl.innerHTML = `
         ${navHtml}
         <span class="video-title-block">
-            <span class="video-title-main">${cctv.name}</span>
+            ${mainTitleHtml}
             <span class="video-title-sub">
-                <span>${formatDistance(displayCctv.distance)}</span>
+                <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
+                <span class="video-title-source">${sourceMeta.label}</span>
                 <span class="panel-health-sep">·</span>
                 <span class="tone-${health.tone}">${health.shortLabel}</span>
                 <span class="panel-health-sep">·</span>
@@ -6032,6 +6338,34 @@ function openVideoLayer(cctv) {
         header.appendChild(actionContainer);
         if (closeBtn) actionContainer.appendChild(closeBtn);
     }
+
+    let favoriteBtn = $('#video-layer-favorite');
+    if (!favoriteBtn) {
+        const tempWrap = document.createElement('span');
+        tempWrap.innerHTML = renderCctvFavoriteButton(displayCctv);
+        favoriteBtn = tempWrap.firstElementChild;
+        actionContainer.insertBefore(favoriteBtn, $('#video-layer-close'));
+    } else {
+        const active = isCctvFavorite(displayCctv);
+        favoriteBtn.classList.toggle('active', active);
+        favoriteBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        const title = active ? '즐겨찾기 해제' : '출근길 즐겨찾기에 추가';
+        favoriteBtn.title = title;
+        favoriteBtn.setAttribute('aria-label', title);
+        const svg = favoriteBtn.querySelector('svg');
+        if (svg) svg.setAttribute('fill', active ? 'currentColor' : 'none');
+    }
+    favoriteBtn.onclick = (e) => {
+        e.stopPropagation();
+        const nowActive = toggleCctvFavorite(displayCctv);
+        favoriteBtn.classList.toggle('active', nowActive);
+        favoriteBtn.setAttribute('aria-pressed', nowActive ? 'true' : 'false');
+        const t = nowActive ? '즐겨찾기 해제' : '출근길 즐겨찾기에 추가';
+        favoriteBtn.title = t;
+        favoriteBtn.setAttribute('aria-label', t);
+        const svg = favoriteBtn.querySelector('svg');
+        if (svg) svg.setAttribute('fill', nowActive ? 'currentColor' : 'none');
+    };
 
     let shareBtn = $('#video-layer-share');
     if (!shareBtn) {
