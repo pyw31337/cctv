@@ -542,7 +542,14 @@ body {
     }
 }
 
+/* Defensive backstop: even if cached/old JS injects a .panel-health-badge
+ * node (e.g. browsers serving an older SW build), never render it — the
+ * same status is already shown by the dot in the .cctv-select-trigger. */
 .panel-health-badge {
+    display: none !important;
+}
+
+._archived-panel-health-badge {
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -979,33 +986,12 @@ body {
     background-size: 18px 18px;
 }
 
-/* "전국 주요 도시 라이브" entry — circular CCTV-icon button to the right
- * of the sort selector in the mobile search panel. */
-.search-compare-btn {
-    flex: 0 0 38px;
-    width: 38px;
-    height: 38px;
-    padding: 0;
-    border: 1px solid rgba(52, 211, 153, 0.28);
-    border-radius: 999px;
-    background: rgba(30, 41, 59, 0.92);
-    color: #bbf7d0;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
-}
-.search-compare-btn:hover,
-.search-compare-btn:focus-visible {
-    background: rgba(20, 83, 45, 0.55);
-    border-color: rgba(52, 211, 153, 0.55);
-    color: #d1fae5;
-    outline: none;
-}
-.search-compare-btn svg {
-    width: 20px;
-    height: 20px;
+/* "전국 주요 도시 라이브" entry — feature removed per user request.
+ * Defensive `display: none !important` ensures any cached old JS that
+ * still injects these buttons can't render anything visible. */
+.search-compare-btn,
+.compare-mode-btn {
+    display: none !important;
 }
 
 .search-history-scroll {
@@ -3936,8 +3922,10 @@ body.world-tour-active #pwa-install-prompt {
     .kma-precip-label { font-size: 10px; padding: 3px 6px; }
 }
 
-/* === Multi-CCTV compare mode === */
-.compare-mode-btn {
+/* === Multi-CCTV compare mode — feature removed.
+ * Styles archived below for historical reference; defensive hide above
+ * via .compare-mode-btn { display: none !important } takes precedence. */
+._archived-compare-mode-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3952,7 +3940,7 @@ body.world-tour-active #pwa-install-prompt {
     cursor: pointer;
     transition: background 0.18s ease, color 0.18s ease;
 }
-.compare-mode-btn:hover {
+._archived-compare-mode-btn:hover {
     background: rgba(20, 83, 45, 0.42);
     color: #bbf7d0;
 }

@@ -12,7 +12,7 @@
 // The CACHE_VERSION is hot-swapped by the deploy GHA so a new release purges
 // all prior caches even when a long-lived tab still holds the old SW.
 
-const CACHE_VERSION = 'v20260521-39b672a8';
+const CACHE_VERSION = 'v20260521-ui-defensive-hide';
 
 const SHELL_ASSETS = [
     './',
