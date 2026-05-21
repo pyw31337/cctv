@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-1e4e402a';
+const APP_BUILD_VERSION = '20260521-jindo-z3-resilience';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -290,9 +290,12 @@ async function loadZ3Cache() {
     if (z3CacheData) return z3CacheData;
     if (z3CachePromise) return z3CachePromise;
     const cacheBucket = Math.floor(Date.now() / 1800000);
+    // Static GitHub snapshot first — Oracle /z3-cache.json was hanging 12s+ in May 2026,
+    // blocking the entire Z3 playback pipeline. Static is hourly-refreshed by the GHA so
+    // freshness loss vs Oracle is at most ~30min — well within Z3_CACHE_STALE_MS (60min).
     const urls = [
-        `${ORACLE_BASE}/z3-cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
-        `data/z3_cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+        `data/z3_cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
+        `${ORACLE_BASE}/z3-cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
     ];
 
     z3CachePromise = (async () => {
@@ -4140,11 +4143,13 @@ function createVideoElement(cctv, sourceIndex = 0) {
                         capLevelToPlayerSize: true,
                         maxBufferLength: 30,
                         maxMaxBufferLength: 60,
-                        fragLoadingTimeOut: isZ3 ? 16000 : 30000,
-                        manifestLoadingTimeOut: isZ3 ? 9000 : 15000,
-                        manifestLoadingMaxRetry: isZ3 ? 1 : 2,
-                        levelLoadingMaxRetry: isZ3 ? 1 : 2,
-                        fragLoadingMaxRetry: isZ3 ? 2 : 4,
+                        // Z3 매니페스트는 Oracle 프록시 경유로 RTT 변동이 큼 — 1회 재시도는 첫 패스 일시
+                        // 실패에 너무 가혹. 9s→15s, retry 1→2 로 완화해 부팅 직후 cold-start 흡수.
+                        fragLoadingTimeOut: isZ3 ? 18000 : 30000,
+                        manifestLoadingTimeOut: isZ3 ? 15000 : 15000,
+                        manifestLoadingMaxRetry: isZ3 ? 2 : 2,
+                        levelLoadingMaxRetry: isZ3 ? 2 : 2,
+                        fragLoadingMaxRetry: isZ3 ? 3 : 4,
                     });
                     hls.loadSource(streamUrl);
                     hls.attachMedia(video);
