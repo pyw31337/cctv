@@ -2275,9 +2275,9 @@ body.world-tour-active #pwa-install-prompt {
     flex-direction: column;
     gap: 8px;
     overflow-y: auto;
-    /* Provide a generous bottom inset so the last item isn't hidden
-     * behind the in-app browser's bottom toolbar (Naver, Kakao, etc.). */
-    padding: 0 20px max(72px, calc(20px + env(safe-area-inset-bottom)));
+    /* Just enough room for the iOS home indicator / safe area below the
+     * last list item — overly large insets created an empty band. */
+    padding: 0 20px max(24px, env(safe-area-inset-bottom));
     scrollbar-width: thin;
     scrollbar-color: rgba(52, 211, 153, 0.45) rgba(15, 23, 42, 0.72);
 }
@@ -2414,6 +2414,34 @@ body.world-tour-active #pwa-install-prompt {
     font-size: 11px;
     font-style: normal;
     font-weight: 800;
+}
+
+/* Subtitle (description) row appears only when search hits the subtitle —
+ * makes it clear WHY a row like "나이아가라 폭포" matched a query like "경"
+ * (because the subtitle reads "...실시간 풍경"). */
+.world-tour-list-item-main .world-tour-list-item-subtitle {
+    overflow: hidden;
+    color: #cbd5e1;
+    font-size: 11.5px;
+    font-style: italic;
+    font-weight: 600;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+/* Yellow-highlighter look on every part of a row that matched the search.
+ * Translucent yellow background + bold red text so it reads as a literal
+ * highlighter pass over the matching characters. */
+.world-tour-search-highlight {
+    padding: 0 2px;
+    border-radius: 3px;
+    background: rgba(250, 204, 21, 0.42);
+    color: #dc2626;
+    font-weight: 900;
+    -webkit-text-fill-color: #dc2626;
 }
 
 .world-tour-list-item-actions {
@@ -2948,11 +2976,10 @@ body.world-tour-active #pwa-install-prompt {
         gap: 10px;
         height: var(--world-tour-menu-height);
         max-height: none;
-        /* Lift the bottom menu so the last row isn't clipped behind the
-         * iOS home indicator / Android nav bar / in-app browser toolbar
-         * (Naver, KakaoTalk, Instagram). env(safe-area-inset-bottom) is
-         * unreliable inside in-app webviews, so use a generous floor. */
-        padding: 10px 10px max(72px, calc(18px + env(safe-area-inset-bottom)));
+        /* Just enough bottom inset for the iOS home indicator / browser
+         * safe area — too much was clipping the card-rail's bottom row
+         * and leaving a big empty band under the cards. */
+        padding: 10px 10px max(20px, env(safe-area-inset-bottom));
         border-right: 0;
         border-bottom: 0;
         border-left: 0;
@@ -3214,7 +3241,7 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-bottom-menu {
         gap: 8px;
-        padding: 8px 8px max(64px, calc(16px + env(safe-area-inset-bottom)));
+        padding: 8px 8px max(16px, env(safe-area-inset-bottom));
     }
 
     .world-tour-selected-summary {

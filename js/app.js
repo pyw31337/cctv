@@ -14,7 +14,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-78623768';
+const APP_BUILD_VERSION = '20260521-search-highlight';
 const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
@@ -5358,28 +5358,69 @@ function renderWorldTourListSelectOptions(entries, selectedValue, allLabel) {
     return options.join('');
 }
 
+// Wraps every occurrence of `search` inside `text` with a <mark> element,
+// returning HTML-safe output. The match is case-insensitive (we lowercase
+// both haystack and needle). Use this anywhere we surface a field that
+// might be why the row was matched, so users can see WHY their query hit.
+function highlightWorldTourMatch(text, search) {
+    const raw = text == null ? '' : String(text);
+    if (!raw) return '';
+    const needle = normalizeWorldTourText(search);
+    if (!needle) return escapeWorldTourHtml(raw);
+
+    const lower = raw.toLowerCase();
+    const len = needle.length;
+    const out = [];
+    let cursor = 0;
+    while (cursor < raw.length) {
+        const idx = lower.indexOf(needle, cursor);
+        if (idx < 0) {
+            out.push(escapeWorldTourHtml(raw.slice(cursor)));
+            break;
+        }
+        if (idx > cursor) out.push(escapeWorldTourHtml(raw.slice(cursor, idx)));
+        out.push(`<mark class="world-tour-search-highlight">${escapeWorldTourHtml(raw.slice(idx, idx + len))}</mark>`);
+        cursor = idx + len;
+    }
+    return out.join('');
+}
+
 function renderWorldTourListItems(items, selectedId) {
     if (!items.length) {
         return '<div class="world-tour-list-empty">조건에 맞는 세계 CCTV가 없습니다. 검색어나 필터를 줄여보세요.</div>';
     }
 
+    const search = state.worldTourListSearch;
+
     return items.map(cam => {
         const isActive = cam.id === selectedId;
         const sourceLabel = getWorldTourSourceLabel(cam);
+        const regionLabel = getWorldTourRegionLabel(cam.region);
         const externalOnly = !canPlayWorldTourInApp(cam);
         const externalBadge = externalOnly
             ? `<span class="world-tour-external-badge" title="원본사이트에서만 재생 가능" aria-label="원본사이트에서만 재생 가능">${WORLD_TOUR_VIDEO_OFF_SVG}</span>`
+            : '';
+        // Only render the subtitle row when a search is active and the
+        // subtitle would actually help explain the match — otherwise we
+        // keep list rows compact like before.
+        const subtitle = cam.subtitle || '';
+        const subtitleMatches = search
+            && subtitle
+            && normalizeWorldTourText(subtitle).includes(normalizeWorldTourText(search));
+        const subtitleRow = subtitleMatches
+            ? `<span class="world-tour-list-item-subtitle">${highlightWorldTourMatch(subtitle, search)}</span>`
             : '';
         return `
             <article class="world-tour-list-item ${isActive ? 'active' : ''}" data-world-tour-list-item="${escapeWorldTourHtml(cam.id)}" tabindex="0">
                 ${renderWorldTourFavoriteButton(cam, 'list')}
                 <div class="world-tour-list-item-main">
                     <strong class="world-tour-list-item-title">
-                        <span class="world-tour-list-item-title-text">${escapeWorldTourHtml(cam.title)}</span>
+                        <span class="world-tour-list-item-title-text">${highlightWorldTourMatch(cam.title, search)}</span>
                         ${externalBadge}
                     </strong>
-                    <span>${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
-                    <em>${escapeWorldTourHtml(getWorldTourRegionLabel(cam.region))} · ${escapeWorldTourHtml(sourceLabel)}</em>
+                    <span>${highlightWorldTourMatch(cam.city, search)} · ${highlightWorldTourMatch(cam.country, search)}</span>
+                    <em>${highlightWorldTourMatch(regionLabel, search)} · ${highlightWorldTourMatch(sourceLabel, search)}</em>
+                    ${subtitleRow}
                 </div>
                 <div class="world-tour-list-item-actions">
                     <button type="button" data-world-tour-list-map="${escapeWorldTourHtml(cam.id)}">지도</button>
