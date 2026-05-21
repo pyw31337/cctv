@@ -1329,6 +1329,10 @@ function getYouTubeVideoId(url) {
 function shouldExcludeCctv(cctv) {
     if (!cctv) return true;
 
+    // audit_utic_broken.py 가 HTTP 404 로 확인된 카메라를 status='disabled' 로 마킹.
+    // 검색·지도·grid 어디에도 노출되지 않도록 로드 시점에 걸러냄.
+    if (cctv.status === 'disabled') return true;
+
     const url = cctv.directUrl || cctv.url || '';
     const videoId = getYouTubeVideoId(url);
     if (videoId && BLOCKED_YOUTUBE_VIDEO_IDS.has(videoId)) return true;

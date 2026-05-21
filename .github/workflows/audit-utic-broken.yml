@@ -1,0 +1,35 @@
+name: Daily UTIC Broken Audit
+
+on:
+  schedule:
+    # 매일 새벽 3시 KST (= 18:00 UTC 전날). 자정 캐시 갱신 후 안정화된 시점.
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: utic-broken-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Run audit
+        run: python scripts/audit_utic_broken.py
+
+      - name: Commit results
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "chore: daily UTIC broken audit"
+          file_pattern: "cctv_data.json data/utic_audit_history.json"
+          branch: main
