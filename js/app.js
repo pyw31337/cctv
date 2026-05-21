@@ -13,7 +13,7 @@ let z3CacheSource = 'unknown';
 // 사실상 무기한 유효함이 실측됨. 60분 게이트는 strategy 1 을 거의 항상 무력화시켜
 // playback이 strategy 2(URL 내장 토큰: 보통 수개월 묵은 데이터로 502) → strategy 3
 // (Oracle /utic: 현재 hang) 으로 전부 떨어지는 원인이었음. → 24시간 으로 완화.
-const Z3_CACHE_STALE_MS = 24 * 60 * 60 * 1000;
+const Z3_CACHE_STALE_MS = 8 * 60 * 60 * 1000;
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
@@ -300,9 +300,9 @@ async function loadZ3Cache() {
     if (z3CacheData) return z3CacheData;
     if (z3CachePromise) return z3CachePromise;
     const cacheBucket = Math.floor(Date.now() / 1800000);
-    // Static GitHub snapshot first — Oracle /z3-cache.json was hanging 12s+ in May 2026,
-    // blocking the entire Z3 playback pipeline. Static is hourly-refreshed by the GHA so
-    // freshness loss vs Oracle is at most ~30min — well within Z3_CACHE_STALE_MS (60min).
+    // Static GitHub snapshot first — Oracle /z3-cache.json can hang long enough to
+    // block Z3 playback. Keep the static cache fresh via GHA and stop trusting it
+    // once it is old enough to produce expired appUrl tokens.
     const urls = [
         `data/z3_cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
         `${ORACLE_BASE}/z3-cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
@@ -1510,10 +1510,10 @@ function getZ3CacheRiskMeta(cctv) {
         return {
             regionKey: 'UTIC_Z3',
             status: 'Z3_CACHE_STALE',
-            shortLabel: '캐시 점검 중',
-            longLabel: `UTIC 국도 토큰 캐시가 오래되어 서버 리졸버로 직접 확인합니다 (${z3CacheSource})`,
-            tone: 'warn',
-            penalty: 3.5,
+            shortLabel: '토큰 갱신 필요',
+            longLabel: `UTIC 국도 토큰 캐시가 오래되어 재생 실패 가능성이 높습니다 (${z3CacheSource})`,
+            tone: 'danger',
+            penalty: 60,
             lastUpdated
         };
     }

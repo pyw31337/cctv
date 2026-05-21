@@ -2,9 +2,9 @@ name: Z3 Cache Refresh
 
 on:
   # Oracle cron + /z3-cache.json is the primary freshness path.
-  # This low-frequency job is only a static GitHub Pages fallback.
+  # This keeps the static GitHub Pages fallback fresh enough for Z3 appUrl tokens.
   schedule:
-    - cron: '7 19 * * *'
+    - cron: '7 */4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Refresh and audit Z3 cache
-        run: python scripts/refresh_z3_cache.py --max-age-minutes 45 --force --stale-ok-on-refresh-failure-hours 36
+        run: python scripts/refresh_z3_cache.py --max-age-minutes 45 --force --stale-ok-on-refresh-failure-hours 8
 
       - name: Commit and push if changed
         run: |
