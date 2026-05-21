@@ -12,7 +12,7 @@
 // The CACHE_VERSION is hot-swapped by the deploy GHA so a new release purges
 // all prior caches even when a long-lived tab still holds the old SW.
 
-const CACHE_VERSION = 'v20260521-pr10-world-search';
+const CACHE_VERSION = 'v20260521-9091ee75';
 
 const SHELL_ASSETS = [
     './',
