@@ -450,6 +450,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderQualityControls();
     hydrateWorldTourFavorites();
     hydrateCctvFavorites();
+    initCompareModeButton();
 
     // Initial State
     updateNearestCctvs();
@@ -2996,6 +2997,23 @@ function buildShareUrl(cctv) {
     return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }
 
+// Configure once the worker is deployed. Leave as null to disable dynamic OG.
+const CCTV_OG_WORKER_URL = null; // e.g. 'https://cctv-og.pyw31337.workers.dev/og'
+
+function buildOgImageUrl(cctv) {
+    if (!CCTV_OG_WORKER_URL || !cctv) return null;
+    const params = new URLSearchParams();
+    params.set('id', cctv.id);
+    const parsed = parseCctvLabel(cctv.name || '');
+    const title = parsed.direction ? `${parsed.main} (${parsed.direction})` : parsed.main;
+    params.set('title', title);
+    const sourceMeta = getSourceMeta(cctv);
+    if (cctv.city) params.set('city', cctv.city);
+    else if (sourceMeta?.label) params.set('city', sourceMeta.label);
+    if (cctv.snapshotUrl) params.set('snap', cctv.snapshotUrl);
+    return `${CCTV_OG_WORKER_URL}?${params.toString()}`;
+}
+
 function syncUrlState() {
     const activeCctv = findCctvById(state.activeCctvId);
     const nextUrl = buildShareUrl(activeCctv);
@@ -3006,6 +3024,15 @@ async function shareCurrentView(cctv) {
     const shareUrl = buildShareUrl(cctv);
     const shareTitle = cctv ? `${cctv.name} CCTV` : `${state.keyword} 주변 CCTV`;
     const shareText = cctv ? `${state.keyword} 주변 ${cctv.name} CCTV를 확인해보세요.` : `${state.keyword} 주변 CCTV를 확인해보세요.`;
+    // Dynamic OG image (no-op when CCTV_OG_WORKER_URL is null). Share APIs
+    // that respect URL preview metadata will surface this richer card.
+    const ogImageUrl = buildOgImageUrl(cctv);
+    if (ogImageUrl) {
+        try {
+            document.querySelector('meta[property="og:image"]')?.setAttribute('content', ogImageUrl);
+            document.querySelector('meta[name="twitter:image"]')?.setAttribute('content', ogImageUrl);
+        } catch (_) { /* meta updates are best-effort */ }
+    }
 
     try {
         if (navigator.share) {
@@ -4653,6 +4680,300 @@ function initMap() {
         // Create initial marker based on current center if it matches keyword
         updateSearchMarker(state.center.lat, state.center.lng);
     }
+
+    // Precipitation overlay toggle button + initial state
+    initKmaPrecipOverlay();
+}
+
+// === KMA precipitation/snow overlay (domestic Kakao map) ===
+// Loads data/kma_precip_current.json (refreshed every 30min by a GHA) and
+// renders graduated circles colored by pty (rain/snow) and sized by amount.
+// Toggle button sits next to the weather button so users can opt-in.
+
+const KMA_PRECIP_DATA_URL = 'data/kma_precip_current.json';
+let kmaPrecipOverlays = [];
+let kmaPrecipData = null;
+let kmaPrecipFetchPromise = null;
+let kmaPrecipVisible = false;
+
+function getKmaPtyStyle(point) {
+    const pty = point.pty;
+    const rain = point.rainMm6h || 0;
+    const snow = point.snowCm6h || 0;
+    if (pty === 'snow' || pty === 'snow_flurry') {
+        return {
+            color: '#c5d9f1',
+            stroke: '#3b82f6',
+            label: snow > 0 ? `❄ ${snow.toFixed(1)}cm` : '❄ 눈',
+            value: snow,
+            radiusBase: 16 + Math.min(snow * 6, 40)
+        };
+    }
+    if (pty === 'sleet' || pty === 'drizzle_sleet') {
+        return {
+            color: '#bae6fd',
+            stroke: '#0ea5e9',
+            label: `🌨 ${rain.toFixed(1)}mm`,
+            value: rain,
+            radiusBase: 14 + Math.min(rain * 3, 30)
+        };
+    }
+    if (pty === 'rain' || pty === 'drizzle') {
+        return {
+            color: '#93c5fd',
+            stroke: '#2563eb',
+            label: rain > 0 ? `🌧 ${rain.toFixed(1)}mm` : '🌧 비',
+            value: rain,
+            radiusBase: 14 + Math.min(rain * 3, 30)
+        };
+    }
+    return null; // no precip — skip
+}
+
+async function loadKmaPrecipData() {
+    if (kmaPrecipData) return kmaPrecipData;
+    if (kmaPrecipFetchPromise) return kmaPrecipFetchPromise;
+    kmaPrecipFetchPromise = fetch(`${KMA_PRECIP_DATA_URL}?v=${APP_BUILD_VERSION}`, { cache: 'no-cache' })
+        .then(r => r.ok ? r.json() : null)
+        .then(json => { kmaPrecipData = json; return json; })
+        .catch(err => { console.warn('[KMA] failed to load precip grid:', err); return null; });
+    return kmaPrecipFetchPromise;
+}
+
+function clearKmaPrecipOverlays() {
+    kmaPrecipOverlays.forEach(o => {
+        try { o.setMap(null); } catch (_) {}
+    });
+    kmaPrecipOverlays = [];
+}
+
+async function renderKmaPrecipOverlays() {
+    if (!map || !window.kakao?.maps) return;
+    clearKmaPrecipOverlays();
+    const data = await loadKmaPrecipData();
+    if (!data || !Array.isArray(data.points)) return;
+
+    let hasAny = false;
+    data.points.forEach(point => {
+        const style = getKmaPtyStyle(point);
+        if (!style) return;
+        hasAny = true;
+
+        const circle = new kakao.maps.Circle({
+            center: new kakao.maps.LatLng(point.lat, point.lng),
+            radius: style.radiusBase * 200,
+            strokeWeight: 2,
+            strokeColor: style.stroke,
+            strokeOpacity: 0.7,
+            strokeStyle: 'solid',
+            fillColor: style.color,
+            fillOpacity: 0.32
+        });
+        circle.setMap(map);
+        kmaPrecipOverlays.push(circle);
+
+        const overlay = new kakao.maps.CustomOverlay({
+            position: new kakao.maps.LatLng(point.lat, point.lng),
+            content: `<div class="kma-precip-label" title="${point.name} · ${point.wfKor || ''}">${style.label}<span class="kma-precip-city">${point.name}</span></div>`,
+            yAnchor: 0.5,
+            zIndex: 5
+        });
+        overlay.setMap(map);
+        kmaPrecipOverlays.push(overlay);
+    });
+
+    updateKmaPrecipEmptyHint(!hasAny);
+}
+
+function updateKmaPrecipEmptyHint(empty) {
+    let hint = document.getElementById('kma-precip-empty-hint');
+    if (empty && kmaPrecipVisible) {
+        if (!hint) {
+            hint = document.createElement('div');
+            hint.id = 'kma-precip-empty-hint';
+            hint.className = 'kma-precip-empty-hint';
+            hint.textContent = '☀ 현재 비/눈 예보 없음';
+            const mapView = document.getElementById('map-view');
+            if (mapView) mapView.appendChild(hint);
+        }
+    } else if (hint) {
+        hint.remove();
+    }
+}
+
+function setKmaPrecipVisible(visible) {
+    kmaPrecipVisible = visible;
+    const btn = document.getElementById('kma-precip-toggle');
+    if (btn) {
+        btn.classList.toggle('active', visible);
+        btn.setAttribute('aria-pressed', visible ? 'true' : 'false');
+        btn.title = visible ? '강수/적설 오버레이 끄기' : '강수/적설 오버레이 보기';
+    }
+    if (visible) {
+        renderKmaPrecipOverlays();
+    } else {
+        clearKmaPrecipOverlays();
+        updateKmaPrecipEmptyHint(false);
+    }
+    try { localStorage.setItem('cctv_kma_precip_visible', visible ? '1' : '0'); } catch (_) {}
+}
+
+// === Multi-CCTV compare mode ("전국 주요 도시") ===
+// Curated city → CCTV id mapping. Picked by nearest-distance + source quality
+// at curation time. Falls back gracefully if any id has been removed.
+const NATIONAL_COMPARE_CAMERAS = [
+    { city: '서울', cctvId: 'TOPIS_190' },
+    { city: '부산', cctvId: 'BUSAN_CTV0000016' },
+    { city: '대구', cctvId: 'DAEGU_49' },
+    { city: '인천', cctvId: 'INCHEON_39' },
+    { city: '광주', cctvId: 'GWANGJU_CCTV000061' },
+    { city: '대전', cctvId: 'E07048' },
+    { city: '울산', cctvId: 'ULSAN_298' },
+    { city: '제주', cctvId: 'L380020' }
+];
+
+let compareModeActive = false;
+let compareLayer = null;
+
+function getCompareCameras() {
+    return NATIONAL_COMPARE_CAMERAS
+        .map(entry => ({ ...entry, cctv: findCctvById(entry.cctvId) }))
+        .filter(entry => entry.cctv);
+}
+
+function openCompareMode() {
+    if (compareModeActive) return;
+    compareModeActive = true;
+
+    if (!compareLayer) {
+        compareLayer = document.createElement('div');
+        compareLayer.id = 'compare-layer';
+        compareLayer.className = 'compare-layer';
+        compareLayer.innerHTML = `
+            <div class="compare-layer-header">
+                <div>
+                    <h2>전국 주요 도시 라이브</h2>
+                    <p>같은 시각, 8개 광역시·도청 인근 카메라</p>
+                </div>
+                <button class="compare-layer-close" id="compare-layer-close" title="닫기" aria-label="비교 모드 닫기">×</button>
+            </div>
+            <div class="compare-grid" id="compare-grid"></div>
+        `;
+        document.body.appendChild(compareLayer);
+        compareLayer.querySelector('#compare-layer-close').addEventListener('click', closeCompareMode);
+    }
+
+    const grid = compareLayer.querySelector('#compare-grid');
+    grid.innerHTML = '';
+
+    const entries = getCompareCameras();
+    if (!entries.length) {
+        grid.innerHTML = '<div class="compare-empty">curated 카메라를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요.</div>';
+    }
+
+    entries.forEach(entry => {
+        const tile = document.createElement('div');
+        tile.className = 'compare-tile';
+        tile.dataset.cctvId = entry.cctv.id;
+        const parsed = parseCctvLabel(entry.cctv.name || '');
+        const sourceMeta = getSourceMeta(entry.cctv);
+        tile.innerHTML = `
+            <div class="compare-tile-header">
+                <span class="compare-tile-city">${entry.city}</span>
+                <span class="compare-tile-meta">
+                    <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
+                    <span>${parsed.main}${parsed.direction ? ` (${parsed.direction})` : ''}</span>
+                </span>
+                <button class="compare-tile-expand" type="button" title="크게 보기" aria-label="${entry.city} 카메라 크게 보기">⤢</button>
+            </div>
+            <div class="compare-tile-media"></div>
+        `;
+        const media = tile.querySelector('.compare-tile-media');
+        const video = createVideoElement(entry.cctv);
+        media.appendChild(video);
+        if (video.tagName === 'VIDEO') {
+            video.muted = true;
+            video.dataset.activeCctvId = entry.cctv.id;
+            video.dataset.sourceIndex = '0';
+            video._activeCctv = entry.cctv;
+            scheduleVideoHealthProbe(media, entry.cctv, video);
+        }
+        tile.querySelector('.compare-tile-expand').addEventListener('click', () => {
+            closeCompareMode();
+            openVideoLayer(entry.cctv);
+        });
+        grid.appendChild(tile);
+    });
+
+    compareLayer.classList.add('active');
+    document.body.classList.add('compare-mode-active');
+}
+
+function closeCompareMode() {
+    compareModeActive = false;
+    if (!compareLayer) return;
+    // Cleanup video elements to release HLS workers, sockets, etc.
+    compareLayer.querySelectorAll('.compare-tile-media').forEach(media => cleanupVideo(media));
+    compareLayer.classList.remove('active');
+    document.body.classList.remove('compare-mode-active');
+}
+
+function initCompareModeButton() {
+    if (document.getElementById('compare-mode-btn')) return;
+    const header = document.querySelector('.header-inner');
+    if (!header) return;
+    const btn = document.createElement('button');
+    btn.id = 'compare-mode-btn';
+    btn.className = 'compare-mode-btn';
+    btn.type = 'button';
+    btn.title = '전국 주요 도시 비교';
+    btn.setAttribute('aria-label', '전국 주요 도시 비교');
+    btn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+        </svg>
+    `;
+    btn.addEventListener('click', openCompareMode);
+    const weatherBtn = document.getElementById('weather-btn');
+    if (weatherBtn && weatherBtn.parentElement === header) {
+        header.insertBefore(btn, weatherBtn);
+    } else {
+        header.appendChild(btn);
+    }
+}
+
+function initKmaPrecipOverlay() {
+    if (document.getElementById('kma-precip-toggle')) return;
+    const mapView = document.getElementById('map-view');
+    if (!mapView) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'kma-precip-toggle';
+    btn.className = 'kma-precip-toggle';
+    btn.type = 'button';
+    btn.title = '강수/적설 오버레이 보기';
+    btn.setAttribute('aria-pressed', 'false');
+    btn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/>
+            <path d="M8 19l1-2"/>
+            <path d="M12 21l1-2"/>
+            <path d="M16 19l1-2"/>
+        </svg>
+        <span class="kma-precip-toggle-label">강수</span>
+    `;
+    btn.addEventListener('click', () => setKmaPrecipVisible(!kmaPrecipVisible));
+    mapView.appendChild(btn);
+
+    // Restore prior preference.
+    try {
+        if (localStorage.getItem('cctv_kma_precip_visible') === '1') {
+            setKmaPrecipVisible(true);
+        }
+    } catch (_) {}
 }
 
 function renderMapMarkers() {

@@ -1,0 +1,43 @@
+name: Refresh KMA precipitation grid
+
+# Pulls the KMA short-term forecast for ~25 grid points covering Korea and
+# writes data/kma_precip_current.json. Powers the "강수/적설 오버레이" toggle
+# on the domestic Kakao map. KMA endpoint is public and key-free.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # 30분마다
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-kma-precip
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Refresh grid
+        run: python3 scripts/refresh_kma_precip.py -v
+
+      - name: Commit if changed
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- data/kma_precip_current.json; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add data/kma_precip_current.json
+            git commit -m "chore(data): refresh KMA precipitation grid [skip ci]"
+            git push
+          else
+            echo "No change in KMA grid — skipping commit."
+          fi
