@@ -355,23 +355,59 @@ def main() -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--audit-only", action="store_true")
     parser.add_argument("--no-status", action="store_true")
+    parser.add_argument(
+        "--stale-ok-on-refresh-failure-hours",
+        type=float,
+        default=0,
+        help=(
+            "If a forced refresh cannot reach its.go.kr, keep the existing cache "
+            "and exit successfully while it is newer than this many hours. "
+            "This prevents transient upstream/GitHub runner network issues from "
+            "creating noisy failure alerts."
+        ),
+    )
     args = parser.parse_args()
 
     cache_payload = None
     refreshed = False
+    refresh_error = None
+    refresh_failure_with_existing_cache = False
     if not args.audit_only and not should_skip_refresh(args.cache_file, args.max_age_minutes, args.force):
-        cctvip_map = fetch_z3_map()
-        cache_payload = {
-            "fetched": utc_stamp(),
-            "entries": len(cctvip_map),
-            "data": cctvip_map,
-        }
-        atomic_write_json(args.cache_file, cache_payload)
-        refreshed = True
-        print(f"[OK] wrote {args.cache_file} with {len(cctvip_map)} entries")
+        try:
+            cctvip_map = fetch_z3_map()
+            cache_payload = {
+                "fetched": utc_stamp(),
+                "entries": len(cctvip_map),
+                "data": cctvip_map,
+            }
+            atomic_write_json(args.cache_file, cache_payload)
+            refreshed = True
+            print(f"[OK] wrote {args.cache_file} with {len(cctvip_map)} entries")
+        except Exception as error:
+            refresh_error = str(error)
+            existing_cache = load_json(args.cache_file, {})
+            existing_data = existing_cache.get("data", {}) if isinstance(existing_cache, dict) else {}
+            has_existing_cache = isinstance(existing_data, dict) and bool(existing_data)
+            age_minutes = get_cache_age_minutes(args.cache_file)
+            allow_minutes = args.stale_ok_on_refresh_failure_hours * 60
+            if allow_minutes > 0 and has_existing_cache and age_minutes is not None and age_minutes <= allow_minutes:
+                refresh_failure_with_existing_cache = True
+                print(
+                    "[WARN] Z3 refresh failed, but existing cache is within "
+                    f"{args.stale_ok_on_refresh_failure_hours:g}h fallback window "
+                    f"({len(existing_data)} entries, {age_minutes:.1f}min old). "
+                    f"Keeping existing cache. Error: {refresh_error}",
+                    file=sys.stderr,
+                )
+            else:
+                raise
 
     status = build_status(args.cache_file, args.data_file, cache_payload)
     z3 = status["z3"]
+    if refresh_error:
+        z3["refresh_status"] = "FAILED_USING_EXISTING_CACHE" if refresh_failure_with_existing_cache else "FAILED"
+        z3["refresh_error"] = refresh_error[:500]
+        z3["refresh_failure_at"] = utc_stamp()
     print(
         "[INFO] Z3 audit: "
         f"status={z3['status']} fetched={z3['fetched']} age={z3['age_minutes']}min "
@@ -381,7 +417,10 @@ def main() -> int:
         atomic_write_json(args.status_file, status)
         print(f"[OK] wrote {args.status_file}")
 
-    if z3["status"] == "STALE":
+    if refresh_failure_with_existing_cache and z3["missing_ratio"] >= 0.08:
+        print("[ERROR] Z3 fallback cache has unsafe coverage risk after refresh failure", file=sys.stderr)
+        return 2
+    if z3["status"] == "STALE" and not refresh_failure_with_existing_cache:
         print("[ERROR] Z3 cache is still stale after refresh attempt", file=sys.stderr)
         return 2
     if refreshed:
