@@ -18,7 +18,19 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-9091ee75';
+const APP_BUILD_VERSION = '20260521-fix-health-ttl';
+// These constants were lost in a recent rebase and broke the map: every
+// zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
+// getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
+// throwing a ReferenceError. Once the listener throws, Kakao's internal
+// tile-rendering pipeline never gets to redraw → blank map with only the
+// kakaomap watermark visible.
+const SERVICE_BANNER_VISIBLE_MS = 5000;
+const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
+const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
+const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
+const PLAYBACK_HEALTH_PROBLEM_TTL_MS = 45 * 60 * 1000;
+const PLAYBACK_HEALTH_MAX_ENTRIES = 160;
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
