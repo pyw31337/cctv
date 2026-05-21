@@ -9,18 +9,16 @@ let z3CachePromise = null;
 let z3CacheAgeMs = Infinity; // 캐시가 fetch된 이후 경과 시간 (ms)
 let z3CacheFetchedAt = null;
 let z3CacheSource = 'unknown';
-const Z3_CACHE_STALE_MS = 60 * 60 * 1000; // 60분 이상이면 다음 캐시 후보 또는 실시간 리졸버를 사용
+// z3_cache 의 토큰 자체는 ktict 서버에서 매 호출마다 wmsAuthSign 을 새로 발급하므로
+// 사실상 무기한 유효함이 실측됨. 60분 게이트는 strategy 1 을 거의 항상 무력화시켜
+// playback이 strategy 2(URL 내장 토큰: 보통 수개월 묵은 데이터로 502) → strategy 3
+// (Oracle /utic: 현재 hang) 으로 전부 떨어지는 원인이었음. → 24시간 으로 완화.
+const Z3_CACHE_STALE_MS = 24 * 60 * 60 * 1000;
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-90384d3a';
-const SERVICE_BANNER_VISIBLE_MS = 5000;
-const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
-const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
-const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
-const PLAYBACK_HEALTH_PROBLEM_TTL_MS = 45 * 60 * 1000;
-const PLAYBACK_HEALTH_MAX_ENTRIES = 160;
+const APP_BUILD_VERSION = '20260521-jindo-z3-stale-keynav';
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
@@ -671,8 +669,41 @@ function setupEventListeners() {
         // Prevent double-submission during IME composition (CJK)
         if (e.isComposing || e.keyCode === 229) return;
 
+        const resultsEl = $('#search-results');
+        const resultsOpen = resultsEl && resultsEl.classList.contains('active');
+
+        // ↑/↓ 로 결과 항목 하이라이트 이동
+        if (resultsOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+            const items = Array.from(resultsEl.querySelectorAll('.search-result-item'));
+            if (items.length === 0) return;
+            e.preventDefault();
+            let idx = items.findIndex(el => el.classList.contains('keyboard-active'));
+            if (e.key === 'ArrowDown') {
+                idx = idx < 0 ? 0 : (idx + 1) % items.length;
+            } else {
+                idx = idx <= 0 ? items.length - 1 : idx - 1;
+            }
+            items.forEach(el => el.classList.remove('keyboard-active'));
+            const active = items[idx];
+            active.classList.add('keyboard-active');
+            try { active.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (_) {}
+            return;
+        }
+
+        if (e.key === 'Escape' && resultsOpen) {
+            e.preventDefault();
+            closeAllOverlays();
+            return;
+        }
+
         if (e.key === 'Enter') {
-            e.preventDefault(); // Prevent default form submission if any
+            e.preventDefault();
+            // 하이라이트된 결과가 있으면 그것을 선택, 없으면 일반 검색 제출
+            const active = resultsOpen ? resultsEl.querySelector('.search-result-item.keyboard-active') : null;
+            if (active) {
+                active.click();
+                return;
+            }
             handleSearchSubmit();
         }
     });

@@ -1059,8 +1059,15 @@ body {
 }
 
 .search-result-item:hover,
-.search-result-item:active {
+.search-result-item:active,
+.search-result-item.keyboard-active {
     background-color: var(--bg-tertiary);
+}
+
+.search-result-item.keyboard-active {
+    /* ↑/↓ 키로 이동했을 때 호버보다 한 단계 더 또렷한 강조 */
+    outline: 2px solid var(--accent-color, #16a34a);
+    outline-offset: -2px;
 }
 
 .search-result-icon {
