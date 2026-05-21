@@ -12,7 +12,7 @@
 // The CACHE_VERSION is hot-swapped by the deploy GHA so a new release purges
 // all prior caches even when a long-lived tab still holds the old SW.
 
-const CACHE_VERSION = 'v20260521-pr9-fav-lazyload';
+const CACHE_VERSION = 'v20260521-32a328ad';
 
 const SHELL_ASSETS = [
     './',
