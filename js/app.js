@@ -35,13 +35,16 @@ const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const QUALITY_SUMMARY_FALLBACK_URL = 'data/quality_summary.json';
+const CANARY_STATUS_URL = 'data/canary_status.json';
 const WORLD_TOUR_DATA_URL = `data/world_tour_cams.json?v=${APP_BUILD_VERSION}`;
 const WORLD_TOUR_CHEVRON_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const WORLD_TOUR_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const WORLD_TOUR_LIST_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>';
 const WORLD_TOUR_VIDEO_OFF_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-video-off" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 3l18 18"/><path d="M15 11v-1l4.553 -2.276a1 1 0 0 1 1.447 .894v6.764a1 1 0 0 1 -.675 .946"/><path d="M10 6h3a2 2 0 0 1 2 2v3m0 4v1a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2h1"/></svg>';
 const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
+const CANARY_STATUS_BUCKET_MS = 10 * 60 * 1000;
 const QUALITY_SUMMARY_TIMEOUT_MS = 1800;
+const CANARY_STATUS_TIMEOUT_MS = 1600;
 const QUALITY_TELEMETRY_SAMPLE_RATE = 0.35;
 const QUALITY_TELEMETRY_DAILY_LIMIT = 20;
 const QUALITY_TELEMETRY_QUEUE_LIMIT = 12;
@@ -407,6 +410,10 @@ const state = {
     healthSnapshotStale: false,
     qualitySummary: null,
     qualitySummaryLoaded: false,
+    canaryStatus: null,
+    canaryCameras: new Map(),
+    canaryRegions: {},
+    canaryStatusLoaded: false,
     qualityTelemetryQueue: [],
     worldTourCams: null,
     selectedWorldTourId: null,
@@ -483,6 +490,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('Initialization Complete.');
 
     loadQualitySummary().then((loaded) => {
+        if (!loaded) return;
+        updateNearestCctvs();
+        renderServiceStatusBanner();
+        renderVideoGrid();
+        renderMapMarkers();
+    });
+
+    loadCanaryStatus().then((loaded) => {
         if (!loaded) return;
         updateNearestCctvs();
         renderServiceStatusBanner();
@@ -593,6 +608,26 @@ function applyQualitySummary(summary) {
         regions: summary.regions || {}
     };
     state.qualitySummaryLoaded = true;
+}
+
+async function loadCanaryStatus() {
+    const cacheBucket = Math.floor(Date.now() / CANARY_STATUS_BUCKET_MS);
+    try {
+        const snapshot = await fetchJsonWithTimeout(`${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`, CANARY_STATUS_TIMEOUT_MS);
+        applyCanaryStatus(snapshot);
+        return true;
+    } catch (error) {
+        console.debug('[Canary] Status load skipped:', error.message || error);
+        return false;
+    }
+}
+
+function applyCanaryStatus(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    state.canaryStatus = snapshot;
+    state.canaryRegions = snapshot.regions || {};
+    state.canaryCameras = new Map(Object.entries(snapshot.cameras || {}).filter(([, value]) => value && typeof value === 'object'));
+    state.canaryStatusLoaded = true;
 }
 
 function restoreInitialViewState() {
@@ -1837,6 +1872,85 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
     return null;
 }
 
+function getCanaryCameraRecord(cctv) {
+    if (!cctv || !cctv.id || !state.canaryCameras) return null;
+    return state.canaryCameras.get(cctv.id) || null;
+}
+
+function getCanaryRegionRecord(regionKey, cctv) {
+    if (!state.canaryRegions) return null;
+    const source = cctv?.source || '';
+    const name = `${cctv?.name || ''} ${cctv?.address || ''}`.toLowerCase();
+    if (state.canaryRegions.jindo && name.includes('진도')) return state.canaryRegions.jindo;
+    if (state.canaryRegions.jeju && (regionKey === 'JEJU' || name.includes('제주') || name.includes('서귀포'))) return state.canaryRegions.jeju;
+    if (state.canaryRegions.daejeon && (regionKey === 'DAEJEON' || name.includes('대전'))) return state.canaryRegions.daejeon;
+    if (state.canaryRegions.guri && (name.includes('구리') || name.includes('수택') || name.includes('왕숙') || name.includes('돌다리'))) return state.canaryRegions.guri;
+    if (state.canaryRegions.namyangju && (name.includes('남양주') || name.includes('마석') || name.includes('화도') || name.includes('평내') || name.includes('호평'))) return state.canaryRegions.namyangju;
+    if (state.canaryRegions.dokdo && (name.includes('독도') || name.includes('울릉'))) return state.canaryRegions.dokdo;
+    if (source === 'UTIC' && regionKey === 'UTIC_Z3' && name.includes('진도')) return state.canaryRegions.jindo || null;
+    return null;
+}
+
+function getCanaryHealthMeta(cctv, regionKey) {
+    if (!state.canaryStatusLoaded) return null;
+
+    const camera = getCanaryCameraRecord(cctv);
+    if (camera) {
+        const checkedAt = camera.checked_at || state.canaryStatus?.generated_at || null;
+        if (camera.ok) {
+            return {
+                regionKey,
+                status: 'CANARY_OK',
+                shortLabel: '카나리 재생 확인',
+                longLabel: `${camera.region_label || getRegionLabel(regionKey)} 카나리 점검에서 이 CCTV의 스트림 접근이 확인되었습니다`,
+                tone: Number(camera.elapsed_ms || 0) > QUALITY_SLOW_FIRST_FRAME_MS ? 'ok-soft' : 'ok',
+                penalty: Number(camera.elapsed_ms || 0) > QUALITY_SLOW_FIRST_FRAME_MS ? 0.4 : 0,
+                lastUpdated: checkedAt
+            };
+        }
+
+        return {
+            regionKey,
+            status: 'CANARY_FAIL',
+            shortLabel: '카나리 실패',
+            longLabel: `${camera.region_label || getRegionLabel(regionKey)} 카나리 점검에서 이 CCTV가 실패했습니다. 원인: ${camera.reason || camera.category || '확인 필요'}`,
+            tone: 'danger',
+            penalty: 9,
+            lastUpdated: checkedAt
+        };
+    }
+
+    const region = getCanaryRegionRecord(regionKey, cctv);
+    if (!region) return null;
+
+    const checkedAt = state.canaryStatus?.generated_at || null;
+    if (region.status === 'IMPACT' || region.status === 'NO_CANDIDATES') {
+        return {
+            regionKey,
+            status: 'CANARY_REGION_IMPACT',
+            shortLabel: '핵심지역 장애',
+            longLabel: `${region.label || getRegionLabel(regionKey)} 카나리 정상 후보가 기준 미달입니다. ${region.recommended_action || ''}`,
+            tone: 'danger',
+            penalty: 7,
+            lastUpdated: checkedAt
+        };
+    }
+
+    if (region.status === 'DEGRADED') {
+        return {
+            regionKey,
+            status: 'CANARY_REGION_DEGRADED',
+            shortLabel: '핵심지역 불안정',
+            longLabel: `${region.label || getRegionLabel(regionKey)} 카나리 일부 후보가 실패했습니다. 정상 후보를 우선 추천합니다.`,
+            tone: 'warn',
+            penalty: 2.4,
+            lastUpdated: checkedAt
+        };
+    }
+
+    return null;
+}
+
 function getStoredPlaybackHealthTimestamp(health) {
     if (!health) return 0;
     const storedAt = Number(health.storedAt);
@@ -1987,6 +2101,9 @@ function getCameraHealthMeta(cctv) {
     const z3CacheMeta = getZ3CacheRiskMeta(cctv);
     if (z3CacheMeta) return z3CacheMeta;
 
+    const canaryMeta = getCanaryHealthMeta(cctv, regionKey);
+    if (canaryMeta) return canaryMeta;
+
     const cameraFailureMeta = getCameraFailureHealthMeta(cctv, regionKey, lastUpdated);
     if (cameraFailureMeta) return cameraFailureMeta;
 
@@ -2102,6 +2219,22 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
                 title: `최근 실사용 ${cameraMetrics.samples}건 기준 첫 화면 로딩이 느립니다.`
             };
         }
+    }
+
+    if (health.status === 'CANARY_OK') {
+        return {
+            tone: health.tone === 'ok-soft' ? 'ok-soft' : 'ok',
+            label: health.shortLabel || '카나리 재생 확인',
+            title: health.longLabel || '핵심 카나리 점검에서 재생 접근이 확인되었습니다.'
+        };
+    }
+
+    if (health.status === 'CANARY_FAIL' || health.status === 'CANARY_REGION_IMPACT') {
+        return {
+            tone: 'danger',
+            label: health.shortLabel || '카나리 실패',
+            title: health.longLabel || '핵심 카나리 점검에서 실패했습니다.'
+        };
     }
 
     if (isAggregateOnlyHealthWarning(cctv, health)) {

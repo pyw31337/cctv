@@ -1,0 +1,75 @@
+name: Core Canary Playback Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      strict_service_impact:
+        description: 'Fail the workflow when core canary regions are impacted'
+        required: false
+        default: 'false'
+  schedule:
+    # 30-minute cadence, deliberately offset from KMA (:11/:41),
+    # quality summary (:53), and Z3 cache (:23) jobs.
+    - cron: '17,47 * * * *'
+
+concurrency:
+  group: cctv-repo-writes
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Probe core canary regions
+        env:
+          STRICT_SERVICE_IMPACT: ${{ inputs.strict_service_impact || 'false' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$STRICT_SERVICE_IMPACT" == "true" ]]; then
+            args+=(--strict-service-impact)
+          fi
+          python3 scripts/canary_probe.py "${args[@]}"
+
+      - name: Write operator summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          path = Path('data/ops_status.json')
+          if not path.exists():
+              print('## Core Canary Playback Probe')
+              print('')
+              print('No ops_status.json was produced. This is a workflow/process failure, not a camera outage classification.')
+              raise SystemExit(0)
+
+          ops = json.loads(path.read_text())
+          canary = ops.get('canary', {})
+          print('## Core Canary Playback Probe')
+          print('')
+          print(f"- Service status: `{ops.get('service_status', 'UNKNOWN')}`")
+          print(f"- Workflow failure meaning: {ops.get('policy', {}).get('workflow_failure_definition', '-')}")
+          print(f"- Z3 cache: `{ops.get('cache', {}).get('z3', {}).get('status', 'UNKNOWN')}` / age `{ops.get('cache', {}).get('z3', {}).get('age_hours', '-')}` hours")
+          print(f"- Impact regions: {', '.join(canary.get('impact_regions') or []) or 'none'}")
+          print(f"- Degraded regions: {', '.join(canary.get('degraded_regions') or []) or 'none'}")
+          print('')
+          print('Camera entries are preserved. Canary failures only affect ranking/status unless a strict manual run is requested.')
+          PY
+
+      - name: Commit canary snapshots
+        run: |
+          if git diff --quiet -- data/canary_status.json data/ops_status.json; then
+            echo "No canary changes."
+          else
+            scripts/commit_and_push_changes.sh "AUTO: Refresh core canary playback status [skip ci]" data/canary_status.json data/ops_status.json
+          fi

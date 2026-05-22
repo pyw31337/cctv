@@ -13,6 +13,7 @@
         h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.04em; }
         .sub { margin-top: 8px; color: var(--muted); }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+        .grid.ops { grid-template-columns: repeat(5, minmax(0, 1fr)); }
         .card { background: color-mix(in oklab, var(--card), transparent 6%); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 20px 50px rgba(0,0,0,.22); }
         .metric { font-size: 30px; font-weight: 850; letter-spacing: -0.04em; }
         .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
@@ -29,7 +30,12 @@
         .split { display: grid; grid-template-columns: 1.2fr .8fr; gap: 18px; }
         .defs { display: grid; gap: 10px; color: var(--muted); font-size: 13px; line-height: 1.55; }
         .defs b { color: var(--text); }
-        @media (max-width: 900px) { header { align-items: flex-start; flex-direction: column; } .grid, .split { grid-template-columns: 1fr; } }
+        .status-card[data-severity="danger"] { border-color: color-mix(in oklab, var(--red), transparent 35%); background: rgba(127, 29, 29, .22); }
+        .status-card[data-severity="warn"] { border-color: color-mix(in oklab, var(--yellow), transparent 35%); background: rgba(113, 63, 18, .22); }
+        .status-card[data-severity="ok"] { border-color: color-mix(in oklab, var(--green), transparent 35%); background: rgba(6, 78, 59, .18); }
+        .mono { font-variant-numeric: tabular-nums; }
+        @media (max-width: 1100px) { .grid.ops { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 900px) { header { align-items: flex-start; flex-direction: column; } .grid, .grid.ops, .split { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -52,6 +58,14 @@
         <div class="card"><div class="metric" id="avg-load">-</div><div class="label">평균 첫 화면 로딩</div></div>
     </div>
 
+    <div class="grid ops">
+        <div class="card status-card" id="ops-service-card"><div class="metric" id="ops-service">-</div><div class="label">운영 영향 상태</div></div>
+        <div class="card status-card" id="ops-z3-card"><div class="metric" id="ops-z3">-</div><div class="label">Z3 캐시 최신성</div></div>
+        <div class="card status-card" id="ops-token-card"><div class="metric" id="ops-token">-</div><div class="label">토큰/URL 갱신 상태</div></div>
+        <div class="card status-card" id="ops-canary-card"><div class="metric" id="ops-canary">-</div><div class="label">핵심 카나리 지역</div></div>
+        <div class="card status-card" id="ops-recovery-card"><div class="metric" id="ops-recovery">-</div><div class="label">최근 자동 복구</div></div>
+    </div>
+
     <div class="split">
         <section class="card">
             <h2>우선 점검 CCTV</h2>
@@ -60,6 +74,9 @@
         <section class="card">
             <h2>상태 정의</h2>
             <div class="defs">
+                <div><b>Actions 실패</b>: 스크립트, 커밋, 푸시, 데이터 보존 실패입니다. 외부 CCTV 장애는 워크플로우 실패가 아니라 운영 상태 데이터로 분리합니다.</div>
+                <div><b>서비스 영향 있음</b>: 진도, 제주, 대전, 구리, 남양주, 독도 카나리에서 정상 후보가 기준 미달인 상태입니다.</div>
+                <div><b>Z3 캐시 장애</b>: 캐시가 8시간을 넘으면 경고가 아니라 운영 장애로 보고 Z3 영상을 강하게 후순위 처리합니다.</div>
                 <div><b>실사용 불안정</b>: 최근 사용자 재생 실패율이 높거나 성공률이 낮은 상태입니다.</div>
                 <div><b>로딩 느림</b>: 재생은 가능하지만 첫 화면까지 8초 이상 걸리는 샘플이 많은 상태입니다.</div>
                 <div><b>점검 실패</b>: 서버 샘플 점검 실패입니다. 실제 사용자 재생 성공이 확인되면 화면 상태가 우선됩니다.</div>
@@ -67,6 +84,11 @@
             </div>
         </section>
     </div>
+
+    <section class="card">
+        <h2>핵심 카나리 지역</h2>
+        <table><thead><tr><th>지역</th><th>상태</th><th>성공/점검</th><th>성공률</th><th>평균 로딩</th><th>주요 실패</th><th>권장 조치</th></tr></thead><tbody id="canary-rows"></tbody></table>
+    </section>
 
     <section class="card">
         <h2>소스별 품질</h2>
@@ -81,11 +103,28 @@
 <script>
 const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const FALLBACK_URL = 'data/quality_summary.json';
+const CANARY_URL = 'data/canary_status.json';
+const OPS_URL = 'data/ops_status.json';
+const CACHE_URL = 'data/cache_status.json';
+const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
 const $ = (id) => document.getElementById(id);
 function esc(value) { return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[ch])); }
 function pct(value) { return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'; }
 function ms(value) { return value > 0 ? `${Math.round(value / 100) / 10}s` : '-'; }
 function tone(rate, avg) { if (rate < .65) return 'bad'; if (rate < .82 || avg > 8000) return 'warn'; return 'ok'; }
+function severityClass(severity) { return severity === 'danger' ? 'bad' : (severity === 'warn' ? 'warn' : 'ok'); }
+function setCard(id, value, severity = 'ok') {
+    const metric = $(id);
+    const card = metric?.closest('.status-card');
+    if (metric) metric.textContent = value;
+    if (card) card.dataset.severity = severity;
+}
+function ageText(hours) {
+    const value = Number(hours);
+    if (!Number.isFinite(value)) return '-';
+    if (value < 1) return `${Math.round(value * 60)}분`;
+    return `${Math.round(value * 10) / 10}시간`;
+}
 function normalize(item) {
     const samples = Number(item.samples || item.total || 0);
     const success = Number(item.success || 0);
@@ -116,12 +155,27 @@ async function loadSummary() {
             break;
         } catch {}
     }
-    render(summary || { cameras: {}, sources: {}, regions: {} });
+    const [canary, ops, cache, audit] = await Promise.all([
+        loadLocalJson(CANARY_URL, null),
+        loadLocalJson(OPS_URL, null),
+        loadLocalJson(CACHE_URL, null),
+        loadLocalJson(UTIC_AUDIT_URL, null)
+    ]);
+    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, cache, audit });
+}
+async function loadLocalJson(url, fallback) {
+    try {
+        const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(res.status);
+        return await res.json();
+    } catch {
+        return fallback;
+    }
 }
 function qualityRow(item, label) {
     return `<tr><td>${esc(label)}</td><td><span class="pill ${tone(item.successRate, item.avgFirstFrameMs)}">${pct(item.successRate)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.samples}</td></tr>`;
 }
-function render(summary) {
+function render(summary, opsData = {}) {
     const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const sources = Object.entries(summary.sources || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const regions = Object.entries(summary.regions || {}).map(([id, item]) => ({ id, ...normalize(item) }));
@@ -133,6 +187,7 @@ function render(summary) {
     $('success-rate').textContent = pct(weightedRate(cameras));
     $('avg-load').textContent = ms(weightedLoad(cameras));
     $('updated').textContent = summary.generated_at ? `마지막 집계: ${new Date(summary.generated_at).toLocaleString('ko-KR')} · 최근 ${summary.window_hours || 24}시간` : '아직 서버 집계 데이터가 없습니다.';
+    renderOps(opsData);
 
     $('camera-rows').innerHTML = problemCameras
         .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
@@ -149,6 +204,41 @@ function render(summary) {
         .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
         .map(item => qualityRow(item, item.id))
         .join('') || '<tr><td colspan="7">지역 집계가 아직 없습니다.</td></tr>';
+}
+function renderOps({ canary, ops, cache, audit }) {
+    const z3 = ops?.cache?.z3 || cache?.z3 || {};
+    const canaryRegions = canary?.regions || ops?.canary?.regions || {};
+    const impact = Object.values(canaryRegions).filter(item => ['IMPACT', 'NO_CANDIDATES'].includes(item?.status));
+    const degraded = Object.values(canaryRegions).filter(item => item?.status === 'DEGRADED');
+    const serviceSeverity = ops?.severity || (impact.length ? 'danger' : (degraded.length ? 'warn' : 'ok'));
+    const serviceText = ops?.service_status === 'SERVICE_IMPACT' || impact.length
+        ? '영향 있음'
+        : (ops?.service_status === 'DEGRADED' || degraded.length ? '주의' : '정상');
+    const z3Severity = z3.severity || (Number(z3.age_hours) > 8 ? 'danger' : (Number(z3.age_hours) > 4 ? 'warn' : 'ok'));
+    const auditRuns = Array.isArray(audit) ? audit : (Array.isArray(audit?.runs) ? audit.runs : []);
+    const recoveries = auditRuns.reduce((sum, run) => sum + Number(run.recovered || run.restored || 0), 0);
+
+    setCard('ops-service', serviceText, serviceSeverity);
+    setCard('ops-z3', ageText(z3.age_hours), z3Severity);
+    setCard('ops-token', z3.status || cache?.z3?.status || '-', z3Severity);
+    setCard('ops-canary', `${Object.keys(canaryRegions).length || 0}지역`, serviceSeverity);
+    setCard('ops-recovery', `${recoveries}건`, recoveries > 0 ? 'ok' : 'warn');
+
+    $('canary-rows').innerHTML = Object.values(canaryRegions)
+        .map(item => {
+            const severity = item.severity || (item.status === 'OK' ? 'ok' : item.status === 'DEGRADED' ? 'warn' : 'danger');
+            const failure = item.dominant_failure || Object.keys(item.failure_categories || {})[0] || '-';
+            return `<tr>
+                <td>${esc(item.label || item.key)}</td>
+                <td><span class="pill ${severityClass(severity)}">${esc(item.status || '-')}</span></td>
+                <td class="mono">${Number(item.passed || 0)} / ${Number(item.checked || 0)}</td>
+                <td>${pct(Number(item.success_rate))}</td>
+                <td>${ms(Number(item.avg_ok_ms || 0))}</td>
+                <td>${esc(failure)}</td>
+                <td>${esc(item.recommended_action || '-')}</td>
+            </tr>`;
+        })
+        .join('') || '<tr><td colspan="7">카나리 데이터가 아직 없습니다. 다음 30분 주기에서 생성됩니다.</td></tr>';
 }
 $('refresh').addEventListener('click', loadSummary);
 loadSummary();
