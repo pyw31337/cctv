@@ -2,7 +2,8 @@ name: Auto-Renew CCTV URLs
 
 on:
   schedule:
-    - cron: '0 2 * * 1,4' # Twice weekly to preserve the free Actions quota.
+    # Mon/Thu 11:35 KST (= 02:35 UTC). Heavy repair window is intentionally daytime.
+    - cron: '35 2 * * 1,4'
   workflow_dispatch:
 
 permissions:

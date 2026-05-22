@@ -4,7 +4,8 @@ on:
   # Oracle cron + /z3-cache.json is the primary freshness path.
   # This keeps the static GitHub Pages fallback fresh enough for Z3 appUrl tokens.
   schedule:
-    - cron: '7 */4 * * *'
+    # Every 4 hours at :23 UTC, offset from CultureFlow fallback and other CCTV writers.
+    - cron: '23 1,5,9,13,17,21 * * *'
   workflow_dispatch:
 
 jobs:

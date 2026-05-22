@@ -6,8 +6,8 @@ name: Daily UTIC Resurrect
 
 on:
   schedule:
-    # 매일 새벽 4시 KST (audit 1시간 후) = 19:00 UTC
-    - cron: '0 19 * * *'
+    # 매일 07:00 KST (= 22:00 UTC 전날). UTIC 감사와 GITS ingest 이후 순차 실행.
+    - cron: '0 22 * * *'
   workflow_dispatch:
 
 permissions:
