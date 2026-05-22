@@ -414,6 +414,7 @@ const state = {
     worldTourViewMode: 'map',
     worldTourCardScrollLeft: 0,
     worldTourRegionScrollLeft: 0,
+    worldTourListScrollTop: 0,
     worldTourListOpen: false,
     worldTourListSearch: '',
     worldTourListRegion: 'All',
@@ -784,7 +785,11 @@ function setupEventListeners() {
                         console.warn('[favorites] world tour open failed:', err)
                     );
                 } else if (typeof renderWorldTourCams === 'function') {
-                    renderWorldTourCams(id, { viewMode: 'video' });
+                    renderWorldTourCams(id, {
+                        viewMode: 'video',
+                        focusSelected: true,
+                        listScrollToSelected: true
+                    });
                 }
                 return;
             }
@@ -5376,7 +5381,11 @@ async function openWorldTourPanel(options = {}) {
     if (!isWorldTourRegionAvailable(state.worldTourRegion)) {
         state.worldTourRegion = 'All';
     }
-    await renderWorldTourCams(state.selectedWorldTourId, { viewMode: state.worldTourViewMode });
+    await renderWorldTourCams(state.selectedWorldTourId, {
+        viewMode: state.worldTourViewMode,
+        focusSelected: !!options.selectedId,
+        listScrollToSelected: !!options.selectedId
+    });
 }
 
 
@@ -6238,7 +6247,11 @@ function createWorldTourMarkerPopup(cam) {
     popup.querySelector('.world-tour-marker-video-btn')?.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
-        renderWorldTourCams(cam.id, { viewMode: 'video' });
+        renderWorldTourCams(cam.id, {
+            viewMode: 'video',
+            focusSelected: true,
+            listScrollToSelected: true
+        });
     });
 
     return popup;
@@ -6429,6 +6442,7 @@ function bindWorldTourListPanel(root, cams, selected) {
         }
         if (results) {
             results.innerHTML = renderWorldTourListItems(filtered, state.selectedWorldTourId);
+            requestAnimationFrame(() => scrollWorldTourListToSelected(results, state.selectedWorldTourId, { center: false }));
         }
     };
 
@@ -6478,7 +6492,7 @@ function bindWorldTourListPanel(root, cams, selected) {
         const closeButton = event.target.closest('[data-world-tour-list-close]');
         if (closeButton) {
             state.worldTourListOpen = false;
-            rerenderWithList();
+            rerenderWithList(state.selectedWorldTourId, { focusSelected: true });
             return;
         }
 
@@ -6505,19 +6519,34 @@ function bindWorldTourListPanel(root, cams, selected) {
 
         const videoButton = event.target.closest('[data-world-tour-list-video]');
         if (videoButton) {
-            renderWorldTourCams(videoButton.dataset.worldTourListVideo, { viewMode: 'video' });
+            state.worldTourListScrollTop = panel.querySelector('[data-world-tour-list-results]')?.scrollTop ?? state.worldTourListScrollTop;
+            renderWorldTourCams(videoButton.dataset.worldTourListVideo, {
+                viewMode: 'video',
+                focusSelected: true,
+                listScrollToSelected: true
+            });
             return;
         }
 
         const mapButton = event.target.closest('[data-world-tour-list-map]');
         if (mapButton) {
-            renderWorldTourCams(mapButton.dataset.worldTourListMap, { viewMode: 'map' });
+            state.worldTourListScrollTop = panel.querySelector('[data-world-tour-list-results]')?.scrollTop ?? state.worldTourListScrollTop;
+            renderWorldTourCams(mapButton.dataset.worldTourListMap, {
+                viewMode: 'map',
+                focusSelected: true,
+                listScrollToSelected: true
+            });
             return;
         }
 
         const item = event.target.closest('[data-world-tour-list-item]');
         if (item) {
-            renderWorldTourCams(item.dataset.worldTourListItem, { viewMode: state.worldTourViewMode });
+            state.worldTourListScrollTop = panel.querySelector('[data-world-tour-list-results]')?.scrollTop ?? state.worldTourListScrollTop;
+            renderWorldTourCams(item.dataset.worldTourListItem, {
+                viewMode: state.worldTourViewMode,
+                focusSelected: true,
+                listScrollToSelected: true
+            });
         }
     });
 
@@ -6526,8 +6555,76 @@ function bindWorldTourListPanel(root, cams, selected) {
         const item = event.target.closest('[data-world-tour-list-item]');
         if (!item) return;
         event.preventDefault();
-        renderWorldTourCams(item.dataset.worldTourListItem, { viewMode: state.worldTourViewMode });
+        renderWorldTourCams(item.dataset.worldTourListItem, {
+            viewMode: state.worldTourViewMode,
+            focusSelected: true,
+            listScrollToSelected: true
+        });
     });
+
+    const results = panel.querySelector('[data-world-tour-list-results]');
+    if (results) {
+        requestAnimationFrame(() => {
+            if (state.worldTourListScrollTop && !state.selectedWorldTourId) {
+                results.scrollTop = state.worldTourListScrollTop;
+            }
+            scrollWorldTourListToSelected(results, state.selectedWorldTourId, {
+                center: !!state.worldTourListScrollTop
+            });
+            state.worldTourListScrollTop = results.scrollTop;
+        });
+        results.addEventListener('scroll', () => {
+            state.worldTourListScrollTop = results.scrollTop;
+        }, { passive: true });
+    }
+}
+
+function getWorldTourCardElement(scroller, id) {
+    if (!scroller || !id) return null;
+    return Array.from(scroller.querySelectorAll('.world-tour-card'))
+        .find(card => card.dataset.id === id) || null;
+}
+
+function scrollWorldTourCardToSelected(scroller, id, options = {}) {
+    const card = getWorldTourCardElement(scroller, id);
+    if (!scroller || !card) return false;
+    const padding = Number(options.padding ?? 18);
+    const currentLeft = scroller.scrollLeft;
+    const currentRight = currentLeft + scroller.clientWidth;
+    const cardLeft = card.offsetLeft;
+    const cardRight = cardLeft + card.offsetWidth;
+    const fullyVisible = cardLeft >= currentLeft + padding && cardRight <= currentRight - padding;
+    if (fullyVisible && !options.forceCenter) return true;
+
+    const target = Math.max(
+        0,
+        cardLeft - Math.max(0, (scroller.clientWidth - card.offsetWidth) / 2)
+    );
+    scroller.scrollLeft = target;
+    state.worldTourCardScrollLeft = scroller.scrollLeft;
+    return true;
+}
+
+function scrollWorldTourListToSelected(results, id, options = {}) {
+    if (!results || !id) return false;
+    const item = Array.from(results.querySelectorAll('[data-world-tour-list-item]'))
+        .find(el => el.dataset.worldTourListItem === id);
+    if (!item) return false;
+
+    const padding = Number(options.padding ?? 12);
+    const currentTop = results.scrollTop;
+    const currentBottom = currentTop + results.clientHeight;
+    const itemTop = item.offsetTop;
+    const itemBottom = itemTop + item.offsetHeight;
+    const fullyVisible = itemTop >= currentTop + padding && itemBottom <= currentBottom - padding;
+    if (fullyVisible && !options.center) return true;
+
+    const target = options.center
+        ? itemTop - Math.max(0, (results.clientHeight - item.offsetHeight) / 2)
+        : itemTop - padding;
+    results.scrollTop = Math.max(0, target);
+    state.worldTourListScrollTop = results.scrollTop;
+    return true;
 }
 
 async function renderWorldTourCams(selectedId = state.selectedWorldTourId, options = {}) {
@@ -6571,8 +6668,16 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             if (!visibleCams.length) visibleCams = cams;
         }
 
-        const selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
+        let selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
         const selectedFromAll = cams.find(cam => cam.id === selectedId);
+        if (!selectedFromVisible && selectedFromAll) {
+            // If the user picked an item from the right-side list/search that
+            // is outside the current bottom rail filter, move the rail to the
+            // selected camera's region so the active button remains visible.
+            state.worldTourRegion = selectedFromAll.region || 'All';
+            visibleCams = getWorldTourVisibleCams(cams);
+            selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
+        }
         const selected = selectedFromVisible || selectedFromAll || visibleCams[0] || cams[0];
         state.selectedWorldTourId = selected.id;
         destroyWorldTourMap();
@@ -6596,7 +6701,9 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             renderWorldTourCams(state.selectedWorldTourId, {
                 viewMode: state.worldTourViewMode,
                 cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
-                regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
+                regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+                focusSelected: true,
+                listScrollToSelected: true
             });
         });
 
@@ -6609,7 +6716,8 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 renderWorldTourCams(card.dataset.id, {
                     viewMode: state.worldTourViewMode,
                     cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
-                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
+                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+                    focusSelected: true
                 });
             };
             card.addEventListener('click', event => {
@@ -6643,7 +6751,8 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 renderWorldTourCams(button.dataset.worldTourNeighbor, {
                     viewMode: state.worldTourViewMode,
                     cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
-                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
+                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+                    focusSelected: true
                 });
             });
         });
@@ -6664,7 +6773,9 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                     region,
                     viewMode: state.worldTourViewMode,
                     regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
-                    cardScrollLeft: 0
+                    cardScrollLeft: 0,
+                    focusSelected: true,
+                    listScrollToSelected: true
                 });
             });
         });
@@ -6681,7 +6792,11 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             });
         });
         list.querySelectorAll('.world-tour-nearby-item').forEach(item => {
-            item.addEventListener('click', () => renderWorldTourCams(item.dataset.id, { viewMode: 'map' }));
+            item.addEventListener('click', () => renderWorldTourCams(item.dataset.id, {
+                viewMode: 'map',
+                focusSelected: true,
+                listScrollToSelected: true
+            }));
         });
 
         const cardRail = list.querySelector('.world-tour-card-rail');
@@ -6689,6 +6804,11 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         if (cardRail) {
             requestAnimationFrame(() => {
                 cardRail.scrollLeft = nextCardScrollLeft;
+                if (options.focusSelected) {
+                    scrollWorldTourCardToSelected(cardRail, state.selectedWorldTourId, {
+                        forceCenter: options.forceCenterSelected !== false
+                    });
+                }
                 state.worldTourCardScrollLeft = cardRail.scrollLeft;
             });
             cardRail.addEventListener('scroll', () => {
@@ -6728,7 +6848,11 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
 function focusWorldTourCamOnMap(cam) {
     if (!cam) return;
     state.worldTourRegion = cam.region || 'All';
-    renderWorldTourCams(cam.id, { viewMode: 'map' });
+    renderWorldTourCams(cam.id, {
+        viewMode: 'map',
+        focusSelected: true,
+        listScrollToSelected: true
+    });
 }
 
 function loadWorldTourMapLibrary() {
