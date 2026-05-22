@@ -11,7 +11,13 @@
    - 결과는 서버의 `data/status.json`에 저장되고 `/health-status`에서 즉시 제공합니다.
    - GitHub Pages 정적 `data/status.json`은 백업 용도입니다.
 
-3. 장기 장애 비상 진단
+3. 핵심 카나리 점검
+   - Oracle 무료 서버가 `scripts/canary_probe.py`를 주기적으로 실행합니다.
+   - 진도, 제주, 대전, 구리, 남양주, 독도를 핵심 카나리로 별도 확인합니다.
+   - 결과는 `/canary-status`, `/ops-status`에서 즉시 제공하고, GitHub Pages 정적 JSON은 백업 용도입니다.
+   - GitHub Actions 카나리는 Actions minutes 절감을 위해 4시간마다 정적 백업 스냅샷만 갱신합니다.
+
+4. 장기 장애 비상 진단
    - 샘플 점검에서 실패한 카메라는 `camera_failures`에 누적합니다.
    - 같은 카메라가 1시간 이상 또는 2회 이상 실패하면 `investigate`로 분류합니다.
    - 2시간 이상 또는 4회 이상 실패하면 `critical`로 분류합니다.
@@ -22,7 +28,7 @@
 서버에서 다음 cron을 등록합니다.
 
 ```cron
-*/30 * * * * CCTV_ROOT=/home/ubuntu/cctv /home/ubuntu/cctv/scripts/server_quality_cron.sh
+*/15 * * * * CCTV_ROOT=/home/ubuntu/cctv /home/ubuntu/cctv/scripts/server_quality_cron.sh
 ```
 
 이 방식은 GitHub Actions의 시간 사용량을 줄이면서도 앱이 더 최신 점검 정보를 읽게 해줍니다.

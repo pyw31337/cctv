@@ -103,8 +103,9 @@
 <script>
 const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const FALLBACK_URL = 'data/quality_summary.json';
-const CANARY_URL = 'data/canary_status.json';
-const OPS_URL = 'data/ops_status.json';
+const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
+const CANARY_URLS = [`${ORACLE_BASE}/canary-status`, 'data/canary_status.json'];
+const OPS_URLS = [`${ORACLE_BASE}/ops-status`, 'data/ops_status.json'];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
 const $ = (id) => document.getElementById(id);
@@ -156,8 +157,8 @@ async function loadSummary() {
         } catch {}
     }
     const [canary, ops, cache, audit] = await Promise.all([
-        loadLocalJson(CANARY_URL, null),
-        loadLocalJson(OPS_URL, null),
+        loadFirstJson(CANARY_URLS, null),
+        loadFirstJson(OPS_URLS, null),
         loadLocalJson(CACHE_URL, null),
         loadLocalJson(UTIC_AUDIT_URL, null)
     ]);
@@ -171,6 +172,13 @@ async function loadLocalJson(url, fallback) {
     } catch {
         return fallback;
     }
+}
+async function loadFirstJson(urls, fallback) {
+    for (const url of urls) {
+        const value = await loadLocalJson(url, null);
+        if (value) return value;
+    }
+    return fallback;
 }
 function qualityRow(item, label) {
     return `<tr><td>${esc(label)}</td><td><span class="pill ${tone(item.successRate, item.avgFirstFrameMs)}">${pct(item.successRate)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.samples}</td></tr>`;

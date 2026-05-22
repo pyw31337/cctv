@@ -18,7 +18,8 @@
 - 남양주
 - 독도
 
-`Core Canary Playback Probe` 워크플로우는 30분마다 실행되며 `data/canary_status.json`과 `data/ops_status.json`을 갱신한다.
+Oracle/local `server_quality_cron.sh`는 15분 기본 주기로 카나리를 실행하며 `/canary-status`, `/ops-status`에서 즉시 제공한다.
+`Core Canary Playback Probe` GitHub Actions 워크플로우는 4시간마다 실행되어 GitHub Pages 정적 백업용 `data/canary_status.json`과 `data/ops_status.json`을 갱신한다.
 
 ## GitHub Actions 실패 분류
 

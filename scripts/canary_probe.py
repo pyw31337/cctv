@@ -594,7 +594,7 @@ def run() -> tuple[dict, dict]:
         "severity": severity,
         "policy": {
             "core_regions": [region["label"] for region in CANARY_REGIONS],
-            "cadence": "GitHub Actions every 30 minutes; local/oracle cron may run more frequently.",
+            "cadence": "Oracle/local cron every 15-30 minutes is primary; GitHub Actions refreshes the static fallback every 4 hours.",
             "catalog_preservation": "카메라 목록은 삭제하지 않고, 실패 카메라는 추천/노출 순위만 낮춥니다.",
             "service_impact_is_data_not_job_failure": "카나리에서 외부 CCTV 장애가 발견되어도 워크플로우는 성공 처리하고 상태 JSON에 기록합니다.",
             "z3_cache_incident_threshold_hours": Z3_MAX_TRUSTED_AGE_HOURS,

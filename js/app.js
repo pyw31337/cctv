@@ -18,7 +18,7 @@ const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260521-0201b746';
+const APP_BUILD_VERSION = '20260522-canaryops';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -35,7 +35,8 @@ const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || {};
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const QUALITY_SUMMARY_FALLBACK_URL = 'data/quality_summary.json';
-const CANARY_STATUS_URL = 'data/canary_status.json';
+const CANARY_STATUS_URL = QUALITY_CONFIG.canaryStatusUrl || 'https://158.179.194.163.sslip.io/canary-status';
+const CANARY_STATUS_FALLBACK_URL = 'data/canary_status.json';
 const WORLD_TOUR_DATA_URL = `data/world_tour_cams.json?v=${APP_BUILD_VERSION}`;
 const WORLD_TOUR_CHEVRON_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const WORLD_TOUR_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
@@ -612,14 +613,22 @@ function applyQualitySummary(summary) {
 
 async function loadCanaryStatus() {
     const cacheBucket = Math.floor(Date.now() / CANARY_STATUS_BUCKET_MS);
-    try {
-        const snapshot = await fetchJsonWithTimeout(`${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`, CANARY_STATUS_TIMEOUT_MS);
-        applyCanaryStatus(snapshot);
-        return true;
-    } catch (error) {
-        console.debug('[Canary] Status load skipped:', error.message || error);
-        return false;
+    const urls = [
+        CANARY_STATUS_URL ? `${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
+        `${CANARY_STATUS_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+    ].filter(Boolean);
+
+    for (const url of urls) {
+        try {
+            const snapshot = await fetchJsonWithTimeout(url, CANARY_STATUS_TIMEOUT_MS);
+            applyCanaryStatus(snapshot);
+            return true;
+        } catch (error) {
+            console.debug('[Canary] Status load skipped:', url, error.message || error);
+        }
     }
+
+    return false;
 }
 
 function applyCanaryStatus(snapshot) {

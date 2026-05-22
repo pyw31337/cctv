@@ -8,9 +8,9 @@ on:
         required: false
         default: 'false'
   schedule:
-    # 30-minute cadence, deliberately offset from KMA (:11/:41),
-    # quality summary (:53), and Z3 cache (:23) jobs.
-    - cron: '17,47 * * * *'
+    # Oracle cron is the 10-30 minute primary canary path. GitHub Actions only
+    # refreshes the static GitHub Pages fallback snapshot every 4 hours.
+    - cron: '49 0,4,8,12,16,20 * * *'
 
 concurrency:
   group: cctv-repo-writes

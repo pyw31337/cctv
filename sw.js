@@ -12,7 +12,7 @@
 // The CACHE_VERSION is hot-swapped by the deploy GHA so a new release purges
 // all prior caches even when a long-lived tab still holds the old SW.
 
-const CACHE_VERSION = 'v20260521-0201b746';
+const CACHE_VERSION = 'v20260522-canaryops';
 
 const SHELL_ASSETS = [
     './',
@@ -35,6 +35,8 @@ const SHELL_ASSETS = [
 const STALE_WHILE_REVALIDATE_PATTERNS = [
     /\/data\/world_tour_cams\.json/,
     /\/data\/quality_summary\.json/,
+    /\/data\/canary_status\.json/,
+    /\/data\/ops_status\.json/,
     /\/data\/cache_status\.json/,
     /\/data\/world_tour_health\.json/,
     /\/cctv_data\.json/,

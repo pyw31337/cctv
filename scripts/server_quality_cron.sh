@@ -53,7 +53,21 @@ else
 fi
 echo "[$(date -Is)] finish regional sentinel" >> "$LOG_FILE"
 
+echo "[$(date -Is)] start core canary probe" >> "$LOG_FILE"
+if command -v timeout >/dev/null 2>&1; then
+  if ! timeout 8m "$PYTHON" scripts/canary_probe.py >> "$LOG_FILE" 2>&1; then
+    echo "[$(date -Is)] core canary probe failed or timed out" >> "$LOG_FILE"
+  fi
+else
+  if ! "$PYTHON" scripts/canary_probe.py >> "$LOG_FILE" 2>&1; then
+    echo "[$(date -Is)] core canary probe failed" >> "$LOG_FILE"
+  fi
+fi
+echo "[$(date -Is)] finish core canary probe" >> "$LOG_FILE"
+
 # Warm the local status endpoint so the public app can read the fresh result
 # from Oracle before falling back to GitHub Pages' static data/status.json.
 curl -fsS --max-time 5 "http://127.0.0.1:8080/health-status" >/dev/null 2>&1 || true
 curl -fsS --max-time 10 "http://127.0.0.1:8080/z3-cache.json" >/dev/null 2>&1 || true
+curl -fsS --max-time 5 "http://127.0.0.1:8080/canary-status" >/dev/null 2>&1 || true
+curl -fsS --max-time 5 "http://127.0.0.1:8080/ops-status" >/dev/null 2>&1 || true
