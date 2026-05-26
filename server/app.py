@@ -40,6 +40,7 @@ _z3_cache = {
     'data': None,       # dict: cctvip (str) -> appUrl (str)
     'fetched': None,    # datetime when this process loaded/refreshed the cache
     'data_fetched': None,  # datetime embedded in the cache payload
+    'local_mtime': None,   # filesystem mtime for the local JSON that populated memory
     'source': None,     # local, github, its.go.kr, or stale fallback source
     'lock': threading.Lock()
 }
@@ -101,10 +102,24 @@ def z3_age_hours(fetched):
     return (utc_now() - fetched).total_seconds() / 3600
 
 
-def set_z3_cache_data(cctvip_map, source, data_fetched=None):
+def get_z3_local_cache_mtime():
+    try:
+        return os.path.getmtime(Z3_LOCAL_CACHE_FILE)
+    except OSError:
+        return None
+
+
+def z3_local_cache_updated():
+    current_mtime = get_z3_local_cache_mtime()
+    known_mtime = _z3_cache.get('local_mtime')
+    return bool(current_mtime and known_mtime and current_mtime > known_mtime + 0.001)
+
+
+def set_z3_cache_data(cctvip_map, source, data_fetched=None, local_mtime=None):
     _z3_cache['data'] = cctvip_map
     _z3_cache['fetched'] = utc_now()
     _z3_cache['data_fetched'] = data_fetched or utc_now()
+    _z3_cache['local_mtime'] = local_mtime
     _z3_cache['source'] = source
 
 
@@ -227,10 +242,11 @@ def _refresh_z3_cache():
     """Fetch Z3 appUrl map. Tries GitHub cached file first; if stale, falls back to
     direct its.go.kr fetch. Caller must hold _z3_cache['lock']."""
     # Step 1: Prefer the local Oracle cache written by cron or previous refresh.
+    local_mtime = get_z3_local_cache_mtime()
     local_map, local_fetched = load_z3_cache_payload(Z3_LOCAL_CACHE_FILE)
     local_age_hours = z3_age_hours(local_fetched)
     if local_map and (local_age_hours is None or local_age_hours < Z3_CACHE_STALE_HOURS):
-        set_z3_cache_data(local_map, 'local', local_fetched)
+        set_z3_cache_data(local_map, 'local', local_fetched, local_mtime)
         age_str = f"{local_age_hours:.1f}h" if local_age_hours is not None else "unknown age"
         logger.info(f"Z3 cache from local file: {len(local_map)} entries (data age: {age_str})")
         return
@@ -280,7 +296,8 @@ def get_z3_app_url(cctvip):
         needs_refresh = (
             _z3_cache['data'] is None or
             _z3_cache['fetched'] is None or
-            now - _z3_cache['fetched'] > timedelta(minutes=Z3_CACHE_TTL_MINUTES)
+            now - _z3_cache['fetched'] > timedelta(minutes=Z3_CACHE_TTL_MINUTES) or
+            z3_local_cache_updated()
         )
         if needs_refresh:
             _refresh_z3_cache()
@@ -316,7 +333,8 @@ def get_z3_cache_payload():
         needs_refresh = (
             _z3_cache['data'] is None or
             _z3_cache['fetched'] is None or
-            now - _z3_cache['fetched'] > timedelta(minutes=Z3_CACHE_TTL_MINUTES)
+            now - _z3_cache['fetched'] > timedelta(minutes=Z3_CACHE_TTL_MINUTES) or
+            z3_local_cache_updated()
         )
         if needs_refresh:
             _refresh_z3_cache()

@@ -1,11 +1,9 @@
 name: Z3 Cache Refresh
 
 on:
-  # Oracle cron + /z3-cache.json is the primary freshness path.
-  # This keeps the static GitHub Pages fallback fresh enough for Z3 appUrl tokens.
-  schedule:
-    # Every 4 hours at :23 UTC, offset from CultureFlow fallback and other CCTV writers.
-    - cron: '23 1,5,9,13,17,21 * * *'
+  # Temporarily manual-only while GitHub Actions minutes are exhausted.
+  # Local launchd job `com.pyw31337.cctv.z3-cache-refresh` keeps Oracle and the
+  # static GitHub Pages fallback fresh without consuming Actions minutes.
   workflow_dispatch:
 
 jobs:
