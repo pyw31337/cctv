@@ -34,6 +34,16 @@
         .status-card[data-severity="warn"] { border-color: color-mix(in oklab, var(--yellow), transparent 35%); background: rgba(113, 63, 18, .22); }
         .status-card[data-severity="ok"] { border-color: color-mix(in oklab, var(--green), transparent 35%); background: rgba(6, 78, 59, .18); }
         .mono { font-variant-numeric: tabular-nums; }
+        .trend-grid { display: grid; gap: 12px; }
+        .trend-row { display: grid; grid-template-columns: 92px 1fr 72px; align-items: center; gap: 12px; }
+        .trend-name { font-weight: 800; }
+        .trend-bars { display: flex; gap: 3px; min-width: 0; overflow: hidden; }
+        .trend-bar { width: 8px; height: 22px; border-radius: 999px; background: rgba(255,255,255,.12); flex: 0 0 auto; }
+        .trend-bar[data-severity="ok"] { background: var(--green); }
+        .trend-bar[data-severity="warn"] { background: var(--yellow); }
+        .trend-bar[data-severity="danger"] { background: var(--red); }
+        .trend-bar[data-severity="unknown"] { background: #64748b; }
+        .trend-meta { color: var(--muted); font-size: 12px; text-align: right; }
         @media (max-width: 1100px) { .grid.ops { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 900px) { header { align-items: flex-start; flex-direction: column; } .grid, .grid.ops, .split { grid-template-columns: 1fr; } }
     </style>
@@ -91,6 +101,11 @@
     </section>
 
     <section class="card">
+        <h2>카나리 추세</h2>
+        <div class="trend-grid" id="canary-trends">추세 데이터를 불러오는 중입니다.</div>
+    </section>
+
+    <section class="card">
         <h2>소스별 품질</h2>
         <table><thead><tr><th>소스</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
     </section>
@@ -106,6 +121,7 @@ const FALLBACK_URL = 'data/quality_summary.json';
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
 const CANARY_URLS = [`${ORACLE_BASE}/canary-status`, 'data/canary_status.json'];
 const OPS_URLS = [`${ORACLE_BASE}/ops-status`, 'data/ops_status.json'];
+const CANARY_HISTORY_URLS = [`${ORACLE_BASE}/canary-history`, 'data/canary_history.json'];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
 const $ = (id) => document.getElementById(id);
@@ -156,13 +172,14 @@ async function loadSummary() {
             break;
         } catch {}
     }
-    const [canary, ops, cache, audit] = await Promise.all([
+    const [canary, ops, history, cache, audit] = await Promise.all([
         loadFirstJson(CANARY_URLS, null),
         loadFirstJson(OPS_URLS, null),
+        loadFirstJson(CANARY_HISTORY_URLS, []),
         loadLocalJson(CACHE_URL, null),
         loadLocalJson(UTIC_AUDIT_URL, null)
     ]);
-    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, cache, audit });
+    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, history, cache, audit });
 }
 async function loadLocalJson(url, fallback) {
     try {
@@ -247,6 +264,31 @@ function renderOps({ canary, ops, cache, audit }) {
             </tr>`;
         })
         .join('') || '<tr><td colspan="7">카나리 데이터가 아직 없습니다. 다음 30분 주기에서 생성됩니다.</td></tr>';
+    renderCanaryTrends(canaryRegions, arguments[0]?.history || []);
+}
+function renderCanaryTrends(currentRegions, history) {
+    const host = $('canary-trends');
+    const rows = Array.isArray(history) ? history.slice(-48) : [];
+    const regionKeys = Object.keys(currentRegions || {});
+    if (!rows.length || !regionKeys.length) {
+        host.textContent = '아직 누적 추세가 없습니다. 카나리 주기가 2회 이상 돌면 자동으로 표시됩니다.';
+        return;
+    }
+    host.innerHTML = regionKeys.map(key => {
+        const current = currentRegions[key] || {};
+        const bars = rows.map(point => {
+            const region = point?.regions?.[key] || {};
+            const severity = region.severity || (region.status === 'OK' ? 'ok' : region.status === 'DEGRADED' ? 'warn' : region.status ? 'danger' : 'unknown');
+            const title = `${point?.generated_at || ''} ${region.status || 'UNKNOWN'} ${Math.round(Number(region.success_rate || 0) * 100)}%`;
+            return `<span class="trend-bar" data-severity="${esc(severity)}" title="${esc(title)}"></span>`;
+        }).join('');
+        const latestRate = Number(current.success_rate);
+        return `<div class="trend-row">
+            <div class="trend-name">${esc(current.label || key)}</div>
+            <div class="trend-bars" aria-label="${esc(current.label || key)} 최근 추세">${bars}</div>
+            <div class="trend-meta">${Number.isFinite(latestRate) ? pct(latestRate) : '-'}</div>
+        </div>`;
+    }).join('');
 }
 $('refresh').addEventListener('click', loadSummary);
 loadSummary();

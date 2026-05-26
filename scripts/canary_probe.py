@@ -46,6 +46,7 @@ QUALITY_SUMMARY_FILE = ROOT / "data" / "quality_summary.json"
 UTIC_AUDIT_HISTORY_FILE = ROOT / "data" / "utic_audit_history.json"
 CANARY_STATUS_FILE = ROOT / "data" / "canary_status.json"
 OPS_STATUS_FILE = ROOT / "data" / "ops_status.json"
+CANARY_HISTORY_FILE = ROOT / "data" / "canary_history.json"
 ORACLE_BASE = "https://158.179.194.163.sslip.io"
 Z3_MAX_TRUSTED_AGE_HOURS = 8
 DEFAULT_TIMEOUT = (2.5, 6.0)
@@ -435,13 +436,16 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
     else:
         dominant = None
 
-    action = "정상 후보가 확보되었습니다."
-    if status == "DEGRADED":
-        action = "일부 후보가 실패했습니다. 정상 후보를 우선 노출하고 실패 후보는 후순위 유지하세요."
+    action = region_recovery_action(region, status, categories, results)
+    recovery = region_recovery_plan(region, status, categories, results)
+    if status == "OK":
+        action = action or "정상 후보가 확보되었습니다."
+    elif status == "DEGRADED":
+        action = action or "일부 후보가 실패했습니다. 정상 후보를 우선 노출하고 실패 후보는 후순위 유지하세요."
     elif status == "IMPACT":
-        action = "정상 후보 수가 기준 미달입니다. 토큰/캐시/공급처 상태를 우선 확인하고 대체 소스를 추천해야 합니다."
+        action = action or "정상 후보 수가 기준 미달입니다. 토큰/캐시/공급처 상태를 우선 확인하고 대체 소스를 추천해야 합니다."
     elif status == "NO_CANDIDATES":
-        action = "지역 후보 자체가 부족합니다. 데이터 수집 누락을 점검하세요."
+        action = action or "지역 후보 자체가 부족합니다. 데이터 수집 누락을 점검하세요."
 
     return {
         "key": region["key"],
@@ -460,15 +464,82 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
         "failure_categories": dict(categories.most_common()),
         "dominant_failure": dominant,
         "recommended_action": action,
+        "recovery_plan": recovery,
         "results": results,
+    }
+
+
+def region_recovery_action(region: dict, status: str, categories: Counter, results: list[dict]) -> str | None:
+    if status == "NO_CANDIDATES":
+        return "후보 데이터가 부족합니다. 수집처 누락을 보강하되 기존 목록은 삭제하지 마세요."
+    if status == "OK":
+        return None
+
+    key = str(region.get("key") or "")
+    dominant = categories.most_common(1)[0][0] if categories else None
+    sources = Counter(str(item.get("source") or "UNKNOWN") for item in results if not item.get("ok"))
+
+    if key == "daejeon":
+        if dominant in {"timeout", "not_found"}:
+            return "대전 UTIC 공급 응답 지연/404가 우세합니다. Oracle /utic 재해석과 Z3 최신 캐시를 재확인하고, 성공 이력이 있는 KBS/하천/인접 교통 후보를 우선 추천하세요."
+        if dominant == "auth_or_token":
+            return "대전 KBS/토큰형 URL 만료 신호입니다. KBS resolver 토큰 갱신을 우선 실행하고 실패 카메라는 삭제하지 말고 후순위 유지하세요."
+        return "대전은 소스 혼합 장애 가능성이 큽니다. UTIC, KBS, GITS를 분리 점검하고 정상 후보를 우선 노출하세요."
+
+    if key == "dokdo":
+        return "독도/울릉은 KBS 토큰 의존도가 높습니다. KBS signed URL을 즉시 갱신하고 울릉/독도 인접 후보를 백업으로 유지하세요."
+
+    if key == "jeju":
+        return "제주는 로딩 지연과 대체 NOWJEJU 전환이 잦습니다. 기존 교통 CCTV는 긴 로딩 허용 후 실패 시에만 NOWJEJU로 넘기고, 성공 이력 후보를 우선하세요."
+
+    if key in {"guri", "namyangju"}:
+        return "수도권 시내 후보가 외곽도로에 밀리지 않도록 실사용 성공 이력과 시내 가중치를 함께 적용하세요."
+
+    if dominant == "auth_or_token":
+        return "토큰/서명 URL 갱신을 우선 실행하고, 실패 후보는 삭제하지 않고 후순위 처리하세요."
+    if dominant == "timeout":
+        return "공급처 지연 가능성이 큽니다. 재시도 간격을 늘리고 정상 후보를 먼저 추천하세요."
+    return None
+
+
+def region_recovery_plan(region: dict, status: str, categories: Counter, results: list[dict]) -> dict:
+    failed = [item for item in results if not item.get("ok")]
+    source_counts = Counter(str(item.get("source") or "UNKNOWN") for item in failed)
+    resolver_counts = Counter(str(item.get("resolver") or "UNKNOWN") for item in failed)
+    key = str(region.get("key") or "")
+    actions = [
+        "catalog_preserve",
+        "downrank_failed_candidates",
+        "prefer_recent_success_candidates",
+    ]
+    if categories.get("auth_or_token"):
+        actions.append("refresh_signed_token_urls")
+    if categories.get("timeout"):
+        actions.append("probe_with_longer_timeout_before_fallback")
+    if categories.get("not_found"):
+        actions.append("rerun_source_resolver_and_cache_refresh")
+    if status != "OK" and key in {"daejeon", "dokdo", "jindo", "jeju"}:
+        actions.append(f"run_{key}_canary_recovery")
+    return {
+        "status": status,
+        "primary_failure": categories.most_common(1)[0][0] if categories else None,
+        "failed_sources": dict(source_counts.most_common()),
+        "failed_resolvers": dict(resolver_counts.most_common()),
+        "actions": actions,
+        "delete_policy": "never_delete_for_transient_failure",
     }
 
 
 def summarize_cache(cache_status: dict) -> dict:
     z3 = (cache_status or {}).get("z3", {}) if isinstance(cache_status, dict) else {}
-    age = z3.get("age_minutes")
-    age_hours = round(float(age) / 60, 2) if isinstance(age, (int, float)) else None
+    z3_cache = load_json(Z3_CACHE_FILE, {})
+    actual_age_hours = z3_cache_age_hours(z3_cache)
+    status_age = z3.get("age_minutes")
+    status_age_hours = round(float(status_age) / 60, 2) if isinstance(status_age, (int, float)) else None
+    age_hours = round(actual_age_hours, 2) if isinstance(actual_age_hours, (int, float)) else status_age_hours
     status = z3.get("status") or "UNKNOWN"
+    if isinstance(age_hours, (int, float)) and age_hours > Z3_MAX_TRUSTED_AGE_HOURS:
+        status = "STALE_ACTUAL_CACHE"
     severity = "ok"
     if age_hours is None or age_hours > Z3_MAX_TRUSTED_AGE_HOURS or status in {"STALE", "COVERAGE_RISK"}:
         severity = "danger"
@@ -478,10 +549,12 @@ def summarize_cache(cache_status: dict) -> dict:
         "status": status,
         "severity": severity,
         "age_hours": age_hours,
-        "fetched": z3.get("fetched"),
-        "entries": z3.get("entries"),
+        "fetched": z3_cache.get("fetched") or z3.get("fetched"),
+        "entries": z3_cache.get("entries") or z3.get("entries"),
         "missing_cctvips": z3.get("missing_cctvips"),
         "missing_ratio": z3.get("missing_ratio"),
+        "status_file_age_hours": status_age_hours,
+        "actual_cache_age_hours": round(actual_age_hours, 2) if isinstance(actual_age_hours, (int, float)) else None,
     }
 
 
@@ -541,6 +614,41 @@ def build_ops_status(canary: dict) -> dict:
             "last_audited_at": audit_runs[-1].get("audited_at") if audit_runs and isinstance(audit_runs[-1], dict) else None,
         },
     }
+
+
+def compact_history_point(canary: dict, ops: dict) -> dict:
+    regions = {}
+    for key, item in (canary.get("regions") or {}).items():
+        regions[key] = {
+            "status": item.get("status"),
+            "severity": item.get("severity"),
+            "success_rate": item.get("success_rate"),
+            "passed": item.get("passed"),
+            "checked": item.get("checked"),
+            "avg_ok_ms": item.get("avg_ok_ms"),
+            "dominant_failure": item.get("dominant_failure"),
+        }
+    return {
+        "generated_at": canary.get("generated_at") or utc_stamp(),
+        "overall_status": canary.get("overall_status"),
+        "severity": canary.get("severity"),
+        "z3_age_hours": (ops.get("cache") or {}).get("z3", {}).get("age_hours"),
+        "z3_status": (ops.get("cache") or {}).get("z3", {}).get("status"),
+        "regions": regions,
+    }
+
+
+def append_history(canary: dict, ops: dict, path: Path = CANARY_HISTORY_FILE, limit: int = 288) -> list[dict]:
+    history = load_json(path, [])
+    if not isinstance(history, list):
+        history = []
+    point = compact_history_point(canary, ops)
+    history = [item for item in history if isinstance(item, dict) and item.get("generated_at") != point["generated_at"]]
+    history.append(point)
+    history.sort(key=lambda item: str(item.get("generated_at") or ""))
+    history = history[-limit:]
+    write_json(path, history)
+    return history
 
 
 def run() -> tuple[dict, dict]:
@@ -610,14 +718,17 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--canary-output", type=Path, default=CANARY_STATUS_FILE)
     parser.add_argument("--ops-output", type=Path, default=OPS_STATUS_FILE)
+    parser.add_argument("--history-output", type=Path, default=CANARY_HISTORY_FILE)
     parser.add_argument("--strict-service-impact", action="store_true", help="exit non-zero when canary detects service impact")
     args = parser.parse_args()
 
     canary, ops = run()
     write_json(args.canary_output, canary)
     write_json(args.ops_output, ops)
+    append_history(canary, ops, args.history_output)
     print(f"[canary] wrote {args.canary_output}")
     print(f"[canary] wrote {args.ops_output}")
+    print(f"[canary] wrote {args.history_output}")
     print(f"[canary] overall={canary['overall_status']}")
 
     if args.strict_service_impact and canary.get("overall_status") == "SERVICE_IMPACT":

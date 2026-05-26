@@ -54,29 +54,38 @@ ssh -o StrictHostKeyChecking=no -i "$KEY_FILE" ubuntu@"$ORACLE_IP" << EOF
          sudo apt update && sudo apt install -y ffmpeg
     fi
 
-    # Setup venv
-    if [ -d "venv" ]; then
-        echo "Removing existing venv..."
-        rm -rf venv
+    # Setup venv. Reuse the environment when possible; recreating it on every
+    # deploy causes avoidable downtime and makes emergency fixes slower.
+    if [ ! -d "venv" ]; then
+        echo "Creating venv..."
+        python3 -m venv venv || { echo "Venv creation failed"; exit 1; }
+    else
+        echo "Reusing existing venv..."
     fi
-    
-    echo "Creating venv..."
-    python3 -m venv venv || { echo "Venv creation failed"; exit 1; }
     
     echo "Activating venv..."
     source venv/bin/activate || { echo "Activation failed"; exit 1; }
     
-    # Install dependencies
-    pip install flask requests flask-cors
+    # Install dependencies. The production service is managed by systemd/gunicorn,
+    # so keep these packages in the deploy path as well as the fallback Flask path.
+    if [ -f "server/requirements.txt" ]; then
+        pip install -r server/requirements.txt flask-cors
+    else
+        pip install flask requests flask-cors gunicorn gevent
+    fi
     
     # Update IP in json
     sed -i "s/YOUR_ORACLE_SERVER_IP/$ORACLE_IP/g" cctv_data.json
     
-    # Kill old process
-    pkill -f "python3 server/app.py"
-    
-    # Run
-    nohup python3 server/app.py > server.log 2>&1 &
+    # Restart production service first. Fall back to the simple Flask process only
+    # on older hosts that do not have the systemd unit installed yet.
+    if systemctl list-unit-files | grep -q '^cctv.service'; then
+        sudo systemctl restart cctv
+        sudo systemctl --no-pager --full status cctv | tail -40 || true
+    else
+        pkill -f "python3 server/app.py" || true
+        nohup python3 server/app.py > server.log 2>&1 &
+    fi
     
     echo "=== 배포 완료! ==="
 EOF

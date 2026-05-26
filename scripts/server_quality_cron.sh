@@ -71,3 +71,4 @@ curl -fsS --max-time 5 "http://127.0.0.1:8080/health-status" >/dev/null 2>&1 || 
 curl -fsS --max-time 10 "http://127.0.0.1:8080/z3-cache.json" >/dev/null 2>&1 || true
 curl -fsS --max-time 5 "http://127.0.0.1:8080/canary-status" >/dev/null 2>&1 || true
 curl -fsS --max-time 5 "http://127.0.0.1:8080/ops-status" >/dev/null 2>&1 || true
+curl -fsS --max-time 5 "http://127.0.0.1:8080/canary-history" >/dev/null 2>&1 || true

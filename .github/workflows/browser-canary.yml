@@ -1,0 +1,41 @@
+name: Manual Browser Playback Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_base:
+        description: 'App URL to test'
+        required: false
+        default: 'https://pyw31337.github.io/cctv/'
+
+concurrency:
+  group: cctv-browser-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  browser-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Run real browser playback canary
+        env:
+          CCTV_APP_BASE: ${{ inputs.app_base }}
+        run: node scripts/browser_canary.mjs
+      - name: Upload browser canary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-canary-report
+          path: data/browser_canary_report.json

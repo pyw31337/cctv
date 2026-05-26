@@ -68,8 +68,8 @@ jobs:
 
       - name: Commit canary snapshots
         run: |
-          if git diff --quiet -- data/canary_status.json data/ops_status.json; then
+          if git diff --quiet -- data/canary_status.json data/ops_status.json data/canary_history.json; then
             echo "No canary changes."
           else
-            scripts/commit_and_push_changes.sh "AUTO: Refresh core canary playback status [skip ci]" data/canary_status.json data/ops_status.json
+            scripts/commit_and_push_changes.sh "AUTO: Refresh core canary playback status [skip ci]" data/canary_status.json data/ops_status.json data/canary_history.json
           fi

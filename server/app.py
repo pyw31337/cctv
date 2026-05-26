@@ -25,6 +25,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HEALTH_STATUS_FILE = os.environ.get('HEALTH_STATUS_FILE', os.path.join(ROOT_DIR, 'data', 'status.json'))
 CANARY_STATUS_FILE = os.environ.get('CANARY_STATUS_FILE', os.path.join(ROOT_DIR, 'data', 'canary_status.json'))
 OPS_STATUS_FILE = os.environ.get('OPS_STATUS_FILE', os.path.join(ROOT_DIR, 'data', 'ops_status.json'))
+CANARY_HISTORY_FILE = os.environ.get('CANARY_HISTORY_FILE', os.path.join(ROOT_DIR, 'data', 'canary_history.json'))
 
 # App initialized below with static folder config
 logging.basicConfig(level=logging.INFO)
@@ -424,8 +425,9 @@ def serve_json_file(path, missing_payload, served_by='oracle-proxy', max_age=120
     try:
         with open(path, 'r', encoding='utf-8') as handle:
             data = json.load(handle)
-        data['_served_by'] = served_by
-        data['_served_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        if isinstance(data, dict):
+            data['_served_by'] = served_by
+            data['_served_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
         return Response(
             json.dumps(data, ensure_ascii=False),
             200,
@@ -463,6 +465,15 @@ def serve_ops_status():
     return serve_json_file(
         OPS_STATUS_FILE,
         {'service_status': 'UNKNOWN', 'generated_at': None, 'error': 'ops-status-not-found'},
+        max_age=90
+    )
+
+
+@app.route('/canary-history')
+def serve_canary_history():
+    return serve_json_file(
+        CANARY_HISTORY_FILE,
+        [],
         max_age=90
     )
 

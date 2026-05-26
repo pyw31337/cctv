@@ -47,3 +47,11 @@ Actions 실패 메일은 두 종류로 나누어 본다.
 - `timeout`: 공급처 또는 Oracle 프록시 응답 지연이다. 대체 소스를 우선 노출하고 재시도한다.
 - `not_found`: URL 구조 또는 카메라 ID 변경 가능성이 높다. 수집/복구 스크립트가 새 후보를 찾아야 한다.
 - 실사용 성공이 새로 쌓이면 서버 점검 실패보다 실제 재생 성공을 우선 반영한다.
+
+## 2026-05-22 카나리 운영 보강
+
+- Oracle 서버가 운영 1차 경로입니다. `/canary-status`, `/ops-status`, `/canary-history`가 90초 캐시로 공개됩니다.
+- GitHub Actions 카나리는 정적 fallback 갱신용으로 4시간마다만 실행합니다. 분 단위 품질 유지 책임은 Oracle/local cron이 맡습니다.
+- 대전/독도처럼 공급처 timeout, 404, 토큰 만료가 섞이는 지역은 카메라를 삭제하지 않고 `recovery_plan`에 원인을 기록한 뒤 추천 순위만 낮춥니다.
+- `data/canary_history.json`은 최근 288회 카나리 요약을 보존해서 관리자 대시보드의 지역별 추세 막대로 표시합니다.
+- 실제 브라우저 재생 카나리는 비용 보호를 위해 수동 워크플로우 `Manual Browser Playback Canary`로 운영합니다. 반복 민원이나 공급처 변경 의심 시 실행합니다.
