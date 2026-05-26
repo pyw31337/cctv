@@ -215,4 +215,50 @@ assert(
 );
 console.log(`[OK] ${crownMotel.label} nearest: ${crownTopNames.join(', ')}`);
 
+const cheonwang = {
+  label: '천왕역모아엘가트레뷰아파트 / 안정우선',
+  center: { lat: 37.4867, lng: 126.8394 },
+  failingIds: ['GITS_6211', 'GITS_6098', 'GITS_6143', 'L902392', 'GITS_9252', 'SPATIC_93'],
+};
+harness.state.cameraFailures = new Map(
+  cheonwang.failingIds
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .map((item) => [item.id, {
+      id: item.id,
+      name: item.name,
+      region: harness.inferRegionKey(item),
+      source: item.source,
+      emergency_level: 'critical',
+      failed_for_minutes: 90,
+      failure_count: 3,
+      last_failed_at: new Date().toISOString(),
+      diagnosis: {
+        likely_cause: '테스트용 안정우선 실패 후보',
+        recommended_action: '안정우선 상위 후보에서 제외',
+      },
+    }])
+);
+harness.state.center = cheonwang.center;
+harness.state.sortMode = 'stability';
+harness.updateNearestCctvs();
+const cheonwangTop = harness.state.nearestCctvs.slice(0, 4);
+const cheonwangTopNames = names(harness.state.nearestCctvs, 8);
+assert(
+  cheonwangTop.every((item) => !cheonwang.failingIds.includes(item.id)),
+  `${cheonwang.label} regression: failed cameras must not remain in first 4, got ${JSON.stringify(cheonwangTopNames)}`
+);
+assert(
+  cheonwangTop.every((item) => harness.getCameraDisplayHealthMeta(item).tone !== 'danger'),
+  `${cheonwang.label} regression: first 4 should avoid red candidates, got ${JSON.stringify(cheonwangTopNames)}`
+);
+assert(
+  cheonwangTop.filter((item) => {
+    const url = item.directUrl || item.url || '';
+    return url.includes('.m3u8') || url.includes('.mp4') || url.includes('/kb?cctvip=') || url.includes('/jeju?id=');
+  }).length >= 2,
+  `${cheonwang.label} regression: stability mode should prefer direct playable URLs, got ${JSON.stringify(cheonwangTopNames)}`
+);
+console.log(`[OK] ${cheonwang.label}: ${cheonwangTopNames.join(', ')}`);
+
 console.log('[OK] ranking regressions passed');

@@ -70,6 +70,9 @@ const STABLE_HLS_STARTUP_TIMEOUT_MS = 22000;
 const STABLE_HLS_STALL_TIMEOUT_MS = 14000;
 const MANUAL_RETRY_PRIMARY_ATTEMPTS = 3;
 const MANUAL_RETRY_FALLBACK_RADIUS_KM = 12;
+const STABILITY_MODE_PRIMARY_TARGET = 4;
+const STABILITY_MODE_EXPANDED_RADIUS_KM = 24;
+const STABILITY_MODE_EMERGENCY_RADIUS_KM = 45;
 const DYNAMIC_BACKUP_RADIUS_KM = 8;
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
 const ORACLE_PROXY_BASE = `${ORACLE_BASE}/proxy`;
@@ -2603,6 +2606,163 @@ function getSortPriorityScore(parts) {
     }
 }
 
+function decorateNearestCandidate(cctv, lat, lng) {
+    const distance = getDistance(lat, lng, cctv.lat, cctv.lng);
+    const health = getCameraHealthMeta(cctv);
+    const streamQuality = getStreamQualityScore(cctv);
+    const backupBonus = cctv.backup_urls && cctv.backup_urls.length > 0 ? 0.6 : 0;
+    const roadContextPriority = getRoadContextPriority(cctv, distance);
+    const trafficContextPriority = getTrafficContextPriority(cctv, distance);
+    const sourceResilience = getSourceResilienceAdjustment(cctv, health, distance);
+    const qualityAdjustment = getQualitySummaryAdjustment(cctv);
+    const rankingHealthPenalty = getRankingHealthPenalty(cctv, health, distance);
+    const priorityScore = getSortPriorityScore({
+        distance,
+        healthPenalty: rankingHealthPenalty,
+        streamQuality,
+        roadContextPriority,
+        trafficContextPriority,
+        sourceResilience,
+        backupBonus,
+        qualityAdjustment
+    });
+
+    return {
+        ...cctv,
+        distance,
+        _health: health,
+        _streamQuality: streamQuality,
+        _roadContextPriority: roadContextPriority,
+        _trafficContextPriority: trafficContextPriority,
+        _sourceResilience: sourceResilience,
+        _qualityAdjustment: qualityAdjustment,
+        _rankingHealthPenalty: rankingHealthPenalty,
+        _priorityScore: priorityScore
+    };
+}
+
+function getExpandedCandidatesWithinRadius(lat, lng, radiusKm) {
+    if (!Array.isArray(state.cctvData)) return [];
+    const latDelta = radiusKm / 111;
+    const lngDelta = radiusKm / Math.max(35, 111 * Math.cos((lat * Math.PI) / 180));
+
+    return state.cctvData
+        .filter(cctv => {
+            if (!Number.isFinite(cctv.lat) || !Number.isFinite(cctv.lng)) return false;
+            if (Math.abs(cctv.lat - lat) > latDelta || Math.abs(cctv.lng - lng) > lngDelta) return false;
+            return getDistance(lat, lng, cctv.lat, cctv.lng) <= radiusKm;
+        });
+}
+
+function hasPositivePlaybackEvidence(cctv, health = getCameraHealthMeta(cctv)) {
+    if (!cctv) return false;
+    if (health?.status === 'PLAYING' || health?.status === 'CANARY_OK' || health?.status === 'QUALITY_OK') return true;
+
+    const canary = getCanaryCameraRecord(cctv);
+    if (canary?.ok) return true;
+
+    const metrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
+    return Boolean(metrics && metrics.samples >= 3 && metrics.successRate >= 0.88 && metrics.failureRate <= 0.12);
+}
+
+function isStabilityModePlayableCandidate(cctv) {
+    if (!cctv || !cctv.id) return false;
+    const health = cctv._health || getCameraHealthMeta(cctv);
+    if (isUnsupportedBrowserStream(cctv)) return false;
+    if (['UNSUPPORTED', 'CAMERA_CRITICAL', 'CAMERA_INVESTIGATE', 'PLAYBACK_ERROR', 'Z3_CACHE_MISS'].includes(health?.status)) {
+        return false;
+    }
+    if (hasCameraSpecificPlaybackProblem(cctv)) return false;
+    return Boolean(cctv.directUrl || cctv.url);
+}
+
+function getStabilityModeAssuranceScore(cctv) {
+    const health = cctv._health || getCameraHealthMeta(cctv);
+    const confidence = getCameraPlaybackConfidence(cctv, health);
+    const source = cctv.source || '';
+    const url = cctv.directUrl || cctv.url || '';
+    const distance = Number(cctv.distance);
+    const streamQuality = Number.isFinite(cctv._streamQuality) ? cctv._streamQuality : getStreamQualityScore(cctv);
+    const qualityAdjustment = Number.isFinite(cctv._qualityAdjustment) ? cctv._qualityAdjustment : getQualitySummaryAdjustment(cctv);
+    const penalty = Number(cctv._rankingHealthPenalty ?? health?.penalty ?? 0) || 0;
+    const isDirect = isDirectVideoPlaybackCandidate(cctv);
+    const hasEvidence = hasPositivePlaybackEvidence(cctv, health);
+
+    const tonePenalty = {
+        ok: -16,
+        'ok-soft': -10,
+        unknown: 0,
+        warn: 12,
+        danger: 90
+    }[confidence.tone] ?? 4;
+
+    let score = (Number.isFinite(distance) ? distance * 0.82 : 70)
+        + (penalty * 3.6)
+        + ((1 - streamQuality) * 15)
+        + (qualityAdjustment * 2.2)
+        + tonePenalty;
+
+    if (hasEvidence) score -= 18;
+    if (health?.status === 'QUALITY_OK') score -= 8;
+    if (isDirect) score -= 8;
+    if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('/kb?cctvip=') || url.includes('/jeju?id=')) score -= 5;
+    if (source === 'SPATIC') score -= 7;
+    if (source === 'TOPIS' || source === 'BUSAN_ITS' || source === 'DAEGU') score -= 4;
+    if (cctv.backup_urls && cctv.backup_urls.length > 0) score -= 3;
+    if (isFrameOnlyPlaybackCandidate(cctv)) score += 12;
+    if (source === 'GITS' && !hasEvidence) score += 8;
+    if (source === 'UTIC' && getUrlParam(url, 'kind') === 'Z3' && !hasEvidence) score += 7;
+    if (health?.status === 'DOWN' && !isAggregateOnlyHealthWarning(cctv, health)) score += 55;
+    if (health?.status === 'QUALITY_DOWN') score += 45;
+
+    return score;
+}
+
+function buildStabilityModeOrdering(ranked, lat, lng) {
+    const byId = new Map();
+    ranked.forEach(cctv => {
+        if (cctv?.id) byId.set(cctv.id, cctv);
+    });
+
+    const addExpanded = (radiusKm) => {
+        getExpandedCandidatesWithinRadius(lat, lng, radiusKm).forEach(cctv => {
+            if (!cctv?.id || byId.has(cctv.id)) return;
+            byId.set(cctv.id, decorateNearestCandidate(cctv, lat, lng));
+        });
+    };
+
+    addExpanded(STABILITY_MODE_EXPANDED_RADIUS_KM);
+    let playable = Array.from(byId.values()).filter(isStabilityModePlayableCandidate);
+    if (playable.length < STABILITY_MODE_PRIMARY_TARGET * 2) {
+        addExpanded(STABILITY_MODE_EMERGENCY_RADIUS_KM);
+        playable = Array.from(byId.values()).filter(isStabilityModePlayableCandidate);
+    }
+
+    const scoredPlayable = playable
+        .map(cctv => ({
+            ...cctv,
+            _stabilityAssuranceScore: getStabilityModeAssuranceScore(cctv)
+        }))
+        .sort((a, b) => a._stabilityAssuranceScore - b._stabilityAssuranceScore || a.distance - b.distance);
+
+    const reserved = new Set();
+    const picked = [];
+    scoredPlayable.forEach(cctv => {
+        if (picked.length >= STABILITY_MODE_PRIMARY_TARGET) return;
+        if (hasReservedCctvKey(cctv, reserved)) return;
+        picked.push(cctv);
+        addCctvReservationKeys(reserved, cctv);
+    });
+
+    const pickedIds = new Set(picked.map(cctv => cctv.id));
+    const remainingPlayable = scoredPlayable.filter(cctv => !pickedIds.has(cctv.id));
+    const isolated = Array.from(byId.values())
+        .filter(cctv => !pickedIds.has(cctv.id) && !remainingPlayable.some(item => item.id === cctv.id))
+        .sort((a, b) => (a._priorityScore ?? 99) - (b._priorityScore ?? 99) || a.distance - b.distance);
+
+    return picked.concat(remainingPlayable, isolated);
+}
+
 function getStableModulo(value, modulo) {
     if (!modulo) return 0;
     const text = String(value || '');
@@ -3407,45 +3567,14 @@ function updateNearestCctvs() {
     const candidates = getNearbyCandidates(lat, lng, GEO_CANDIDATE_TARGET);
 
     const ranked = candidates
-        .map(cctv => {
-            const distance = getDistance(lat, lng, cctv.lat, cctv.lng);
-            const health = getCameraHealthMeta(cctv);
-            const streamQuality = getStreamQualityScore(cctv);
-            const backupBonus = cctv.backup_urls && cctv.backup_urls.length > 0 ? 0.6 : 0;
-            const roadContextPriority = getRoadContextPriority(cctv, distance);
-            const trafficContextPriority = getTrafficContextPriority(cctv, distance);
-            const sourceResilience = getSourceResilienceAdjustment(cctv, health, distance);
-            const qualityAdjustment = getQualitySummaryAdjustment(cctv);
-            const rankingHealthPenalty = getRankingHealthPenalty(cctv, health, distance);
-            const priorityScore = getSortPriorityScore({
-                distance,
-                healthPenalty: rankingHealthPenalty,
-                streamQuality,
-                roadContextPriority,
-                trafficContextPriority,
-                sourceResilience,
-                backupBonus,
-                qualityAdjustment
-            });
-
-            return {
-                ...cctv,
-                distance,
-                _health: health,
-                _streamQuality: streamQuality,
-                _roadContextPriority: roadContextPriority,
-                _trafficContextPriority: trafficContextPriority,
-                _sourceResilience: sourceResilience,
-                _qualityAdjustment: qualityAdjustment,
-                _rankingHealthPenalty: rankingHealthPenalty,
-                _priorityScore: priorityScore
-            };
-        })
+        .map(cctv => decorateNearestCandidate(cctv, lat, lng))
         .sort((a, b) => a._priorityScore - b._priorityScore || a.distance - b.distance);
 
     const preferred = ranked.filter(cctv => !shouldIsolateProblemCamera(cctv));
     const isolated = ranked.filter(cctv => shouldIsolateProblemCamera(cctv));
-    const ordered = preferred.length >= 4
+    const ordered = state.sortMode === 'stability'
+        ? buildStabilityModeOrdering(ranked, lat, lng)
+        : preferred.length >= 4
         ? preferred.concat(isolated)
         : ranked;
 
