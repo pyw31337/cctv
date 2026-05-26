@@ -143,7 +143,7 @@ const guri = {
   expectedNearby: ['세무서4', '중앙예식장사거리', '돌다리사거리', '삼육고등학교앞', '교문사거리'],
 };
 
-for (const sortMode of ['recommended', 'nearest', 'urban']) {
+for (const sortMode of ['nearest', 'urban']) {
   harness.state.center = guri.center;
   harness.state.sortMode = sortMode;
   harness.updateNearestCctvs();
@@ -192,5 +192,27 @@ assert(!['세무서4'].includes(retryFallback.name), `manual retry fallback shou
 assert(nextRetryFallback && nextRetryFallback.id !== retryFallback.id, 'reserved manual retry fallback should choose a non-overlapping camera');
 console.log(`[OK] critical camera isolation: ${isolatedTopNames.join(', ')}`);
 console.log(`[OK] manual retry fallback: ${failingGuriCamera.name} -> ${retryFallback.name} / ${nextRetryFallback.name}`);
+
+const crownMotel = {
+  label: '크라운모텔 / 남양주 화도읍',
+  center: { lat: 37.6525, lng: 127.3072 },
+  expectedUrbanNearby: ['마석사거리(웹)', '창현A앞4', '송라초교사거리(웹)', '화도읍사무소'],
+  outskirtPattern: /수도권제2순환선|서울양양선|IC|JC|터널|영업소/,
+};
+harness.state.cameraFailures = new Map();
+harness.state.center = crownMotel.center;
+harness.state.sortMode = 'nearest';
+harness.updateNearestCctvs();
+const crownTopNames = names(harness.state.nearestCctvs, 8);
+const crownMatched = crownMotel.expectedUrbanNearby.filter((name) => crownTopNames.includes(name));
+assert(
+  crownMatched.length >= 3,
+  `${crownMotel.label} nearest regression: expected nearby city cameras, got ${JSON.stringify(crownTopNames)}`
+);
+assert(
+  harness.state.nearestCctvs.slice(0, 4).filter((item) => crownMotel.outskirtPattern.test(item.name)).length <= 1,
+  `${crownMotel.label} nearest regression: too many outskirt road cameras in top 4, got ${JSON.stringify(crownTopNames)}`
+);
+console.log(`[OK] ${crownMotel.label} nearest: ${crownTopNames.join(', ')}`);
 
 console.log('[OK] ranking regressions passed');

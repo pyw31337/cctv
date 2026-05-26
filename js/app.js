@@ -78,9 +78,9 @@ const KB_PROXY_BASE = `${ORACLE_BASE}/kb`;
 const LIVE_HEALTH_STATUS_URL = QUALITY_CONFIG.healthStatusUrl || `${ORACLE_BASE}/health-status`;
 const MARKER_DANGER_FILTER = 'hue-rotate(145deg) saturate(1.85) contrast(1.08)';
 const MARKER_WARN_FILTER = 'hue-rotate(185deg) saturate(1.55) contrast(1.05)';
-const QUALITY_SORT_MODES = ['recommended', 'nearest', 'urban', 'traffic', 'stability', 'quality'];
+const DEFAULT_QUALITY_SORT_MODE = 'nearest';
+const QUALITY_SORT_MODES = ['nearest', 'urban', 'traffic', 'stability', 'quality'];
 const QUALITY_SORT_LABELS = {
-    recommended: '추천순',
     nearest: '가까운순',
     urban: '시내우선',
     traffic: '교통우선',
@@ -443,7 +443,7 @@ const state = {
     serviceBannerTimer: null,
     serviceBannerCountdownTimer: null,
     serviceBannerDismissedKey: null,
-    sortMode: 'recommended'
+    sortMode: DEFAULT_QUALITY_SORT_MODE
 };
 
 let map = null;
@@ -679,10 +679,13 @@ function restoreQualityPreferences() {
         const storedSortMode = localStorage.getItem(QUALITY_SORT_STORAGE_KEY);
         if (QUALITY_SORT_MODES.includes(storedSortMode)) {
             state.sortMode = storedSortMode;
+        } else if (storedSortMode === 'recommended') {
+            state.sortMode = DEFAULT_QUALITY_SORT_MODE;
+            localStorage.setItem(QUALITY_SORT_STORAGE_KEY, DEFAULT_QUALITY_SORT_MODE);
         }
         localStorage.removeItem('cctv_low_data_mode');
     } catch {
-        state.sortMode = 'recommended';
+        state.sortMode = DEFAULT_QUALITY_SORT_MODE;
     }
 }
 
@@ -2353,9 +2356,15 @@ function isProxyResolverBackedCandidate(cctv) {
 }
 
 function isAggregateOnlyHealthWarning(cctv, health) {
-    if (!health || !cctv || !isProxyResolverBackedCandidate(cctv)) return false;
+    if (!health || !cctv) return false;
     if (hasCameraSpecificPlaybackProblem(cctv)) return false;
-    return ['DOWN', 'DEGRADED', 'QUALITY_DOWN', 'QUALITY_SLOW'].includes(health.status);
+    if (!['DOWN', 'DEGRADED', 'QUALITY_DOWN', 'QUALITY_SLOW'].includes(health.status)) return false;
+
+    // Source/region-wide health buckets are intentionally conservative. They
+    // should lower confidence, not erase nearby cameras that may still play.
+    // This is especially important for local city HLS feeds around Namyangju
+    // and Guri, where aggregate GITS/UTIC checks can be noisy.
+    return isProxyResolverBackedCandidate(cctv) || isDirectVideoPlaybackCandidate(cctv);
 }
 
 function getRankingHealthPenalty(cctv, health, distanceKm) {
@@ -2370,6 +2379,14 @@ function getRankingHealthPenalty(cctv, health, distanceKm) {
 
     if (health?.status === 'UNSUPPORTED' || health?.status === 'PLAYBACK_ERROR' || hasCameraSpecificPlaybackProblem(cctv)) {
         return basePenalty;
+    }
+
+    if (isAggregateOnlyHealthWarning(cctv, health)) {
+        if (!Number.isFinite(distanceKm)) return Math.min(basePenalty, 2.8);
+        if (distanceKm <= 1) return Math.min(basePenalty, 0.35);
+        if (distanceKm <= 2.5) return Math.min(basePenalty, 0.75);
+        if (distanceKm <= 5) return Math.min(basePenalty, 1.4);
+        return Math.min(basePenalty, 2.8);
     }
 
     if (!isProxyResolverBackedCandidate(cctv)) return basePenalty;
@@ -2581,9 +2598,8 @@ function getSortPriorityScore(parts) {
             return (distance * 0.55) + (healthPenalty * 1.35) + ((1 - streamQuality) * 5.5) + (qualityAdjustment * 1.45) + roadContextPriority + sourceResilience - backupBonus;
         case 'quality':
             return (distance * 0.7) + (healthPenalty * 0.85) + ((1 - streamQuality) * 10) + (qualityAdjustment * 0.9) + roadContextPriority + sourceResilience - (backupBonus * 1.2);
-        case 'recommended':
         default:
-            return distance + healthPenalty + ((1 - streamQuality) * 6) + roadContextPriority + sourceResilience + qualityAdjustment - backupBonus;
+            return distance + (healthPenalty * 0.65) + qualityAdjustment + sourceResilience - (backupBonus * 0.4);
     }
 }
 

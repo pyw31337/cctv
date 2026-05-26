@@ -9,9 +9,31 @@ LOCK_FILE="${CCTV_LOCAL_Z3_LOCK:-/tmp/cctv_local_z3_cache_refresh.lock}"
 LOCK_DIR="${LOCK_FILE}.dir"
 MAX_AGE_MINUTES="${CCTV_Z3_MAX_AGE_MINUTES:-25}"
 FALLBACK_HOURS="${CCTV_Z3_FALLBACK_HOURS:-8}"
+GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES="${CCTV_Z3_GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES:-360}"
+GITHUB_FALLBACK_STATE_FILE="${CCTV_Z3_GITHUB_FALLBACK_STATE_FILE:-$ROOT/logs/local_z3_cache_refresh.last_github_push}"
 
 stamp() {
   date -u "+%Y-%m-%dT%H:%M:%SZ"
+}
+
+epoch_now() {
+  date -u "+%s"
+}
+
+should_push_github_fallback() {
+  if [ "$GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES" = "0" ]; then
+    return 1
+  fi
+  if [ ! -f "$GITHUB_FALLBACK_STATE_FILE" ]; then
+    return 0
+  fi
+  local last_push
+  last_push="$(cat "$GITHUB_FALLBACK_STATE_FILE" 2>/dev/null || echo 0)"
+  case "$last_push" in
+    ''|*[!0-9]*) last_push=0 ;;
+  esac
+  local elapsed=$(( $(epoch_now) - last_push ))
+  [ "$elapsed" -ge $(( GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES * 60 )) ]
 }
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -57,12 +79,20 @@ else
   echo "[$(stamp)] oracle key not found; skipped Oracle rsync"
 fi
 
-# Commit and push the static GitHub Pages fallback without triggering Actions.
+# Commit and push the static GitHub Pages fallback sparingly. Even with
+# `[skip ci]`, GitHub Pages deployment can still run for every commit, so the
+# Oracle sync above is the primary freshness path while Actions minutes are low.
 if ! git diff --quiet -- data/z3_cache.json data/cache_status.json data/quality_summary.json; then
-  git add data/z3_cache.json data/cache_status.json data/quality_summary.json
-  git commit -m "AUTO: Local Z3 cache refresh [skip ci]"
-  git pull --rebase --autostash origin main || true
-  git push origin main || true
+  if should_push_github_fallback; then
+    git add data/z3_cache.json data/cache_status.json data/quality_summary.json
+    git commit -m "AUTO: Local Z3 cache refresh [skip ci]"
+    git pull --rebase --autostash origin main || true
+    if git push origin main; then
+      epoch_now > "$GITHUB_FALLBACK_STATE_FILE"
+    fi
+  else
+    echo "[$(stamp)] GitHub fallback push throttled (${GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES}m interval); Oracle already synced"
+  fi
 else
   echo "[$(stamp)] no cache changes to commit"
 fi

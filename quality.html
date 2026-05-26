@@ -14,6 +14,7 @@
         .sub { margin-top: 8px; color: var(--muted); }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
         .grid.ops { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        .grid.inventory { grid-template-columns: repeat(6, minmax(0, 1fr)); }
         .card { background: color-mix(in oklab, var(--card), transparent 6%); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 20px 50px rgba(0,0,0,.22); }
         .metric { font-size: 30px; font-weight: 850; letter-spacing: -0.04em; }
         .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
@@ -34,6 +35,10 @@
         .status-card[data-severity="warn"] { border-color: color-mix(in oklab, var(--yellow), transparent 35%); background: rgba(113, 63, 18, .22); }
         .status-card[data-severity="ok"] { border-color: color-mix(in oklab, var(--green), transparent 35%); background: rgba(6, 78, 59, .18); }
         .mono { font-variant-numeric: tabular-nums; }
+        .wide-table { overflow-x: auto; }
+        .mini { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.4; }
+        .meter { height: 8px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.08); min-width: 90px; }
+        .meter > span { display: block; height: 100%; background: linear-gradient(90deg, var(--green), var(--blue)); }
         .trend-grid { display: grid; gap: 12px; }
         .trend-row { display: grid; grid-template-columns: 92px 1fr 72px; align-items: center; gap: 12px; }
         .trend-name { font-weight: 800; }
@@ -44,7 +49,7 @@
         .trend-bar[data-severity="danger"] { background: var(--red); }
         .trend-bar[data-severity="unknown"] { background: #64748b; }
         .trend-meta { color: var(--muted); font-size: 12px; text-align: right; }
-        @media (max-width: 1100px) { .grid.ops { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 1100px) { .grid.ops, .grid.inventory { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 900px) { header { align-items: flex-start; flex-direction: column; } .grid, .grid.ops, .split { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -74,6 +79,15 @@
         <div class="card status-card" id="ops-token-card"><div class="metric" id="ops-token">-</div><div class="label">토큰/URL 갱신 상태</div></div>
         <div class="card status-card" id="ops-canary-card"><div class="metric" id="ops-canary">-</div><div class="label">핵심 카나리 지역</div></div>
         <div class="card status-card" id="ops-recovery-card"><div class="metric" id="ops-recovery">-</div><div class="label">최근 자동 복구</div></div>
+    </div>
+
+    <div class="grid inventory">
+        <div class="card"><div class="metric" id="inv-total">-</div><div class="label">전체 보유 영상</div></div>
+        <div class="card"><div class="metric" id="inv-sources">-</div><div class="label">수집 소스</div></div>
+        <div class="card"><div class="metric" id="inv-proxy">-</div><div class="label">프록시/토큰형</div></div>
+        <div class="card"><div class="metric" id="inv-direct">-</div><div class="label">직접 재생형</div></div>
+        <div class="card"><div class="metric" id="inv-backup">-</div><div class="label">백업 URL 보유</div></div>
+        <div class="card"><div class="metric" id="inv-tested">-</div><div class="label">품질 샘플 보유</div></div>
     </div>
 
     <div class="split">
@@ -111,8 +125,24 @@
     </section>
 
     <section class="card">
+        <h2>전체 소스 현황</h2>
+        <div class="mini">보유 목록은 삭제하지 않고 유지하며, 품질 샘플과 카나리 결과는 노출 우선순위 판단에만 사용합니다.</div>
+        <div class="wide-table"><table><thead><tr><th>소스</th><th>보유</th><th>점검 샘플</th><th>성공률</th><th>평균 로딩</th><th>프록시형</th><th>직접형</th><th>백업 보유</th></tr></thead><tbody id="inventory-source-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>타입별 총 현황</h2>
+        <div class="wide-table"><table><thead><tr><th>타입</th><th>보유</th><th>비율</th><th>대표 설명</th></tr></thead><tbody id="inventory-type-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
         <h2>지역별 품질</h2>
         <table><thead><tr><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table>
+    </section>
+
+    <section class="card">
+        <h2>지역별 총 현황</h2>
+        <div class="wide-table"><table><thead><tr><th>지역</th><th>보유</th><th>점검 샘플</th><th>성공률</th><th>주요 소스</th><th>주의</th></tr></thead><tbody id="inventory-region-rows"></tbody></table></div>
     </section>
 </main>
 <script>
@@ -124,6 +154,7 @@ const OPS_URLS = [`${ORACLE_BASE}/ops-status`, 'data/ops_status.json'];
 const CANARY_HISTORY_URLS = [`${ORACLE_BASE}/canary-history`, 'data/canary_history.json'];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
+const INVENTORY_URL = 'cctv_data.json';
 const $ = (id) => document.getElementById(id);
 function esc(value) { return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[ch])); }
 function pct(value) { return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'; }
@@ -179,7 +210,8 @@ async function loadSummary() {
         loadLocalJson(CACHE_URL, null),
         loadLocalJson(UTIC_AUDIT_URL, null)
     ]);
-    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, history, cache, audit });
+    const inventory = await loadLocalJson(INVENTORY_URL, []);
+    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, history, cache, audit, inventory });
 }
 async function loadLocalJson(url, fallback) {
     try {
@@ -213,6 +245,7 @@ function render(summary, opsData = {}) {
     $('avg-load').textContent = ms(weightedLoad(cameras));
     $('updated').textContent = summary.generated_at ? `마지막 집계: ${new Date(summary.generated_at).toLocaleString('ko-KR')} · 최근 ${summary.window_hours || 24}시간` : '아직 서버 집계 데이터가 없습니다.';
     renderOps(opsData);
+    renderInventory(opsData.inventory || [], summary);
 
     $('camera-rows').innerHTML = problemCameras
         .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
@@ -229,6 +262,120 @@ function render(summary, opsData = {}) {
         .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
         .map(item => qualityRow(item, item.id))
         .join('') || '<tr><td colspan="7">지역 집계가 아직 없습니다.</td></tr>';
+}
+function cameraType(item) {
+    const url = String(item.url || item.directUrl || '');
+    const source = String(item.source || 'UNKNOWN');
+    if (/cctvsec\.ktict\.co\.kr|kind=Z3|openDataCctvStream\.jsp/.test(url)) return 'Z3/UTIC 토큰형';
+    if (/kbscctv|\/kb\?/.test(url) || source === 'KBS') return 'KBS 토큰형';
+    if (/\/jeju\?|jejuits|source=JEJU/.test(url) || source === 'JEJU') return '제주 프록시형';
+    if (/\.m3u8|\.mp4/.test(url)) return '직접 HLS/MP4';
+    if (/youtube|youtu\.be/.test(url) || source.includes('YT') || source.includes('YOUTUBE')) return 'YouTube';
+    if (/popup|cctvPopup|player/.test(url)) return '프레임/팝업형';
+    return '기타';
+}
+function sourceRegion(item) {
+    const name = String(item.name || '');
+    const source = String(item.source || '');
+    if (/진도|전남|목포|여수|순천|광주/.test(name)) return /광주/.test(name) ? '광주/전남' : '전남';
+    if (/제주|서귀포|한림|애월/.test(name) || source.includes('JEJU')) return '제주';
+    if (/대전|유성|둔산|한밭/.test(name)) return '대전';
+    if (/구리|남양주|마석|화도|수택|왕숙|호평|평내/.test(name)) return '구리/남양주';
+    if (/독도|울릉/.test(name)) return '울릉/독도';
+    if (/서울|강남|종로|한강|남산/.test(name) || source === 'TOPIS') return '서울';
+    if (/부산|해운대|광안/.test(name) || source === 'BUSAN_ITS') return '부산';
+    if (/인천|송도|부평/.test(name) || source === 'INCHEON_ITS') return '인천';
+    if (/대구|수성|달서/.test(name) || source === 'DAEGU') return '대구';
+    if (/울산/.test(name) || source === 'ULSAN') return '울산';
+    if (/강릉|춘천|원주|강원/.test(name) || source === 'GANGWON') return '강원';
+    if (/세종/.test(name) || source === 'SEJONG') return '세종';
+    if (/경기|수원|용인|파주|고양|성남|평택/.test(name) || source === 'GITS') return '경기';
+    return source || '기타';
+}
+function isProxyLike(item) {
+    const type = cameraType(item);
+    return /토큰형|프록시형|Z3/.test(type);
+}
+function isDirectLike(item) {
+    return cameraType(item) === '직접 HLS/MP4';
+}
+function describeType(type) {
+    return {
+        'Z3/UTIC 토큰형': 'ITS/UTIC 토큰을 최신 캐시로 갱신해야 안정적인 영상입니다.',
+        'KBS 토큰형': 'KBS/Loomex signed URL 갱신 품질이 핵심입니다.',
+        '제주 프록시형': '제주 ITS 세션/로딩 지연을 프록시에서 흡수합니다.',
+        '직접 HLS/MP4': '프레임 없이 바로 재생 가능한 최우선 타입입니다.',
+        'YouTube': '삭제/비공개 여부를 별도 검수해야 합니다.',
+        '프레임/팝업형': '원본 프레임 의존도가 높아 후순위 후보입니다.',
+        '기타': '추가 분류가 필요한 후보입니다.'
+    }[type] || '-';
+}
+function qualityById(summary) {
+    return new Map(Object.entries(summary.cameras || {}).map(([id, item]) => [id, normalize(item)]));
+}
+function renderInventory(items, summary) {
+    const cameras = Array.isArray(items) ? items : [];
+    const qById = qualityById(summary);
+    const bySource = {};
+    const byRegion = {};
+    const byType = {};
+    let proxyCount = 0;
+    let directCount = 0;
+    let backupCount = 0;
+    cameras.forEach(item => {
+        const source = item.source || 'UNKNOWN';
+        const region = sourceRegion(item);
+        const type = cameraType(item);
+        const quality = qById.get(item.id);
+        if (isProxyLike(item)) proxyCount += 1;
+        if (isDirectLike(item)) directCount += 1;
+        if (Array.isArray(item.backup_urls) && item.backup_urls.length) backupCount += 1;
+        bySource[source] ||= { total: 0, proxy: 0, direct: 0, backup: 0, samples: 0, success: 0, load: 0 };
+        byRegion[region] ||= { total: 0, samples: 0, success: 0, load: 0, sources: {} };
+        byType[type] ||= { total: 0 };
+        bySource[source].total += 1;
+        byRegion[region].total += 1;
+        byRegion[region].sources[source] = (byRegion[region].sources[source] || 0) + 1;
+        byType[type].total += 1;
+        if (isProxyLike(item)) bySource[source].proxy += 1;
+        if (isDirectLike(item)) bySource[source].direct += 1;
+        if (Array.isArray(item.backup_urls) && item.backup_urls.length) bySource[source].backup += 1;
+        if (quality) {
+            bySource[source].samples += quality.samples;
+            bySource[source].success += quality.success;
+            bySource[source].load += quality.avgFirstFrameMs * quality.success;
+            byRegion[region].samples += quality.samples;
+            byRegion[region].success += quality.success;
+            byRegion[region].load += quality.avgFirstFrameMs * quality.success;
+        }
+    });
+    $('inv-total').textContent = cameras.length.toLocaleString('ko-KR');
+    $('inv-sources').textContent = Object.keys(bySource).length.toLocaleString('ko-KR');
+    $('inv-proxy').textContent = proxyCount.toLocaleString('ko-KR');
+    $('inv-direct').textContent = directCount.toLocaleString('ko-KR');
+    $('inv-backup').textContent = backupCount.toLocaleString('ko-KR');
+    $('inv-tested').textContent = qById.size.toLocaleString('ko-KR');
+    const rateCell = (success, samples) => samples ? pct(success / samples) : '미점검';
+    const loadCell = (load, success) => success ? ms(load / success) : '-';
+    $('inventory-source-rows').innerHTML = Object.entries(bySource)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([source, item]) => `<tr><td>${esc(source)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${loadCell(item.load, item.success)}</td><td>${item.proxy.toLocaleString('ko-KR')}</td><td>${item.direct.toLocaleString('ko-KR')}</td><td>${item.backup.toLocaleString('ko-KR')}</td></tr>`)
+        .join('') || '<tr><td colspan="8">전체 목록을 불러오지 못했습니다.</td></tr>';
+    $('inventory-type-rows').innerHTML = Object.entries(byType)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([type, item]) => {
+            const ratio = cameras.length ? item.total / cameras.length : 0;
+            return `<tr><td>${esc(type)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td><div class="meter" title="${pct(ratio)}"><span style="width:${Math.round(ratio * 100)}%"></span></div>${pct(ratio)}</td><td>${esc(describeType(type))}</td></tr>`;
+        })
+        .join('') || '<tr><td colspan="4">타입 집계가 없습니다.</td></tr>';
+    $('inventory-region-rows').innerHTML = Object.entries(byRegion)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([region, item]) => {
+            const topSources = Object.entries(item.sources).sort((a,b) => b[1] - a[1]).slice(0, 3).map(([s,n]) => `${s} ${n}`).join(', ');
+            const status = item.samples ? (item.success / item.samples < .75 ? '<span class="bad">주의</span>' : '<span class="ok">정상</span>') : '<span class="warn">미점검</span>';
+            return `<tr><td>${esc(region)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${esc(topSources)}</td><td>${status}</td></tr>`;
+        })
+        .join('') || '<tr><td colspan="6">지역 집계가 없습니다.</td></tr>';
 }
 function renderOps({ canary, ops, cache, audit }) {
     const z3 = ops?.cache?.z3 || cache?.z3 || {};
