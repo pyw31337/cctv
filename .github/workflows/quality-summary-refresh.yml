@@ -41,11 +41,13 @@ jobs:
             "$SUMMARY_ENDPOINT" || echo '000')
           echo "endpoint returned http=$http_code"
           if [ "$http_code" != "200" ]; then
-            echo "::warning::Unexpected status $http_code — keeping previous fallback file"
+            echo "::warning::Unexpected status $http_code — building canary-based fallback"
+            python3 scripts/build_quality_summary_fallback.py
             exit 0
           fi
           if ! python3 -c "import json,sys; json.load(open('$tmp'))" 2>/dev/null; then
-            echo "::warning::Endpoint returned non-JSON — keeping previous fallback file"
+            echo "::warning::Endpoint returned non-JSON — building canary-based fallback"
+            python3 scripts/build_quality_summary_fallback.py
             exit 0
           fi
           TMP_PATH="$tmp" python3 <<'PY'
@@ -60,6 +62,20 @@ jobs:
               fh.write('\n')
           print('Wrote', out, os.path.getsize(out), 'bytes')
           PY
+
+          if ! python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('data/quality_summary.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          if not data.get('cameras') and not data.get('sources') and not data.get('regions'):
+              print('Worker summary is empty — building canary-based fallback')
+              raise SystemExit(1)
+          PY
+          then
+            python3 scripts/build_quality_summary_fallback.py
+          fi
 
       - name: Commit if changed
         run: |
