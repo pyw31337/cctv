@@ -11,6 +11,7 @@ MAX_AGE_MINUTES="${CCTV_Z3_MAX_AGE_MINUTES:-25}"
 FALLBACK_HOURS="${CCTV_Z3_FALLBACK_HOURS:-8}"
 GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES="${CCTV_Z3_GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES:-360}"
 GITHUB_FALLBACK_STATE_FILE="${CCTV_Z3_GITHUB_FALLBACK_STATE_FILE:-$ROOT/logs/local_z3_cache_refresh.last_github_push}"
+ORACLE_BASE="${CCTV_ORACLE_BASE:-https://158.179.194.163.sslip.io}"
 
 stamp() {
   date -u "+%Y-%m-%dT%H:%M:%SZ"
@@ -67,11 +68,45 @@ python3 scripts/refresh_z3_cache.py \
 # Keep the dashboard useful while the telemetry Worker is unavailable.
 python3 scripts/build_quality_summary_fallback.py || true
 
+fetch_oracle_json_fallback() {
+  local endpoint="$1"
+  local output="$2"
+  local tmp="${output}.tmp"
+  if curl -fsS --max-time 10 "${ORACLE_BASE}${endpoint}" -o "$tmp"; then
+    if python3 - "$tmp" "$output" <<'PY'; then
+import json
+import sys
+
+source, target = sys.argv[1], sys.argv[2]
+with open(source, encoding="utf-8") as f:
+    data = json.load(f)
+with open(target, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+PY
+      rm -f "$tmp"
+      echo "[$(stamp)] refreshed static fallback ${output} from Oracle ${endpoint}"
+      return 0
+    fi
+  fi
+  rm -f "$tmp"
+  echo "[$(stamp)] could not refresh static fallback ${output} from Oracle ${endpoint}; keeping previous file"
+  return 1
+}
+
+# Oracle is the primary checker while GitHub minutes are constrained, but the
+# public app still needs a fresh GitHub Pages fallback when Oracle is briefly
+# unreachable. Pull the latest operational snapshots back into the repo so
+# stale multi-day status files cannot paint playable cameras red.
+fetch_oracle_json_fallback "/health-status" "data/status.json" || true
+fetch_oracle_json_fallback "/canary-status" "data/canary_status.json" || true
+fetch_oracle_json_fallback "/ops-status" "data/ops_status.json" || true
+
 # Push fresh cache/status files directly to Oracle. JSON endpoints read these
 # files without a server restart, so this avoids unnecessary downtime.
 if [ -f "$KEY_FILE" ]; then
   rsync -az -e "ssh -i $KEY_FILE -o StrictHostKeyChecking=no" \
-    data/z3_cache.json data/cache_status.json data/quality_summary.json \
+    data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json \
     "ubuntu@$ORACLE_HOST:~/cctv/data/"
   ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no "ubuntu@$ORACLE_HOST" \
     'curl -fsS --max-time 5 http://127.0.0.1:8080/z3-cache.json >/dev/null || true; curl -fsS --max-time 5 http://127.0.0.1:8080/ops-status >/dev/null || true' || true
@@ -82,9 +117,9 @@ fi
 # Commit and push the static GitHub Pages fallback sparingly. Even with
 # `[skip ci]`, GitHub Pages deployment can still run for every commit, so the
 # Oracle sync above is the primary freshness path while Actions minutes are low.
-if ! git diff --quiet -- data/z3_cache.json data/cache_status.json data/quality_summary.json; then
+if ! git diff --quiet -- data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json; then
   if should_push_github_fallback; then
-    git add data/z3_cache.json data/cache_status.json data/quality_summary.json
+    git add data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json
     git commit -m "AUTO: Local Z3 cache refresh [skip ci]"
     git pull --rebase --autostash origin main || true
     if git push origin main; then

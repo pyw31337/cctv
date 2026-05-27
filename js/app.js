@@ -17,6 +17,8 @@ const Z3_CACHE_STALE_MS = 8 * 60 * 60 * 1000;
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
+const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
+const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
 const APP_BUILD_VERSION = '20260522-canaryops';
 // These constants were lost in a recent rebase and broke the map: every
@@ -414,10 +416,12 @@ const state = {
     healthSnapshotStale: false,
     qualitySummary: null,
     qualitySummaryLoaded: false,
+    qualitySummaryStale: false,
     canaryStatus: null,
     canaryCameras: new Map(),
     canaryRegions: {},
     canaryStatusLoaded: false,
+    canaryStatusStale: false,
     qualityTelemetryQueue: [],
     worldTourCams: null,
     selectedWorldTourId: null,
@@ -548,9 +552,9 @@ async function loadHealthStatus() {
         try {
             const snapshot = await fetchJsonWithTimeout(url, 2200);
             state.healthSnapshot = snapshot;
-            state.regionHealth = state.healthSnapshot.regions || {};
-            state.cameraFailures = buildCameraFailureMap(state.healthSnapshot.camera_failures);
-            state.healthSnapshotStale = isStaleHealthTimestamp(snapshot.last_updated);
+            state.healthSnapshotStale = isStaleHealthTimestamp(snapshot.last_updated, HEALTH_STALE_MS);
+            state.regionHealth = state.healthSnapshotStale ? {} : (state.healthSnapshot.regions || {});
+            state.cameraFailures = state.healthSnapshotStale ? new Map() : buildCameraFailureMap(state.healthSnapshot.camera_failures);
             if (state.healthSnapshotStale) {
                 console.warn('Using stale health status snapshot:', snapshot.last_updated);
             }
@@ -605,13 +609,19 @@ async function loadQualitySummary() {
 
 function applyQualitySummary(summary) {
     if (!summary || typeof summary !== 'object') return;
+    const generatedAt = summary.generated_at || summary.generatedAt || null;
+    const stale = isStaleHealthTimestamp(generatedAt, QUALITY_SUMMARY_STALE_MS);
     state.qualitySummary = {
-        generated_at: summary.generated_at || summary.generatedAt || null,
+        generated_at: generatedAt,
         cameras: summary.cameras || {},
         sources: summary.sources || {},
         regions: summary.regions || {}
     };
     state.qualitySummaryLoaded = true;
+    state.qualitySummaryStale = stale;
+    if (stale) {
+        console.warn('Using stale quality summary only for dashboard context:', generatedAt);
+    }
 }
 
 async function loadCanaryStatus() {
@@ -636,10 +646,16 @@ async function loadCanaryStatus() {
 
 function applyCanaryStatus(snapshot) {
     if (!snapshot || typeof snapshot !== 'object') return;
+    const generatedAt = snapshot.generated_at || snapshot.generatedAt || null;
+    const stale = isStaleHealthTimestamp(generatedAt, CANARY_STATUS_STALE_MS);
     state.canaryStatus = snapshot;
-    state.canaryRegions = snapshot.regions || {};
-    state.canaryCameras = new Map(Object.entries(snapshot.cameras || {}).filter(([, value]) => value && typeof value === 'object'));
+    state.canaryRegions = stale ? {} : (snapshot.regions || {});
+    state.canaryCameras = stale ? new Map() : new Map(Object.entries(snapshot.cameras || {}).filter(([, value]) => value && typeof value === 'object'));
     state.canaryStatusLoaded = true;
+    state.canaryStatusStale = stale;
+    if (stale) {
+        console.warn('Ignoring stale canary status for playback decisions:', generatedAt);
+    }
 }
 
 function restoreInitialViewState() {
@@ -1719,17 +1735,20 @@ function getDatasetReviewHealthMeta(cctv, regionKey, lastUpdated) {
 }
 
 function getCameraQualitySummary(cctv) {
+    if (state.qualitySummaryStale) return null;
     if (!cctv || !state.qualitySummary || !state.qualitySummary.cameras) return null;
     return state.qualitySummary.cameras[cctv.id] || null;
 }
 
 function getSourceQualitySummary(cctv) {
+    if (state.qualitySummaryStale) return null;
     if (!cctv || !state.qualitySummary || !state.qualitySummary.sources) return null;
     const source = cctv.source || 'UNKNOWN';
     return state.qualitySummary.sources[source] || null;
 }
 
 function getRegionQualitySummary(regionKey) {
+    if (state.qualitySummaryStale) return null;
     if (!regionKey || !state.qualitySummary || !state.qualitySummary.regions) return null;
     return state.qualitySummary.regions[regionKey] || null;
 }
@@ -1888,11 +1907,13 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
 }
 
 function getCanaryCameraRecord(cctv) {
+    if (state.canaryStatusStale) return null;
     if (!cctv || !cctv.id || !state.canaryCameras) return null;
     return state.canaryCameras.get(cctv.id) || null;
 }
 
 function getCanaryRegionRecord(regionKey, cctv) {
+    if (state.canaryStatusStale) return null;
     if (!state.canaryRegions) return null;
     const source = cctv?.source || '';
     const name = `${cctv?.name || ''} ${cctv?.address || ''}`.toLowerCase();
@@ -2669,10 +2690,9 @@ function isStabilityModePlayableCandidate(cctv) {
     if (!cctv || !cctv.id) return false;
     const health = cctv._health || getCameraHealthMeta(cctv);
     if (isUnsupportedBrowserStream(cctv)) return false;
-    if (['UNSUPPORTED', 'CAMERA_CRITICAL', 'CAMERA_INVESTIGATE', 'PLAYBACK_ERROR', 'Z3_CACHE_MISS'].includes(health?.status)) {
+    if (health?.status === 'UNSUPPORTED') {
         return false;
     }
-    if (hasCameraSpecificPlaybackProblem(cctv)) return false;
     return Boolean(cctv.directUrl || cctv.url);
 }
 
@@ -2814,10 +2834,10 @@ function parseHealthTimestamp(timestamp) {
     return new Date(normalized.replace(' ', 'T') + 'Z');
 }
 
-function isStaleHealthTimestamp(timestamp) {
+function isStaleHealthTimestamp(timestamp, maxAgeMs = HEALTH_STALE_MS) {
     const parsed = parseHealthTimestamp(timestamp);
     if (Number.isNaN(parsed.getTime())) return true;
-    return Date.now() - parsed.getTime() > HEALTH_STALE_MS;
+    return Date.now() - parsed.getTime() > maxAgeMs;
 }
 
 function renderServiceStatusBanner() {
@@ -3695,7 +3715,7 @@ function getManualRetryFallbackDistance(sourceCctv, candidate) {
 
 function isManualRetryFallbackCandidate(candidate, sourceCctv) {
     if (!candidate || !candidate.id || candidate.id === sourceCctv?.id) return false;
-    if (isUnsupportedBrowserStream(candidate) || shouldIsolateProblemCamera(candidate)) return false;
+    if (isUnsupportedBrowserStream(candidate)) return false;
     if (!isDirectVideoPlaybackCandidate(candidate) || isFrameOnlyPlaybackCandidate(candidate)) return false;
     return Boolean(candidate.directUrl || candidate.url);
 }
