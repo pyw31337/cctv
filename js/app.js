@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260522-canaryops';
+const APP_BUILD_VERSION = '20260527-world-search';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -872,6 +872,15 @@ function setupEventListeners() {
         const item = e.target.closest('.search-result-item');
         if (!item) return;
 
+        const worldCamId = item.dataset.worldCamId;
+        if (worldCamId || item.classList.contains('world-tour-search-result')) {
+            e.preventDefault();
+            $('#search-results').classList.remove('active');
+            $('#dim-overlay').classList.remove('active');
+            openWorldTourFromSearchResult(worldCamId);
+            return;
+        }
+
         const actionBtn = e.target.closest('[data-action]');
         if (actionBtn) {
             e.stopPropagation();
@@ -1306,6 +1315,13 @@ function selectSearchResult(item) {
 }
 
 function selectPlace(lat, lng, name, address) {
+    lat = Number(lat);
+    lng = Number(lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        console.warn('[search] ignored place selection with invalid coordinates:', { lat, lng, name, address });
+        return;
+    }
+
     state.center = { lat, lng };
     state.keyword = name;
 
@@ -1330,6 +1346,30 @@ function selectPlace(lat, lng, name, address) {
     // Update Search Marker (Red Pin)
     updateSearchMarker(lat, lng);
     syncUrlState();
+}
+
+function openWorldTourFromSearchResult(worldCamId) {
+    if (!worldCamId) return;
+    state.selectedWorldTourId = worldCamId;
+    state.worldTourRegion = 'All';
+    state.worldTourViewMode = 'video';
+
+    const layer = $('#weather-layer');
+    const btn = $('#weather-btn');
+    layer?.classList.add('active');
+    btn?.classList.add('active');
+
+    if (typeof openWorldTourPanel === 'function') {
+        Promise.resolve(openWorldTourPanel({ selectedId: worldCamId, viewMode: 'video' })).catch(err =>
+            console.warn('[search] world tour open failed:', err)
+        );
+    } else if (typeof renderWorldTourCams === 'function') {
+        renderWorldTourCams(worldCamId, {
+            viewMode: 'video',
+            focusSelected: true,
+            listScrollToSelected: true
+        });
+    }
 }
 
 // === Geolocation ===
@@ -5157,7 +5197,8 @@ function initMap() {
         updateSearchMarker(state.center.lat, state.center.lng);
     }
 
-    // Precipitation overlay toggle button + initial state
+    // The precipitation overlay was removed from the map UI. Keep the
+    // cleanup path here so cached sessions cannot leave stale controls behind.
     initKmaPrecipOverlay();
 }
 
@@ -5452,34 +5493,11 @@ function initCompareModeButton() {
 }
 
 function initKmaPrecipOverlay() {
-    if (document.getElementById('kma-precip-toggle')) return;
-    const mapView = document.getElementById('map-view');
-    if (!mapView) return;
-
-    const btn = document.createElement('button');
-    btn.id = 'kma-precip-toggle';
-    btn.className = 'kma-precip-toggle';
-    btn.type = 'button';
-    btn.title = '강수/적설 오버레이 보기';
-    btn.setAttribute('aria-pressed', 'false');
-    btn.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"/>
-            <path d="M8 19l1-2"/>
-            <path d="M12 21l1-2"/>
-            <path d="M16 19l1-2"/>
-        </svg>
-        <span class="kma-precip-toggle-label">강수</span>
-    `;
-    btn.addEventListener('click', () => setKmaPrecipVisible(!kmaPrecipVisible));
-    mapView.appendChild(btn);
-
-    // Restore prior preference.
-    try {
-        if (localStorage.getItem('cctv_kma_precip_visible') === '1') {
-            setKmaPrecipVisible(true);
-        }
-    } catch (_) {}
+    document.getElementById('kma-precip-toggle')?.remove();
+    document.getElementById('kma-precip-empty-hint')?.remove();
+    clearKmaPrecipOverlays();
+    kmaPrecipVisible = false;
+    try { localStorage.removeItem('cctv_kma_precip_visible'); } catch (_) {}
 }
 
 function renderMapMarkers() {
