@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260527-world-snapshot-label';
+const APP_BUILD_VERSION = '20260527-no-snapshot-feeds';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -5835,6 +5835,7 @@ async function loadWorldTourCams() {
     const payload = await response.json();
     state.worldTourCams = (payload.items || [])
         .filter(item => item && (item.videoId || item.embedUrl || item.playUrl || item.sourceUrl))
+        .filter(item => !(item.snapshotUrl && !item.videoId && !item.embedUrl && !item.playUrl))
         .sort((a, b) => (
             Number(b.qualityScore || b.stabilityScore || b.priority || 0)
             - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
@@ -5888,10 +5889,9 @@ function renderWorldTourHashTags(cam) {
 }
 
 function canPlayWorldTourInApp(cam) {
-    // A cam is "playable in-app" if we can render *any* live representation
-    // inside our page — either a video/iframe player or an auto-refreshing
-    // snapshot image (HK Traffic / USGS / Panomax / Roundshot).
-    return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl || cam?.snapshotUrl);
+    // Snapshot-only feeds are intentionally excluded from the global CCTV list;
+    // in-app playback should mean a real video/embed stream.
+    return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
 }
 
 // Returns a suggested refresh cadence (ms) for snapshot-based cameras.
@@ -6424,9 +6424,7 @@ function renderWorldTourListPanel(cams, selected) {
 }
 
 function renderWorldTourModeSwitch(selected) {
-    const videoLabel = selected?.snapshotUrl && !getWorldTourEmbedUrl(selected)
-        ? '스냅샷보기'
-        : '영상보기';
+    const videoLabel = '영상보기';
     return `
         <div class="world-tour-mode-switch" role="tablist" aria-label="관광 라이브 보기 방식">
             <button

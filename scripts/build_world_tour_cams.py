@@ -1430,6 +1430,14 @@ def yt_dlp_json(args, timeout=45):
         return None
 
 
+def is_in_app_video_item(item):
+    return bool(item.get('videoId') or item.get('embedUrl') or item.get('playUrl'))
+
+
+def is_snapshot_only_item(item):
+    return bool(item.get('snapshotUrl')) and not is_in_app_video_item(item)
+
+
 def existing_playable_items():
     payload = json.loads(DATA_PATH.read_text())
     items = []
@@ -1448,6 +1456,8 @@ def existing_playable_items():
                 item['region'] = location['region']
                 item['lat'] = location['lat']
                 item['lng'] = location['lng']
+        if is_snapshot_only_item(item):
+            continue
         if item.get('videoId') or item.get('embedUrl') or item.get('sourceUrl'):
             item.setdefault('sourceType', 'youtube' if item.get('videoId') else 'external')
             items.append(item)
@@ -4405,8 +4415,12 @@ def enrich_item_quality(item):
 
 
 def validate_items(items):
+    snapshot_only_removed = sum(1 for item in items if is_snapshot_only_item(item))
+    if snapshot_only_removed:
+        print(f'excluding snapshot-only world tour feeds: {snapshot_only_removed}', flush=True)
+    candidates = [item for item in items if not is_snapshot_only_item(item)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
-        validated = [item for item in executor.map(validate_youtube_item, items) if item]
+        validated = [item for item in executor.map(validate_youtube_item, candidates) if item]
     return [enrich_item_quality(item) for item in validated if calculate_quality_score(item) >= 52]
 
 
@@ -4530,7 +4544,7 @@ def main():
     quality_counts = Counter(i.get('qualityTier', 'unknown') for i in items)
     payload = {
         'updated_at': dt.date.today().isoformat(),
-        'description': 'Curated public world tourist live/webcam directory. In-app playable YouTube/embed streams are prioritized; source-site-only players are kept with coordinates and original links.',
+        'description': 'Curated public world tourist live/webcam directory. In-app playable YouTube/embed streams are prioritized; snapshot-only feeds are excluded because they are not continuous video.',
         'collectionMeta': {
             'itemCount': len(items),
             'sourceCounts': dict(source_counts),
@@ -4580,7 +4594,8 @@ def main():
             'railcamLimit': WORLD_TOUR_RAILCAM_LIMIT,
             'publicTrafficLimit': WORLD_TOUR_PUBLIC_TRAFFIC_LIMIT,
             'qualityPolicy': 'verified playback, source trust, positive tourist context, and coordinate availability are scored before ranking.',
-            'sourcePolicy': 'Only public official/source-site or embeddable tourist webcams are retained; raw exposed IP camera scanners and private RTSP feeds are excluded.',
+            'sourcePolicy': 'Only public official/source-site or embeddable tourist webcams are retained; snapshot-only feeds, raw exposed IP camera scanners, and private RTSP feeds are excluded.',
+            'snapshotPolicy': 'Static or periodically refreshed image-only feeds are removed from the user-facing global CCTV list.',
             'openWebcamDbStatus': 'API-key gated via OPENWEBCAMDB_API_KEY; default disabled until terms and attribution are configured.',
             'insecamStatus': 'Excluded: unsecured private surveillance camera directory, not suitable for this curated public tourist dataset.',
             'generationNote': 'Some source counts can include retained items from previous verified runs when a collector is disabled, API-key gated, or rate-limited during the latest run.',
