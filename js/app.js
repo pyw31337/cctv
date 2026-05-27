@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260527-world-search';
+const APP_BUILD_VERSION = '20260527-world-history2';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -872,15 +872,6 @@ function setupEventListeners() {
         const item = e.target.closest('.search-result-item');
         if (!item) return;
 
-        const worldCamId = item.dataset.worldCamId;
-        if (worldCamId || item.classList.contains('world-tour-search-result')) {
-            e.preventDefault();
-            $('#search-results').classList.remove('active');
-            $('#dim-overlay').classList.remove('active');
-            openWorldTourFromSearchResult(worldCamId);
-            return;
-        }
-
         const actionBtn = e.target.closest('[data-action]');
         if (actionBtn) {
             e.stopPropagation();
@@ -888,7 +879,10 @@ function setupEventListeners() {
                 lat: parseFloat(item.dataset.lat),
                 lng: parseFloat(item.dataset.lng),
                 name: item.dataset.name,
-                address: item.dataset.address
+                address: item.dataset.address,
+                worldCamId: item.dataset.worldCamId,
+                isWorldTourCam: item.classList.contains('world-tour-search-result') || item.dataset.type === 'world',
+                type: item.dataset.type
             };
 
             if (actionBtn.dataset.action === 'bookmark') {
@@ -896,6 +890,18 @@ function setupEventListeners() {
             } else if (actionBtn.dataset.action === 'delete') {
                 deleteHistoryItem(itemData.name);
             }
+            return;
+        }
+
+        const worldCamId = item.dataset.worldCamId;
+        if (worldCamId || item.classList.contains('world-tour-search-result')) {
+            e.preventDefault();
+            $('#search-results').classList.remove('active');
+            $('#dim-overlay').classList.remove('active');
+            openWorldTourFromSearchResult(worldCamId, {
+                name: item.dataset.name,
+                address: item.dataset.address
+            });
             return;
         }
 
@@ -1146,6 +1152,11 @@ function renderSearchItem(item, isBookmarked, options = {}) {
     // showDelete=true  → 최근 검색 섹션 (별 + X 둘 다)
     const { showDelete = true } = options;
     const bookmarkClass = isBookmarked ? 'active' : '';
+    const escape = s => String(s ?? '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+    const isWorld = item?.type === 'world' || item?.isWorldTourCam || item?.worldCamId;
+    const dataAttrs = isWorld
+        ? `data-type="world" data-world-cam-id="${escape(item.worldCamId || '')}" data-name="${escape(item.name)}" data-address="${escape(item.address || '')}"`
+        : `data-lat="${escape(item.lat)}" data-lng="${escape(item.lng)}" data-name="${escape(item.name)}" data-address="${escape(item.address || '')}"`;
     const deleteHtml = showDelete ? `
                 <button class="btn-delete" data-action="delete" title="삭제">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1154,10 +1165,10 @@ function renderSearchItem(item, isBookmarked, options = {}) {
                 </button>
             ` : '';
     return `
-        <div class="search-result-item" data-lat="${item.lat}" data-lng="${item.lng}" data-name="${item.name}" data-address="${item.address || ''}">
+        <div class="search-result-item ${isWorld ? 'world-tour-search-result' : ''}" ${dataAttrs}>
             <div class="search-result-info">
-                <div class="search-result-name">${item.name}</div>
-                <div class="search-result-address">${item.address || ''}</div>
+                <div class="search-result-name">${escape(item.name)}</div>
+                <div class="search-result-address">${isWorld ? '전세계 라이브 · ' : ''}${escape(item.address || '')}</div>
             </div>
             <div class="search-result-actions">
                 <button class="btn-bookmark ${bookmarkClass}" data-action="bookmark" title="${isBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}" aria-pressed="${isBookmarked}" aria-label="${isBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}">
@@ -1210,11 +1221,16 @@ async function handleSearchSubmit() {
 // === Hybrid Search Logic ===
 function performHybridSearch(query) {
     return new Promise(async (resolve) => {
-        const ps = new kakao.maps.services.Places();
-        const geocoder = new kakao.maps.services.Geocoder();
+        const hasKakaoServices = !!(window.kakao && kakao.maps && kakao.maps.services);
+        const ps = hasKakaoServices ? new kakao.maps.services.Places() : null;
+        const geocoder = hasKakaoServices ? new kakao.maps.services.Geocoder() : null;
 
         // 1. Places Search
         const placePromise = new Promise((res) => {
+            if (!ps) {
+                res([]);
+                return;
+            }
             ps.keywordSearch(query, (data, status) => {
                 if (status === kakao.maps.services.Status.OK) {
                     res(data);
@@ -1226,6 +1242,10 @@ function performHybridSearch(query) {
 
         // 2. Address/Region Search
         const regionPromise = new Promise((res) => {
+            if (!geocoder) {
+                res([]);
+                return;
+            }
             geocoder.addressSearch(query, (data, status) => {
                 if (status === kakao.maps.services.Status.OK) {
                     // Normalize to match Place format
@@ -1243,8 +1263,17 @@ function performHybridSearch(query) {
             });
         });
 
-        // Execute Parallel
-        const [places, regions] = await Promise.all([placePromise, regionPromise]);
+        const worldPromise = (typeof loadWorldTourCams === 'function'
+            ? loadWorldTourCams().catch(err => {
+                console.warn('[search] world tour data unavailable:', err);
+                return [];
+            })
+            : Promise.resolve([])
+        );
+
+        // Execute Parallel. World Tour data must be loaded here because the
+        // search box is often the first place a user discovers global cams.
+        const [places, regions] = await Promise.all([placePromise, regionPromise, worldPromise]);
 
         // 3. Korean World Tour cams (경복궁/광안대교/남산타워 등) — surface
         //    in the same dropdown so the user can jump straight to the
@@ -1258,6 +1287,7 @@ function performHybridSearch(query) {
             y: cam.lat,
             x: cam.lng,
             isWorldTourCam: true,
+            type: 'world',
             worldCamId: cam.id
         }));
 
@@ -1276,7 +1306,7 @@ function renderSearchResults(data) {
             if (place.isWorldTourCam) {
                 // Distinct row: jumps into the world-tour player on click.
                 return `
-                <div class="search-result-item world-tour-search-result" data-world-cam-id="${place.worldCamId}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+                <div class="search-result-item world-tour-search-result" data-type="world" data-world-cam-id="${place.worldCamId}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
                     <div class="search-result-icon">🌐</div>
                     <div class="search-result-info">
                         <div class="search-result-name">${place.place_name}</div>
@@ -1310,6 +1340,11 @@ function selectSearchResult(item) {
     const lng = parseFloat(item.dataset.lng);
     const name = item.dataset.name;
     const address = item.dataset.address || '';
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        openWorldTourFromSearchResult(item.dataset.worldCamId, { name, address });
+        return;
+    }
 
     selectPlace(lat, lng, name, address);
 }
@@ -1348,11 +1383,47 @@ function selectPlace(lat, lng, name, address) {
     syncUrlState();
 }
 
-function openWorldTourFromSearchResult(worldCamId) {
-    if (!worldCamId) return;
-    state.selectedWorldTourId = worldCamId;
+async function resolveWorldTourCamForSearch(worldCamId, meta = {}) {
+    try {
+        const cams = await loadWorldTourCams();
+        if (worldCamId) {
+            const byId = cams.find(cam => String(cam.id) === String(worldCamId));
+            if (byId) return byId;
+        }
+
+        const needle = normalizeWorldTourText([meta.name, meta.address].filter(Boolean).join(' '));
+        if (!needle) return null;
+        return cams.find(cam => {
+            const haystack = getWorldTourSearchText(cam);
+            return haystack.includes(needle) || needle.includes(normalizeWorldTourText(cam.title));
+        }) || null;
+    } catch (err) {
+        console.warn('[search] failed to resolve world tour cam:', err);
+        return null;
+    }
+}
+
+async function openWorldTourFromSearchResult(worldCamId, meta = {}) {
+    const cam = await resolveWorldTourCamForSearch(worldCamId, meta);
+    const resolvedId = cam?.id || worldCamId;
+    if (!resolvedId) {
+        console.warn('[search] ignored world tour selection without a resolvable camera:', meta);
+        return;
+    }
+
+    state.selectedWorldTourId = resolvedId;
     state.worldTourRegion = 'All';
     state.worldTourViewMode = 'video';
+
+    if (cam) {
+        saveSearchHistory({
+            name: cam.title || meta.name || '전세계 라이브',
+            address: `${cam.city || ''} · ${cam.country || ''}`.replace(/^ ·\s+/, ''),
+            worldCamId: cam.id,
+            isWorldTourCam: true,
+            type: 'world'
+        });
+    }
 
     const layer = $('#weather-layer');
     const btn = $('#weather-btn');
@@ -1360,11 +1431,11 @@ function openWorldTourFromSearchResult(worldCamId) {
     btn?.classList.add('active');
 
     if (typeof openWorldTourPanel === 'function') {
-        Promise.resolve(openWorldTourPanel({ selectedId: worldCamId, viewMode: 'video' })).catch(err =>
+        Promise.resolve(openWorldTourPanel({ selectedId: resolvedId, viewMode: 'video' })).catch(err =>
             console.warn('[search] world tour open failed:', err)
         );
     } else if (typeof renderWorldTourCams === 'function') {
-        renderWorldTourCams(worldCamId, {
+        renderWorldTourCams(resolvedId, {
             viewMode: 'video',
             focusSelected: true,
             listScrollToSelected: true
