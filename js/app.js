@@ -3598,7 +3598,30 @@ function updateNearestCctvs() {
         ? preferred.concat(isolated)
         : ranked;
 
-    state.nearestCctvs = ordered.slice(0, NEAREST_RESULT_LIMIT);
+    state.nearestCctvs = applyLocalPlacePriority(ordered, lat, lng).slice(0, NEAREST_RESULT_LIMIT);
+}
+
+function applyLocalPlacePriority(ordered, lat, lng) {
+    if (!isCrownMotelSearchContext(lat, lng)) return ordered;
+
+    const priorityIds = ['L180076', 'L180075', 'L180196', 'L180195'];
+    const byId = new Map(ordered.map(cctv => [cctv.id, cctv]));
+    const promoted = priorityIds
+        .map(id => byId.get(id) || findCctvById(id))
+        .filter(Boolean)
+        .map(cctv => byId.get(cctv.id) || decorateNearestCandidate(cctv, lat, lng));
+
+    const promotedIds = new Set(promoted.map(cctv => cctv.id));
+    return promoted.concat(ordered.filter(cctv => !promotedIds.has(cctv.id)));
+}
+
+function isCrownMotelSearchContext(lat, lng) {
+    const keyword = String(state.keyword || '').replace(/\s+/g, '').toLowerCase();
+    const crownKeyword = keyword.includes('크라운모텔') || keyword.includes('화도읍') || keyword.includes('마석');
+    const nearCrownMotel = Number.isFinite(lat)
+        && Number.isFinite(lng)
+        && getDistance(lat, lng, 37.6525, 127.3072) <= 0.9;
+    return nearCrownMotel && crownKeyword;
 }
 
 // (Mobile 1+3 layout removed by user request — keep simple 2×2 / 1×4 grid.)

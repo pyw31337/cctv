@@ -196,17 +196,23 @@ console.log(`[OK] manual retry fallback: ${failingGuriCamera.name} -> ${retryFal
 const crownMotel = {
   label: '크라운모텔 / 남양주 화도읍',
   center: { lat: 37.6525, lng: 127.3072 },
-  expectedUrbanNearby: ['마석사거리(웹)', '창현A앞4', '송라초교사거리(웹)', '화도읍사무소'],
+  expectedDefaultTop4: ['마석윗3', '마석사거리(웹)', '창현A앞4 (2)', '창현A앞4 (1)'],
+  expectedUrbanNearby: ['마석윗3', '마석사거리(웹)', '창현A앞4 (2)', '창현A앞4 (1)'],
   outskirtPattern: /수도권제2순환선|서울양양선|IC|JC|터널|영업소/,
 };
 harness.state.cameraFailures = new Map();
 harness.state.center = crownMotel.center;
+harness.state.keyword = '크라운모텔';
 harness.state.sortMode = 'nearest';
 harness.updateNearestCctvs();
 const crownTopNames = names(harness.state.nearestCctvs, 8);
+assert(
+  JSON.stringify(names(harness.state.nearestCctvs, 4)) === JSON.stringify(crownMotel.expectedDefaultTop4),
+  `${crownMotel.label} nearest regression: expected fixed default top 4 ${JSON.stringify(crownMotel.expectedDefaultTop4)}, got ${JSON.stringify(crownTopNames)}`
+);
 const crownMatched = crownMotel.expectedUrbanNearby.filter((name) => crownTopNames.includes(name));
 assert(
-  crownMatched.length >= 3,
+  crownMatched.length >= 4,
   `${crownMotel.label} nearest regression: expected nearby city cameras, got ${JSON.stringify(crownTopNames)}`
 );
 assert(
