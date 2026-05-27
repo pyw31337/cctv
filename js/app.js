@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260527-world-history2';
+const APP_BUILD_VERSION = '20260527-world-snapshot-label';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6423,7 +6423,10 @@ function renderWorldTourListPanel(cams, selected) {
     `;
 }
 
-function renderWorldTourModeSwitch() {
+function renderWorldTourModeSwitch(selected) {
+    const videoLabel = selected?.snapshotUrl && !getWorldTourEmbedUrl(selected)
+        ? '스냅샷보기'
+        : '영상보기';
     return `
         <div class="world-tour-mode-switch" role="tablist" aria-label="관광 라이브 보기 방식">
             <button
@@ -6437,7 +6440,7 @@ function renderWorldTourModeSwitch() {
                 class="world-tour-mode-option ${state.worldTourViewMode === 'video' ? 'active' : ''}"
                 data-world-tour-view="video"
                 aria-selected="${state.worldTourViewMode === 'video'}"
-            >영상보기</button>
+            >${videoLabel}</button>
         </div>
     `;
 }
@@ -6532,7 +6535,7 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
                 <p>${escapeWorldTourHtml(selected.subtitle || `${selected.city}, ${selected.country}`)}</p>
                 ${renderWorldTourHashTags(selected)}
                 <div class="world-tour-actions">
-                    ${renderWorldTourModeSwitch()}
+                    ${renderWorldTourModeSwitch(selected)}
                     ${openLink}
                 </div>
             </div>
@@ -6593,8 +6596,8 @@ function renderWorldTourVideoHero(selected) {
                     decoding="async"
                 />
                 <div class="world-tour-snapshot-overlay">
-                    <span class="world-tour-snapshot-badge">${escapeWorldTourHtml(sourceLabel)} 실시간 스냅샷</span>
-                    ${refreshMs > 0 ? `<span class="world-tour-snapshot-meta">${Math.round(refreshMs / 1000)}초마다 자동 새로고침</span>` : '<span class="world-tour-snapshot-meta">최신 캡처 이미지</span>'}
+                    <span class="world-tour-snapshot-badge">${escapeWorldTourHtml(sourceLabel)} 정지 스냅샷</span>
+                    ${refreshMs > 0 ? `<span class="world-tour-snapshot-meta">동영상 스트림 없음 · ${Math.round(refreshMs / 1000)}초마다 새 이미지 확인</span>` : '<span class="world-tour-snapshot-meta">동영상 스트림 없음 · 최신 캡처 이미지</span>'}
                 </div>
             </div>`;
     } else {
