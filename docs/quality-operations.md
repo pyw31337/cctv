@@ -15,7 +15,8 @@
    - Oracle 무료 서버가 `scripts/canary_probe.py`를 주기적으로 실행합니다.
    - 진도, 제주, 대전, 구리, 남양주, 독도를 핵심 카나리로 별도 확인합니다.
    - 결과는 `/canary-status`, `/ops-status`에서 즉시 제공하고, GitHub Pages 정적 JSON은 백업 용도입니다.
-   - GitHub Actions 카나리는 Actions minutes 절감을 위해 4시간마다 정적 백업 스냅샷만 갱신합니다.
+   - GitHub Actions 카나리는 Actions minutes 절감을 위해 3시간마다 정적 백업 스냅샷만 갱신합니다.
+   - 핵심 지역은 후보 수를 넓혀 점검합니다. 일부 카메라가 죽어도 인접한 재생 가능 후보를 찾는 것이 목표입니다.
 
 4. 장기 장애 비상 진단
    - 샘플 점검에서 실패한 카메라는 `camera_failures`에 누적합니다.
@@ -32,6 +33,13 @@
 ```
 
 이 방식은 GitHub Actions의 시간 사용량을 줄이면서도 앱이 더 최신 점검 정보를 읽게 해줍니다.
+
+## 관리자 대시보드
+
+- URL: `https://pyw31337.github.io/cctv/quality.html`
+- `data/status.json`, `data/quality_summary.json`, `data/z3_cache.json`, `data/cache_status.json`, `data/canary_status.json`, `data/ops_status.json`은 공통 `time.schema = cctv-quality-time-v1` 블록을 유지합니다.
+- 대시보드의 `데이터 최신성`은 원본 점검 시각과 표준화 시각을 분리해 보여줍니다.
+- 대시보드의 `GitHub 워크플로우 알림`은 기존 데이터가 보존된 보존형 실패를 `data/workflow_status.json`에서 보여줍니다.
 
 ## 상태 정의
 
@@ -55,3 +63,4 @@
 - 최우선은 iframe이 아닌 `<video>` 기반 직접 HLS/MP4 재생입니다.
 - UTIC 계열은 원본 페이지 iframe으로 되돌아가기 전에 프레임 없는 대체 소스를 먼저 시도합니다.
 - 팝업/iframe 전용 소스는 점검에서 `frame_only`로 기록하고 추천 순위를 낮춥니다.
+- 원본 사이트에서만 안정적으로 재생되는 글로벌/관광 영상은 유지합니다. 다만 필터로 구분하고 직접 재생 영상보다 낮은 우선순위로 둡니다.

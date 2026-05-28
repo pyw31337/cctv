@@ -43,10 +43,18 @@ for attempt in 1 2 3 4 5; do
   fi
 
   echo "Rebase conflict while pushing generated data." >&2
-  echo "Leaving the workflow failed instead of force-pushing or dropping data." >&2
   git rebase --abort || true
+  if [ "${CCTV_COMMIT_PUSH_SOFT_FAIL:-0}" = "1" ]; then
+    echo "Soft-fail mode enabled: treating generated-data push conflict as a warning." >&2
+    exit 0
+  fi
+  echo "Leaving the workflow failed instead of force-pushing or dropping data." >&2
   exit 1
 done
 
 echo "Failed to push after 5 attempts." >&2
+if [ "${CCTV_COMMIT_PUSH_SOFT_FAIL:-0}" = "1" ]; then
+  echo "Soft-fail mode enabled: generated-data push failure is a warning." >&2
+  exit 0
+fi
 exit 1

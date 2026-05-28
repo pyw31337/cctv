@@ -49,6 +49,12 @@
         .trend-bar[data-severity="danger"] { background: var(--red); }
         .trend-bar[data-severity="unknown"] { background: #64748b; }
         .trend-meta { color: var(--muted); font-size: 12px; text-align: right; }
+        .fresh { color: var(--green); }
+        .stale { color: var(--yellow); }
+        .expired { color: var(--red); }
+        .impact-none { color: var(--green); }
+        .impact-possible { color: var(--yellow); }
+        .impact-service { color: var(--red); }
         @media (max-width: 1100px) { .grid.ops, .grid.inventory { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 900px) { header { align-items: flex-start; flex-direction: column; } .grid, .grid.ops, .split { grid-template-columns: 1fr; } }
     </style>
@@ -115,6 +121,18 @@
     </section>
 
     <section class="card">
+        <h2>데이터 최신성</h2>
+        <div class="mini">모든 품질 JSON은 공통 <code>time</code> 블록으로 표준화됩니다. 원본 갱신은 실제 점검/수집 기준 시각이고, 대시보드 기준 나이는 현재 브라우저에서 계산합니다.</div>
+        <div class="wide-table"><table><thead><tr><th>데이터</th><th>원본 갱신</th><th>표준화</th><th>대시보드 기준 나이</th><th>상태</th><th>역할</th></tr></thead><tbody id="freshness-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>GitHub 워크플로우 알림</h2>
+        <div class="mini">데이터가 보존되는 수집/갱신 실패는 메일 장애 대신 경고 이벤트로 남깁니다. 데이터 보존 검증 실패처럼 실제 위험이 있는 경우만 워크플로우 실패로 봅니다.</div>
+        <div class="wide-table"><table><thead><tr><th>시각</th><th>워크플로우</th><th>작업</th><th>상태</th><th>영향</th><th>메시지</th></tr></thead><tbody id="workflow-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
         <h2>카나리 추세</h2>
         <div class="trend-grid" id="canary-trends">추세 데이터를 불러오는 중입니다.</div>
     </section>
@@ -154,7 +172,10 @@ const OPS_URLS = [`${ORACLE_BASE}/ops-status`, 'data/ops_status.json'];
 const CANARY_HISTORY_URLS = [`${ORACLE_BASE}/canary-history`, 'data/canary_history.json'];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
+const STATUS_URL = 'data/status.json';
+const Z3_CACHE_URL = 'data/z3_cache.json';
 const INVENTORY_URL = 'cctv_data.json';
+const WORKFLOW_STATUS_URL = 'data/workflow_status.json';
 const $ = (id) => document.getElementById(id);
 function esc(value) { return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[ch])); }
 function pct(value) { return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'; }
@@ -172,6 +193,43 @@ function ageText(hours) {
     if (!Number.isFinite(value)) return '-';
     if (value < 1) return `${Math.round(value * 60)}분`;
     return `${Math.round(value * 10) / 10}시간`;
+}
+
+function parseTime(value) {
+    if (!value) return null;
+    const dt = new Date(value);
+    return Number.isFinite(dt.getTime()) ? dt : null;
+}
+function formatDateTime(value) {
+    const dt = parseTime(value);
+    return dt ? dt.toLocaleString('ko-KR') : '-';
+}
+function ageMinutesFrom(value) {
+    const dt = parseTime(value);
+    return dt ? (Date.now() - dt.getTime()) / 60000 : NaN;
+}
+function formatAgeMinutes(minutes) {
+    if (!Number.isFinite(minutes)) return '-';
+    if (minutes < 1) return '방금 전';
+    if (minutes < 60) return `${Math.round(minutes)}분 전`;
+    if (minutes < 1440) return `${Math.round(minutes / 6) / 10}시간 전`;
+    return `${Math.round(minutes / 144) / 10}일 전`;
+}
+function freshnessTone(minutes, warnMinutes, dangerMinutes) {
+    if (!Number.isFinite(minutes)) return { cls: 'expired', label: '시간 없음' };
+    if (minutes >= dangerMinutes) return { cls: 'expired', label: '운영 확인 필요' };
+    if (minutes >= warnMinutes) return { cls: 'stale', label: '지연' };
+    return { cls: 'fresh', label: '정상' };
+}
+function timeMeta(payload, fallbackKey) {
+    const time = payload?.time || {};
+    const source = time.source_updated_at || payload?.[fallbackKey] || payload?.generated_at || payload?.last_updated || payload?.fetched || payload?._served_at;
+    return {
+        source_updated_at: source,
+        normalized_at: time.normalized_at || payload?.generated_at || payload?._served_at,
+        generated_at: time.generated_at || payload?.generated_at || payload?.last_updated || payload?.fetched,
+        schema: time.schema || 'legacy',
+    };
 }
 function normalize(item) {
     const samples = Number(item.samples || item.total || 0);
@@ -203,15 +261,18 @@ async function loadSummary() {
             break;
         } catch {}
     }
-    const [canary, ops, history, cache, audit] = await Promise.all([
+    const [canary, ops, history, cache, audit, regionalStatus, z3Cache, workflowStatus] = await Promise.all([
         loadFirstJson(CANARY_URLS, null),
         loadFirstJson(OPS_URLS, null),
         loadFirstJson(CANARY_HISTORY_URLS, []),
         loadLocalJson(CACHE_URL, null),
-        loadLocalJson(UTIC_AUDIT_URL, null)
+        loadLocalJson(UTIC_AUDIT_URL, null),
+        loadLocalJson(STATUS_URL, null),
+        loadLocalJson(Z3_CACHE_URL, null),
+        loadLocalJson(WORKFLOW_STATUS_URL, null)
     ]);
     const inventory = await loadLocalJson(INVENTORY_URL, []);
-    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, history, cache, audit, inventory });
+    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, history, cache, audit, regionalStatus, z3Cache, inventory, workflowStatus });
 }
 async function loadLocalJson(url, fallback) {
     try {
@@ -243,8 +304,11 @@ function render(summary, opsData = {}) {
     $('sample-count').textContent = sampleCount.toLocaleString('ko-KR');
     $('success-rate').textContent = pct(weightedRate(cameras));
     $('avg-load').textContent = ms(weightedLoad(cameras));
-    $('updated').textContent = summary.generated_at ? `마지막 집계: ${new Date(summary.generated_at).toLocaleString('ko-KR')} · 최근 ${summary.window_hours || 24}시간` : '아직 서버 집계 데이터가 없습니다.';
+    const summaryTime = timeMeta(summary, 'generated_at');
+    $('updated').textContent = summaryTime.source_updated_at ? `마지막 집계: ${formatDateTime(summaryTime.source_updated_at)} · 최근 ${summary.window_hours || 24}시간` : '아직 서버 집계 데이터가 없습니다.';
     renderOps(opsData);
+    renderFreshness(summary, opsData);
+    renderWorkflowEvents(opsData.workflowStatus);
     renderInventory(opsData.inventory || [], summary);
 
     $('camera-rows').innerHTML = problemCameras
@@ -262,6 +326,47 @@ function render(summary, opsData = {}) {
         .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
         .map(item => qualityRow(item, item.id))
         .join('') || '<tr><td colspan="7">지역 집계가 아직 없습니다.</td></tr>';
+}
+
+function renderFreshness(summary, { canary, ops, cache, regionalStatus, z3Cache, workflowStatus }) {
+    const rows = [
+        { label: '품질 요약', payload: summary, fallback: 'generated_at', warn: 120, danger: 360, role: '실사용/카나리 품질 대시보드 집계' },
+        { label: '핵심 카나리', payload: canary, fallback: 'generated_at', warn: 90, danger: 240, role: '진도, 제주, 대전, 구리, 남양주, 독도 실제 후보 점검' },
+        { label: '운영 상태', payload: ops, fallback: 'generated_at', warn: 90, danger: 240, role: '서비스 영향/복구/정책 요약' },
+        { label: '지역 헬스', payload: regionalStatus, fallback: 'last_updated', warn: 180, danger: 480, role: '지역별 공급처 상태와 카메라 실패 레지스트리' },
+        { label: 'Z3 캐시', payload: z3Cache, fallback: 'fetched', warn: 90, danger: 480, role: 'UTIC/NTIC 토큰형 영상 재생 URL 캐시' },
+        { label: '캐시 감사', payload: cache, fallback: 'generated_at', warn: 90, danger: 480, role: 'Z3 커버리지/누락률 감사' },
+        { label: '워크플로우 알림', payload: workflowStatus, fallback: 'generated_at', warn: 1440, danger: 10080, role: '보존형 수집 실패와 커밋 충돌 경고 이벤트' },
+    ];
+    $('freshness-rows').innerHTML = rows.map(row => {
+        const meta = timeMeta(row.payload, row.fallback);
+        const minutes = ageMinutesFrom(meta.source_updated_at);
+        const toneInfo = freshnessTone(minutes, row.warn, row.danger);
+        return `<tr>
+            <td>${esc(row.label)}</td>
+            <td>${formatDateTime(meta.source_updated_at)}</td>
+            <td>${formatDateTime(meta.normalized_at)}</td>
+            <td class="mono ${toneInfo.cls}">${formatAgeMinutes(minutes)}</td>
+            <td><span class="pill ${toneInfo.cls}">${esc(toneInfo.label)}</span></td>
+            <td>${esc(row.role)}</td>
+        </tr>`;
+    }).join('');
+}
+function renderWorkflowEvents(workflowStatus) {
+    const events = Array.isArray(workflowStatus?.events) ? workflowStatus.events.slice(-25).reverse() : [];
+    $('workflow-rows').innerHTML = events.map(event => {
+        const impact = event.impact || 'none';
+        const impactClass = impact === 'service' ? 'impact-service' : (impact === 'possible' ? 'impact-possible' : 'impact-none');
+        const statusClass = event.status === 'error' || event.status === 'failed' ? 'bad' : (event.status === 'warning' ? 'warn' : 'ok');
+        return `<tr>
+            <td>${formatDateTime(event.at)}</td>
+            <td>${esc(event.workflow || '-')}</td>
+            <td>${esc(event.job || '-')}</td>
+            <td><span class="pill ${statusClass}">${esc(event.status || '-')}</span></td>
+            <td class="${impactClass}">${esc(impact)}</td>
+            <td>${esc(event.message || '-')}</td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="6">최근 보존형 워크플로우 경고가 없습니다.</td></tr>';
 }
 function cameraType(item) {
     const url = String(item.url || item.directUrl || '');

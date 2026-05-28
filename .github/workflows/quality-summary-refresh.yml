@@ -77,11 +77,14 @@ jobs:
             python3 scripts/build_quality_summary_fallback.py
           fi
 
+      - name: Normalize dashboard timestamps
+        run: python3 scripts/standardize_quality_times.py --source github-quality-summary
+
       - name: Commit if changed
         run: |
           set -euo pipefail
-          if ! git diff --quiet -- "$OUTPUT_PATH"; then
-            scripts/commit_and_push_changes.sh "chore(data): refresh quality_summary.json [skip ci]" "$OUTPUT_PATH"
+          if ! git diff --quiet -- "$OUTPUT_PATH" data/status.json data/canary_status.json data/ops_status.json data/cache_status.json data/z3_cache.json data/workflow_status.json; then
+            scripts/commit_and_push_changes.sh "chore(data): refresh quality_summary.json [skip ci]" "$OUTPUT_PATH" data/status.json data/canary_status.json data/ops_status.json data/cache_status.json data/z3_cache.json data/workflow_status.json
           else
             echo "No change in $OUTPUT_PATH — skipping commit."
           fi

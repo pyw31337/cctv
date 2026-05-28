@@ -102,11 +102,13 @@ fetch_oracle_json_fallback "/health-status" "data/status.json" || true
 fetch_oracle_json_fallback "/canary-status" "data/canary_status.json" || true
 fetch_oracle_json_fallback "/ops-status" "data/ops_status.json" || true
 
+python3 scripts/standardize_quality_times.py --source local-z3-refresh || true
+
 # Push fresh cache/status files directly to Oracle. JSON endpoints read these
 # files without a server restart, so this avoids unnecessary downtime.
 if [ -f "$KEY_FILE" ]; then
   rsync -az -e "ssh -i $KEY_FILE -o StrictHostKeyChecking=no" \
-    data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json \
+    data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json \
     "ubuntu@$ORACLE_HOST:~/cctv/data/"
   ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no "ubuntu@$ORACLE_HOST" \
     'curl -fsS --max-time 5 http://127.0.0.1:8080/z3-cache.json >/dev/null || true; curl -fsS --max-time 5 http://127.0.0.1:8080/ops-status >/dev/null || true' || true
@@ -117,9 +119,9 @@ fi
 # Commit and push the static GitHub Pages fallback sparingly. Even with
 # `[skip ci]`, GitHub Pages deployment can still run for every commit, so the
 # Oracle sync above is the primary freshness path while Actions minutes are low.
-if ! git diff --quiet -- data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json; then
+if ! git diff --quiet -- data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json; then
   if should_push_github_fallback; then
-    git add data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json
+    git add data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json
     git commit -m "AUTO: Local Z3 cache refresh [skip ci]"
     git pull --rebase --autostash origin main || true
     if git push origin main; then

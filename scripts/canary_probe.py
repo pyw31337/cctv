@@ -65,7 +65,7 @@ CANARY_REGIONS = [
         "radius_km": 35,
         "keywords": ["진도"],
         "min_ok": 1,
-        "max_candidates": 6,
+        "max_candidates": 10,
     },
     {
         "key": "jeju",
@@ -75,7 +75,7 @@ CANARY_REGIONS = [
         "radius_km": 55,
         "keywords": ["제주", "서귀포", "NOWJEJU"],
         "min_ok": 2,
-        "max_candidates": 8,
+        "max_candidates": 12,
     },
     {
         "key": "daejeon",
@@ -85,7 +85,7 @@ CANARY_REGIONS = [
         "radius_km": 35,
         "keywords": ["대전", "갑천", "엑스포", "대화JC"],
         "min_ok": 2,
-        "max_candidates": 8,
+        "max_candidates": 12,
     },
     {
         "key": "guri",
@@ -95,7 +95,7 @@ CANARY_REGIONS = [
         "radius_km": 12,
         "keywords": ["구리", "수택", "세무서", "돌다리", "왕숙", "교문"],
         "min_ok": 2,
-        "max_candidates": 8,
+        "max_candidates": 10,
     },
     {
         "key": "namyangju",
@@ -105,7 +105,7 @@ CANARY_REGIONS = [
         "radius_km": 28,
         "keywords": ["남양주", "마석", "화도", "평내", "호평", "왕숙"],
         "min_ok": 2,
-        "max_candidates": 8,
+        "max_candidates": 10,
     },
     {
         "key": "dokdo",
@@ -115,7 +115,7 @@ CANARY_REGIONS = [
         "radius_km": 120,
         "keywords": ["독도", "울릉"],
         "min_ok": 1,
-        "max_candidates": 4,
+        "max_candidates": 8,
     },
 ]
 
@@ -702,7 +702,8 @@ def run() -> tuple[dict, dict]:
         "severity": severity,
         "policy": {
             "core_regions": [region["label"] for region in CANARY_REGIONS],
-            "cadence": "Oracle/local cron every 15-30 minutes is primary; GitHub Actions refreshes the static fallback every 4 hours.",
+            "cadence": "Oracle/local cron every 15-30 minutes is primary; GitHub Actions refreshes the static fallback every 3 hours.",
+            "candidate_policy": "핵심 지역은 넓은 후보군을 점검해 일부 장애가 있어도 재생 가능한 인접 후보를 찾습니다.",
             "catalog_preservation": "카메라 목록은 삭제하지 않고, 실패 카메라는 추천/노출 순위만 낮춥니다.",
             "service_impact_is_data_not_job_failure": "카나리에서 외부 CCTV 장애가 발견되어도 워크플로우는 성공 처리하고 상태 JSON에 기록합니다.",
             "z3_cache_incident_threshold_hours": Z3_MAX_TRUSTED_AGE_HOURS,

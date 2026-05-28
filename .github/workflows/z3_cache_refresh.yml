@@ -28,10 +28,14 @@ jobs:
       - name: Refresh and audit Z3 cache
         run: python scripts/refresh_z3_cache.py --max-age-minutes 45 --force --stale-ok-on-refresh-failure-hours 8
 
+      - name: Normalize dashboard timestamps
+        if: always()
+        run: python3 scripts/standardize_quality_times.py --source github-z3-refresh || true
+
       - name: Commit and push if changed
         run: |
-          if git diff --quiet -- data/z3_cache.json data/cache_status.json; then
+          if git diff --quiet -- data/z3_cache.json data/cache_status.json data/status.json data/quality_summary.json data/canary_status.json data/ops_status.json data/workflow_status.json; then
             echo "No cache changes"
           else
-            scripts/commit_and_push_changes.sh "AUTO: Refresh Z3 appUrl cache [skip ci]" data/z3_cache.json data/cache_status.json
+            scripts/commit_and_push_changes.sh "AUTO: Refresh Z3 appUrl cache [skip ci]" data/z3_cache.json data/cache_status.json data/status.json data/quality_summary.json data/canary_status.json data/ops_status.json data/workflow_status.json
           fi

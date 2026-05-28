@@ -9,8 +9,8 @@ on:
         default: 'false'
   schedule:
     # Oracle cron is the 10-30 minute primary canary path. GitHub Actions only
-    # refreshes the static GitHub Pages fallback snapshot every 4 hours.
-    - cron: '49 0,4,8,12,16,20 * * *'
+    # refreshes the static GitHub Pages fallback snapshot every 3 hours.
+    - cron: '49 0,3,6,9,12,15,18,21 * * *'
 
 concurrency:
   group: cctv-repo-writes
@@ -39,6 +39,11 @@ jobs:
           fi
           python3 scripts/canary_probe.py "${args[@]}"
 
+      - name: Normalize dashboard timestamps
+        if: always()
+        run: |
+          python3 scripts/standardize_quality_times.py --source github-canary || true
+
       - name: Write operator summary
         if: always()
         run: |
@@ -64,12 +69,13 @@ jobs:
           print(f"- Degraded regions: {', '.join(canary.get('degraded_regions') or []) or 'none'}")
           print('')
           print('Camera entries are preserved. Canary failures only affect ranking/status unless a strict manual run is requested.')
+          print('The quality dashboard reads normalized `time` blocks to show freshness consistently.')
           PY
 
       - name: Commit canary snapshots
         run: |
-          if git diff --quiet -- data/canary_status.json data/ops_status.json data/canary_history.json; then
+          if git diff --quiet -- data/canary_status.json data/ops_status.json data/canary_history.json data/quality_summary.json data/status.json data/cache_status.json data/z3_cache.json data/workflow_status.json; then
             echo "No canary changes."
           else
-            scripts/commit_and_push_changes.sh "AUTO: Refresh core canary playback status [skip ci]" data/canary_status.json data/ops_status.json data/canary_history.json
+            scripts/commit_and_push_changes.sh "AUTO: Refresh core canary playback status [skip ci]" data/canary_status.json data/ops_status.json data/canary_history.json data/quality_summary.json data/status.json data/cache_status.json data/z3_cache.json data/workflow_status.json
           fi

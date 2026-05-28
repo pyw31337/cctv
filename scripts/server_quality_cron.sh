@@ -70,6 +70,10 @@ if ! "$PYTHON" scripts/build_quality_summary_fallback.py >> "$LOG_FILE" 2>&1; th
   echo "[$(date -Is)] quality summary fallback failed" >> "$LOG_FILE"
 fi
 
+if ! "$PYTHON" scripts/standardize_quality_times.py --source oracle-quality-cron >> "$LOG_FILE" 2>&1; then
+  echo "[$(date -Is)] quality timestamp normalization failed" >> "$LOG_FILE"
+fi
+
 # Warm the local status endpoint so the public app can read the fresh result
 # from Oracle before falling back to GitHub Pages' static data/status.json.
 curl -fsS --max-time 5 "http://127.0.0.1:8080/health-status" >/dev/null 2>&1 || true

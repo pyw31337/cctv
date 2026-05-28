@@ -9,6 +9,8 @@ This service is optimized for catalog preservation first, then playback quality 
 - Health checks should rank unstable cameras lower and mark them as `manual_check` for review.
 - A camera may return to `active` when a later direct playback check succeeds.
 - Cache and token refresh jobs must run preservation guards before committing data changes.
+- Original-site-only cameras remain in the catalog when they are useful inventory. They are filterable and ranked below direct playable streams, not deleted.
+- Dashboard-facing JSON files should include a shared `time` object with `schema: cctv-quality-time-v1`.
 
 ## Status Semantics
 
@@ -26,6 +28,8 @@ Every data-mutating workflow should:
 4. Commit only if the guard confirms that data was preserved.
 
 The guard blocks unexpectedly large camera-count drops and converts legacy destructive statuses to `manual_check`.
+
+Generated-data workflows that can safely preserve the previous catalog should restore their snapshot and write `data/workflow_status.json` when their collector fails. This turns noisy "Run failed" emails into actionable dashboard warnings while keeping true data-preservation failures hard-failing.
 
 ## User Experience Rule
 

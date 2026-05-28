@@ -13,6 +13,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
+
 concurrency:
   group: cctv-repo-writes
   cancel-in-progress: false
@@ -35,11 +38,20 @@ jobs:
         run: cp cctv_data.json /tmp/cctv_data.before.json
 
       - name: Run GITS ingest
-        run: python scripts/ingest_gits.py
+        run: |
+          set +e
+          python scripts/ingest_gits.py
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::GITS ingest failed with exit $code. Keeping existing catalog and recording workflow status."
+            cp /tmp/cctv_data.before.json cctv_data.json
+            python scripts/write_workflow_status.py --workflow "GITS Daily Ingest" --job ingest --status warning --impact possible --message "ingest_gits.py exited $code; existing cctv_data.json preserved"
+          fi
 
       - name: Guard data preservation
         run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
 
       - name: Commit changes
         run: |
-          scripts/commit_and_push_changes.sh "chore: daily GITS ingest [skip ci]" cctv_data.json
+          scripts/commit_and_push_changes.sh "chore: daily GITS ingest [skip ci]" cctv_data.json data/workflow_status.json
