@@ -33,6 +33,11 @@ def utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def latest_stamp(*values: Any) -> str:
+    stamps = [str(value) for value in values if value]
+    return max(stamps) if stamps else utc_stamp()
+
+
 def row_from_result(result: dict[str, Any], region_label: str) -> dict[str, Any]:
     ok = bool(result.get("ok"))
     elapsed = int(result.get("elapsed_ms") or 0)
@@ -199,8 +204,9 @@ def main() -> int:
             add_rollup(source_buckets[row["source"]], row)
             add_rollup(region_buckets[region_label], row)
 
+    generated_at = latest_stamp(canary.get("generated_at"), status.get("last_updated"), ops.get("generated_at"))
     payload = {
-        "generated_at": canary.get("generated_at") or utc_stamp(),
+        "generated_at": generated_at,
         "window_hours": 24,
         "quality_basis": "core_canary_fallback",
         "telemetry_status": "fallback_from_regional_health_and_canary",
@@ -208,6 +214,8 @@ def main() -> int:
         "service_status": ops.get("service_status"),
         "inventory_total": len(catalog) if isinstance(catalog, list) else 0,
         "status_region_count": len(status.get("regions", {}) or {}),
+        "sampling_policy": status.get("sampling_policy") or {},
+        "coverage": status.get("coverage") or {},
         "cameras": cameras,
         "sources": {key: finalize_rollup(value) for key, value in source_buckets.items()},
         "regions": {key: finalize_rollup(value) for key, value in region_buckets.items()},

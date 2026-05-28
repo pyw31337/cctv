@@ -93,7 +93,8 @@
         <div class="card"><div class="metric" id="inv-proxy">-</div><div class="label">프록시/토큰형</div></div>
         <div class="card"><div class="metric" id="inv-direct">-</div><div class="label">직접 재생형</div></div>
         <div class="card"><div class="metric" id="inv-backup">-</div><div class="label">백업 URL 보유</div></div>
-        <div class="card"><div class="metric" id="inv-tested">-</div><div class="label">품질 샘플 보유</div></div>
+        <div class="card"><div class="metric" id="inv-tested">-</div><div class="label">누적 점검 영상</div></div>
+        <div class="card"><div class="metric" id="inv-recent">-</div><div class="label">최근 24h 점검</div></div>
     </div>
 
     <div class="split">
@@ -110,7 +111,7 @@
                 <div><b>실사용 불안정</b>: 최근 사용자 재생 실패율이 높거나 성공률이 낮은 상태입니다.</div>
                 <div><b>로딩 느림</b>: 재생은 가능하지만 첫 화면까지 8초 이상 걸리는 샘플이 많은 상태입니다.</div>
                 <div><b>점검 실패</b>: 서버 샘플 점검 실패입니다. 목록 삭제 사유가 아니며, 복구 스크립트/토큰 갱신/대체 후보 추천을 위한 입력값입니다.</div>
-                <div><b>미점검</b>: 장애가 아니라 아직 품질 샘플이 없는 상태입니다. 전체 전수 점검은 비용/공급처 부하 때문에 샘플링으로 운영합니다.</div>
+                <div><b>샘플 없음</b>: 장애가 아니라 아직 품질 샘플이 없는 상태입니다. Sentinel은 최근 점검 이력이 없는 CCTV를 우선 순환 점검해 전체 카탈로그 커버리지를 누적합니다.</div>
                 <div><b>교통우선</b>: UTIC, NTIC, 국도, IC, 고속도로, 자동차전용도로, 터널, 램프를 우선 추천합니다.</div>
             </div>
         </section>
@@ -161,7 +162,7 @@
 
     <section class="card">
         <h2>지역별 총 현황</h2>
-        <div class="wide-table"><table><thead><tr><th>지역</th><th>보유</th><th>점검 샘플</th><th>성공률</th><th>주요 소스</th><th>주의</th></tr></thead><tbody id="inventory-region-rows"></tbody></table></div>
+        <div class="wide-table"><table><thead><tr><th>지역</th><th>보유</th><th>품질 샘플</th><th>누적 점검</th><th>최근 24h</th><th>성공률</th><th>주요 소스</th><th>주의</th></tr></thead><tbody id="inventory-region-rows"></tbody></table></div>
     </section>
 </main>
 <script>
@@ -422,6 +423,8 @@ function qualityById(summary) {
 function renderInventory(items, summary) {
     const cameras = Array.isArray(items) ? items : [];
     const qById = qualityById(summary);
+    const coverage = summary?.coverage || {};
+    const coverageRegions = coverage?.regions || {};
     const bySource = {};
     const byRegion = {};
     const byType = {};
@@ -460,7 +463,8 @@ function renderInventory(items, summary) {
     $('inv-proxy').textContent = proxyCount.toLocaleString('ko-KR');
     $('inv-direct').textContent = directCount.toLocaleString('ko-KR');
     $('inv-backup').textContent = backupCount.toLocaleString('ko-KR');
-    $('inv-tested').textContent = qById.size.toLocaleString('ko-KR');
+    $('inv-tested').textContent = Number(coverage.checked_cameras || qById.size || 0).toLocaleString('ko-KR');
+    $('inv-recent').textContent = Number(coverage.recent_24h || 0).toLocaleString('ko-KR');
     const rateCell = (success, samples) => samples ? pct(success / samples) : '샘플 없음';
     const loadCell = (load, success) => success ? ms(load / success) : '-';
     $('inventory-source-rows').innerHTML = Object.entries(bySource)
@@ -479,9 +483,10 @@ function renderInventory(items, summary) {
         .map(([region, item]) => {
             const topSources = Object.entries(item.sources).sort((a,b) => b[1] - a[1]).slice(0, 3).map(([s,n]) => `${s} ${n}`).join(', ');
             const status = item.samples ? (item.success / item.samples < .75 ? '<span class="bad">주의</span>' : '<span class="ok">정상</span>') : '<span class="warn">샘플 없음</span>';
-            return `<tr><td>${esc(region)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${esc(topSources)}</td><td>${status}</td></tr>`;
+            const cov = coverageRegions[region] || {};
+            return `<tr><td>${esc(region)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${Number(cov.checked || 0).toLocaleString('ko-KR')}</td><td>${Number(cov.recent_24h || 0).toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${esc(topSources)}</td><td>${status}</td></tr>`;
         })
-        .join('') || '<tr><td colspan="6">지역 집계가 없습니다.</td></tr>';
+        .join('') || '<tr><td colspan="8">지역 집계가 없습니다.</td></tr>';
 }
 function renderOps({ canary, ops, cache, audit }) {
     const z3 = ops?.cache?.z3 || cache?.z3 || {};

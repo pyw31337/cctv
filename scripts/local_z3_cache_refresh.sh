@@ -48,6 +48,14 @@ trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
 cd "$ROOT"
 echo "[$(stamp)] start local Z3 refresh"
 
+if [ -x ".venv/bin/python" ]; then
+  PYTHON=".venv/bin/python"
+elif [ -x "venv/bin/python" ]; then
+  PYTHON="venv/bin/python"
+else
+  PYTHON="python3"
+fi
+
 if [ -f "$KEY_FILE" ]; then
   chmod 600 "$KEY_FILE" || true
 fi
@@ -60,26 +68,38 @@ else
   echo "[$(stamp)] local changes detected; skip pre-refresh pull"
 fi
 
-python3 scripts/refresh_z3_cache.py \
+"$PYTHON" scripts/refresh_z3_cache.py \
   --max-age-minutes "$MAX_AGE_MINUTES" \
   --force \
   --stale-ok-on-refresh-failure-hours "$FALLBACK_HOURS"
 
 # Keep the dashboard useful while the telemetry Worker is unavailable.
-python3 scripts/build_quality_summary_fallback.py || true
+"$PYTHON" scripts/build_quality_summary_fallback.py || true
 
 fetch_oracle_json_fallback() {
   local endpoint="$1"
   local output="$2"
   local tmp="${output}.tmp"
   if curl -fsS --max-time 10 "${ORACLE_BASE}${endpoint}" -o "$tmp"; then
-    if python3 - "$tmp" "$output" <<'PY'; then
+    if "$PYTHON" - "$tmp" "$output" <<'PY'; then
 import json
 import sys
 
 source, target = sys.argv[1], sys.argv[2]
 with open(source, encoding="utf-8") as f:
     data = json.load(f)
+try:
+    with open(target, encoding="utf-8") as f:
+        previous = json.load(f)
+except Exception:
+    previous = {}
+if isinstance(previous, dict) and isinstance(data, dict):
+    # Oracle may temporarily serve an older health schema. Preserve the local
+    # rotating coverage registry so local Z3 refresh cannot erase Sentinel's
+    # cumulative check history.
+    for key in ("camera_checks", "coverage", "sampling_policy"):
+        if key not in data and key in previous:
+            data[key] = previous[key]
 with open(target, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
@@ -102,7 +122,8 @@ fetch_oracle_json_fallback "/health-status" "data/status.json" || true
 fetch_oracle_json_fallback "/canary-status" "data/canary_status.json" || true
 fetch_oracle_json_fallback "/ops-status" "data/ops_status.json" || true
 
-python3 scripts/standardize_quality_times.py --source local-z3-refresh || true
+"$PYTHON" scripts/build_quality_summary_fallback.py || true
+"$PYTHON" scripts/standardize_quality_times.py --source local-z3-refresh || true
 
 # Push fresh cache/status files directly to Oracle. JSON endpoints read these
 # files without a server restart, so this avoids unnecessary downtime.

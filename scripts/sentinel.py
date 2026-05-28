@@ -23,6 +23,10 @@ REQUEST_TIMEOUT = 15
 EMERGENCY_INVESTIGATE_AFTER_MINUTES = 60
 EMERGENCY_CRITICAL_AFTER_MINUTES = 120
 CAMERA_FAILURE_REGISTRY_LIMIT = 500
+CAMERA_CHECK_REGISTRY_LIMIT = 30000
+DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET = 320
+DEFAULT_SENTINEL_MAX_REGION_CHECKS = 48
+DEFAULT_SENTINEL_MIN_REGION_CHECKS = 2
 DAEJEON_MP4_OFFSETS = [2, 4, 6, 8, 10, 1]
 DAEJEON_REQUEST_TIMEOUT = (1.0, 1.5)
 ORACLE_BASE = 'https://158.179.194.163.sslip.io'
@@ -88,6 +92,18 @@ def load_json(filepath):
         return {}
     with open(filepath, 'r', encoding='utf-8') as handle:
         return json.load(handle)
+
+
+def env_int(name, default, minimum=None, maximum=None):
+    try:
+        value = int(os.getenv(name, default))
+    except Exception:
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
 
 
 def save_json(filepath, data):
@@ -654,24 +670,104 @@ def get_target_sample_size(total_cameras):
     return 8
 
 
+def allocate_region_sample_sizes(region_map):
+    active_regions = {key: value for key, value in region_map.items() if value}
+    if not active_regions:
+        return {}
+
+    total_budget = env_int('CCTV_SENTINEL_TOTAL_CHECK_BUDGET', DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET, minimum=1, maximum=5000)
+    min_region = env_int('CCTV_SENTINEL_MIN_REGION_CHECKS', DEFAULT_SENTINEL_MIN_REGION_CHECKS, minimum=0, maximum=100)
+    max_region = env_int('CCTV_SENTINEL_MAX_REGION_CHECKS', DEFAULT_SENTINEL_MAX_REGION_CHECKS, minimum=1, maximum=1000)
+    total_cameras = sum(len(cameras) for cameras in active_regions.values())
+    budgets = {}
+
+    for region_name, cameras in active_regions.items():
+        count = len(cameras)
+        if total_cameras <= 0:
+            raw = min_region
+        else:
+            proportional = round(total_budget * (count / total_cameras))
+            sqrt_floor = math.ceil(math.sqrt(count))
+            raw = max(min_region, proportional, min(sqrt_floor, max_region))
+        budgets[region_name] = min(count, max(1, min(max_region, raw)))
+
+    total_allocated = sum(budgets.values())
+    if total_allocated > total_budget:
+        # Trim largest regions first, but never below the configured minimum.
+        for region_name, _ in sorted(active_regions.items(), key=lambda item: len(item[1]), reverse=True):
+            while total_allocated > total_budget and budgets[region_name] > min(min_region, len(active_regions[region_name])):
+                budgets[region_name] -= 1
+                total_allocated -= 1
+            if total_allocated <= total_budget:
+                break
+
+    return budgets
+
+
 def get_sampling_bucket():
     now = datetime.utcnow()
     slot = 0 if now.minute < 30 else 1
     return now.strftime('%Y%m%d%H') + str(slot)
 
 
-def select_representative_cameras(region_name, cameras, target_size):
+def checked_sort_key(camera_checks, cam):
+    cam_id = str(cam.get('id') or '')
+    entry = camera_checks.get(cam_id, {}) if isinstance(camera_checks, dict) else {}
+    last_checked = entry.get('last_checked_at') or entry.get('checked_at') or ''
+    check_count = int(entry.get('check_count') or 0)
+    # Empty timestamp sorts first, so never-checked cameras get immediate priority.
+    return (last_checked, check_count, cam_id, cam.get('name', ''))
+
+
+def pick_unique(target, candidates, seen_ids, limit):
+    picked = []
+    for cam in candidates:
+        cam_id = cam.get('id')
+        if not cam_id or cam_id in seen_ids:
+            continue
+        picked.append(cam)
+        seen_ids.add(cam_id)
+        if len(picked) >= limit:
+            break
+    target.extend(picked)
+    return len(picked)
+
+
+def select_representative_cameras(region_name, cameras, target_size, current_status=None):
     if not cameras:
-        return [], 0, 0
+        return [], 0, 0, 0
 
     ordered = sorted(cameras, key=lambda cam: (cam.get('id', ''), cam.get('name', '')))
     if len(ordered) <= target_size:
-        return ordered, len(ordered), 0
+        return ordered, 0, len(ordered), 0
 
-    stable_target = min(len(ordered), max(2, math.ceil(target_size * 0.5)))
+    current_status = current_status if isinstance(current_status, dict) else {}
+    camera_checks = current_status.get('camera_checks') if isinstance(current_status.get('camera_checks'), dict) else {}
+    camera_failures = current_status.get('camera_failures') if isinstance(current_status.get('camera_failures'), dict) else {}
+
     stable = []
+    coverage = []
+    exploratory = []
     seen_ids = set()
 
+    failed_candidates = [
+        cam for cam in ordered
+        if str(cam.get('id') or '') in camera_failures
+        and camera_failures.get(str(cam.get('id') or ''), {}).get('region') == region_name
+    ]
+    failed_candidates.sort(key=lambda cam: (
+        camera_failures.get(str(cam.get('id') or ''), {}).get('last_failed_at') or '',
+        str(cam.get('id') or '')
+    ))
+    retry_target = min(len(failed_candidates), max(1, math.ceil(target_size * 0.2))) if failed_candidates else 0
+    retry = []
+    pick_unique(retry, failed_candidates, seen_ids, retry_target)
+
+    coverage_target = max(0, math.ceil(target_size * 0.7) - len(retry))
+    least_checked = sorted(ordered, key=lambda cam: checked_sort_key(camera_checks, cam))
+    pick_unique(coverage, least_checked, seen_ids, coverage_target)
+
+    stable_target = max(0, min(len(ordered), target_size - len(retry) - len(coverage), max(1, math.ceil(target_size * 0.1))))
     anchor_indices = [0, len(ordered) // 4, len(ordered) // 2, (len(ordered) * 3) // 4, len(ordered) - 1]
     for index in anchor_indices:
         cam = ordered[index]
@@ -683,17 +779,7 @@ def select_representative_cameras(region_name, cameras, target_size):
         if len(stable) >= stable_target:
             break
 
-    if len(stable) < stable_target:
-        remainder = [cam for cam in ordered if cam.get('id') not in seen_ids]
-        remainder.sort(key=lambda cam: f"{region_name}:{cam.get('id', '')}:{cam.get('name', '')}")
-        for cam in remainder:
-            stable.append(cam)
-            seen_ids.add(cam.get('id'))
-            if len(stable) >= stable_target:
-                break
-
-    exploratory_target = max(0, target_size - len(stable))
-    exploratory = []
+    exploratory_target = max(0, target_size - len(retry) - len(coverage) - len(stable))
     if exploratory_target > 0:
         remaining = [cam for cam in ordered if cam.get('id') not in seen_ids]
         sampler = random.Random(f'{region_name}:{get_sampling_bucket()}')
@@ -702,8 +788,8 @@ def select_representative_cameras(region_name, cameras, target_size):
         else:
             exploratory = sampler.sample(remaining, exploratory_target)
 
-    sample = stable + exploratory
-    return sample, len(stable), len(exploratory)
+    sample = retry + coverage + stable + exploratory
+    return sample, len(stable), len(exploratory), len(coverage)
 
 
 def evaluate_region_health(checked, passed):
@@ -922,6 +1008,86 @@ def update_camera_failure_registry(current_status, region_name, result):
         current_status['camera_failures'] = dict(ordered[:CAMERA_FAILURE_REGISTRY_LIMIT])
 
 
+def update_camera_check_registry(current_status, region_name, result):
+    registry = current_status.get('camera_checks')
+    if not isinstance(registry, dict):
+        registry = {}
+        current_status['camera_checks'] = registry
+
+    now_iso = utc_timestamp()
+    passed_ids = set(result.get('passed_ids') or [])
+    failed_samples = {sample.get('id'): sample for sample in result.get('failed_samples') or [] if sample.get('id')}
+    sample_ids = [camera_id for camera_id in result.get('sample_ids') or [] if camera_id]
+    checked_samples = {
+        sample.get('id'): sample
+        for sample in result.get('checked_samples') or []
+        if isinstance(sample, dict) and sample.get('id')
+    }
+
+    for camera_id in sample_ids:
+        previous = registry.get(camera_id, {})
+        ok = camera_id in passed_ids
+        failed_sample = failed_samples.get(camera_id)
+        checked_sample = checked_samples.get(camera_id, {})
+        last_category = None if ok else (failed_sample or {}).get('category')
+        registry[camera_id] = {
+            'id': camera_id,
+            'name': checked_sample.get('name') or previous.get('name') or (failed_sample or {}).get('name'),
+            'region': region_name,
+            'source': checked_sample.get('source') or previous.get('source') or (failed_sample or {}).get('source'),
+            'last_checked_at': checked_sample.get('checked_at') or (failed_sample or {}).get('checked_at') or now_iso,
+            'last_ok': bool(ok),
+            'last_category': last_category,
+            'last_reason': None if ok else (failed_sample or {}).get('reason'),
+            'check_count': int(previous.get('check_count') or 0) + 1,
+            'success_count': int(previous.get('success_count') or 0) + (1 if ok else 0),
+            'failure_count': int(previous.get('failure_count') or 0) + (0 if ok else 1),
+        }
+
+    if len(registry) > CAMERA_CHECK_REGISTRY_LIMIT:
+        ordered = sorted(
+            registry.items(),
+            key=lambda item: item[1].get('last_checked_at') or '',
+            reverse=True
+        )
+        current_status['camera_checks'] = dict(ordered[:CAMERA_CHECK_REGISTRY_LIMIT])
+
+
+def summarize_check_coverage(current_status, total_cameras, region_map):
+    checks = current_status.get('camera_checks')
+    checks = checks if isinstance(checks, dict) else {}
+    checked_total = len(checks)
+    stale_cutoff = datetime.utcnow() - timedelta(hours=24)
+    recent_total = 0
+    region_summary = {}
+    for region_name, cameras in region_map.items():
+        camera_ids = {str(cam.get('id') or '') for cam in cameras if cam.get('id')}
+        checked_ids = [cid for cid in camera_ids if cid in checks]
+        recent = 0
+        for cid in checked_ids:
+            checked_at = parse_utc_timestamp(checks.get(cid, {}).get('last_checked_at'))
+            if checked_at and checked_at >= stale_cutoff:
+                recent += 1
+        recent_total += recent
+        region_summary[region_name] = {
+            'total': len(camera_ids),
+            'checked': len(checked_ids),
+            'unchecked': max(0, len(camera_ids) - len(checked_ids)),
+            'checked_ratio': round(len(checked_ids) / len(camera_ids), 4) if camera_ids else 0,
+            'recent_24h': recent
+        }
+
+    return {
+        'total_cameras': total_cameras,
+        'checked_cameras': checked_total,
+        'unchecked_cameras': max(0, total_cameras - checked_total),
+        'checked_ratio': round(checked_total / total_cameras, 4) if total_cameras else 0,
+        'recent_24h': recent_total,
+        'policy': 'least_recently_checked_rotation',
+        'regions': region_summary
+    }
+
+
 def summarize_failed_samples(failed_samples):
     breakdown = {}
     for sample in failed_samples:
@@ -948,7 +1114,7 @@ def summarize_failed_samples(failed_samples):
     }
 
 
-def test_region(region_name, cameras):
+def test_region(region_name, cameras, current_status=None, target_size=None):
     if not cameras:
         return {
             'status': 'UNKNOWN',
@@ -965,25 +1131,40 @@ def test_region(region_name, cameras):
             'failure_breakdown': {'categories': [], 'dominant': None},
             'sample_strategy': {
                 'stable': 0,
-                'exploratory': 0
+                'exploratory': 0,
+                'coverage': 0
             }
         }
 
-    target_size = get_target_sample_size(len(cameras))
-    sample, stable_count, exploratory_count = select_representative_cameras(region_name, cameras, target_size)
+    if target_size is None:
+        target_size = get_target_sample_size(len(cameras))
+    sample, stable_count, exploratory_count, coverage_count = select_representative_cameras(
+        region_name,
+        cameras,
+        target_size,
+        current_status=current_status
+    )
     sample_ids = [cam.get('id') for cam in sample if cam.get('id')]
     failed_ids = []
     passed_ids = []
     failed_samples = []
+    checked_samples = []
     passed = 0
 
     log(
         f'Testing {region_name} with {len(sample)} samples '
-        f'(stable={stable_count}, exploratory={exploratory_count}, total_cameras={len(cameras)})'
+        f'(stable={stable_count}, coverage={coverage_count}, exploratory={exploratory_count}, total_cameras={len(cameras)})'
     )
 
     for cam in sample:
         success = check_camera(region_name, cam)
+        checked_samples.append({
+            'id': cam.get('id'),
+            'name': cam.get('name'),
+            'source': cam.get('source'),
+            'ok': bool(success),
+            'checked_at': get_probe_result(cam).get('checked_at') or utc_timestamp()
+        })
         if success:
             passed += 1
             if cam.get('id'):
@@ -1007,14 +1188,18 @@ def test_region(region_name, cameras):
         'camera_count': len(cameras),
         'checked_at': utc_timestamp(),
         'sample_ids': sample_ids,
+        'checked_samples': checked_samples,
         'failed_ids': failed_ids,
         'passed_ids': passed_ids,
         'failed_samples': failed_samples,
         'failure_breakdown': failure_breakdown,
         'sample_strategy': {
             'stable': stable_count,
-            'exploratory': exploratory_count
-        }
+            'exploratory': exploratory_count,
+            'coverage': coverage_count,
+            'policy': 'least_recently_checked_rotation'
+        },
+        'target_size': target_size
     }
 
 
@@ -1055,6 +1240,7 @@ def run_sentinel():
 
         current_status.setdefault('regions', {})
         region_map = build_region_map(cctv_data)
+        region_budgets = allocate_region_sample_sizes(region_map)
 
         all_regions = set(region_map.keys()) | set(config.keys()) | set(current_status['regions'].keys())
         log(f'Discovered {len(all_regions)} regions: {sorted(all_regions)}')
@@ -1065,13 +1251,28 @@ def run_sentinel():
                 log(f'Skipping {region_name}: no cameras discovered in current dataset.')
                 continue
 
-            result = test_region(region_name, cameras)
+            result = test_region(
+                region_name,
+                cameras,
+                current_status=current_status,
+                target_size=region_budgets.get(region_name)
+            )
             status_entry = current_status['regions'].setdefault(region_name, {})
             status_entry.update(result)
             status_entry['active_source'] = resolve_active_source(region_name, result['status'], config)
             update_camera_failure_registry(current_status, region_name, result)
+            update_camera_check_registry(current_status, region_name, result)
 
         current_status['last_updated'] = utc_timestamp()
+        current_status['coverage'] = summarize_check_coverage(current_status, len(cctv_data), region_map)
+        current_status['sampling_policy'] = {
+            'policy': 'least_recently_checked_rotation',
+            'total_check_budget': env_int('CCTV_SENTINEL_TOTAL_CHECK_BUDGET', DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET, minimum=1, maximum=5000),
+            'min_region_checks': env_int('CCTV_SENTINEL_MIN_REGION_CHECKS', DEFAULT_SENTINEL_MIN_REGION_CHECKS, minimum=0, maximum=100),
+            'max_region_checks': env_int('CCTV_SENTINEL_MAX_REGION_CHECKS', DEFAULT_SENTINEL_MAX_REGION_CHECKS, minimum=1, maximum=1000),
+            'region_budgets': region_budgets,
+            'note': '각 실행마다 최근 점검되지 않은 CCTV를 우선 선택해 전체 카탈로그 커버리지를 누적합니다.'
+        }
         save_json(STATUS_FILE, current_status)
         log('--- Sentinel Finished ---')
     except Exception as error:
