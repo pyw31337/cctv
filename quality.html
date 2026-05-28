@@ -99,7 +99,7 @@
     <div class="split">
         <section class="card">
             <h2>우선 점검 CCTV</h2>
-            <table><thead><tr><th>CCTV</th><th>소스</th><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>샘플</th></tr></thead><tbody id="camera-rows"></tbody></table>
+        <table><thead><tr><th>CCTV</th><th>소스</th><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>샘플</th><th>원인/조치</th></tr></thead><tbody id="camera-rows"></tbody></table>
         </section>
         <section class="card">
             <h2>상태 정의</h2>
@@ -109,7 +109,8 @@
                 <div><b>Z3 캐시 장애</b>: 캐시가 8시간을 넘으면 경고가 아니라 운영 장애로 보고 Z3 영상을 강하게 후순위 처리합니다.</div>
                 <div><b>실사용 불안정</b>: 최근 사용자 재생 실패율이 높거나 성공률이 낮은 상태입니다.</div>
                 <div><b>로딩 느림</b>: 재생은 가능하지만 첫 화면까지 8초 이상 걸리는 샘플이 많은 상태입니다.</div>
-                <div><b>점검 실패</b>: 서버 샘플 점검 실패입니다. 실제 사용자 재생 성공이 확인되면 화면 상태가 우선됩니다.</div>
+                <div><b>점검 실패</b>: 서버 샘플 점검 실패입니다. 목록 삭제 사유가 아니며, 복구 스크립트/토큰 갱신/대체 후보 추천을 위한 입력값입니다.</div>
+                <div><b>미점검</b>: 장애가 아니라 아직 품질 샘플이 없는 상태입니다. 전체 전수 점검은 비용/공급처 부하 때문에 샘플링으로 운영합니다.</div>
                 <div><b>교통우선</b>: UTIC, NTIC, 국도, IC, 고속도로, 자동차전용도로, 터널, 램프를 우선 추천합니다.</div>
             </div>
         </section>
@@ -314,8 +315,8 @@ function render(summary, opsData = {}) {
     $('camera-rows').innerHTML = problemCameras
         .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
         .slice(0, 35)
-        .map(item => `<tr><td>${esc(item.camera_name || item.id)}</td><td>${esc(item.source || '-')}</td><td>${esc(item.region || '-')}</td><td><span class="pill ${tone(item.successRate, item.avgFirstFrameMs)}">${pct(item.successRate)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td>${item.samples}</td></tr>`)
-        .join('') || '<tr><td colspan="7">우선 점검 후보가 아직 없습니다.</td></tr>';
+        .map(item => `<tr><td>${esc(item.camera_name || item.id)}</td><td>${esc(item.source || '-')}</td><td>${esc(item.region || '-')}</td><td><span class="pill ${tone(item.successRate, item.avgFirstFrameMs)}">${pct(item.successRate)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td>${item.samples}</td><td>${esc(item.recommended_action || item.reason || item.category || '-')}</td></tr>`)
+        .join('') || '<tr><td colspan="8">우선 점검 후보가 아직 없습니다.</td></tr>';
 
     $('source-rows').innerHTML = sources
         .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
@@ -460,7 +461,7 @@ function renderInventory(items, summary) {
     $('inv-direct').textContent = directCount.toLocaleString('ko-KR');
     $('inv-backup').textContent = backupCount.toLocaleString('ko-KR');
     $('inv-tested').textContent = qById.size.toLocaleString('ko-KR');
-    const rateCell = (success, samples) => samples ? pct(success / samples) : '미점검';
+    const rateCell = (success, samples) => samples ? pct(success / samples) : '샘플 없음';
     const loadCell = (load, success) => success ? ms(load / success) : '-';
     $('inventory-source-rows').innerHTML = Object.entries(bySource)
         .sort((a, b) => b[1].total - a[1].total)
@@ -477,7 +478,7 @@ function renderInventory(items, summary) {
         .sort((a, b) => b[1].total - a[1].total)
         .map(([region, item]) => {
             const topSources = Object.entries(item.sources).sort((a,b) => b[1] - a[1]).slice(0, 3).map(([s,n]) => `${s} ${n}`).join(', ');
-            const status = item.samples ? (item.success / item.samples < .75 ? '<span class="bad">주의</span>' : '<span class="ok">정상</span>') : '<span class="warn">미점검</span>';
+            const status = item.samples ? (item.success / item.samples < .75 ? '<span class="bad">주의</span>' : '<span class="ok">정상</span>') : '<span class="warn">샘플 없음</span>';
             return `<tr><td>${esc(region)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${esc(topSources)}</td><td>${status}</td></tr>`;
         })
         .join('') || '<tr><td colspan="6">지역 집계가 없습니다.</td></tr>';

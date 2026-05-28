@@ -240,11 +240,11 @@ def resolve_probe_url(cam: dict, z3_cache: dict) -> tuple[str, str, dict]:
 
     if source == "KBS":
         cctvip = cam.get("original_id") or z3_cctvip(url) or str(cam.get("id", "")).split("_")[-1]
-        meta.update({"resolver": "kbs", "cctvip": cctvip})
-        # Prefer the existing signed URL when present; fallback to the resolver.
-        if "kbscctv-cache" in url or "playlist.m3u8" in url:
-            return url, "direct_kbs", meta
-        return f"{ORACLE_BASE}/kb?cctvip={quote(str(cctvip))}", "oracle_kbs", meta
+        meta.update({"resolver": "oracle_kbs", "cctvip": cctvip})
+        if cctvip:
+            return f"{ORACLE_BASE}/kb?cctvip={quote(str(cctvip))}", "oracle_kbs", meta
+        meta["resolver"] = "direct_kbs_no_id"
+        return url, "direct_kbs_no_id", meta
 
     if source in {"NOWJEJU", "TRENDWORLD"} and url and not url.startswith(ORACLE_BASE):
         meta["resolver"] = "oracle_proxy"
@@ -334,6 +334,7 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
         "content_type": None,
         "probe_url": redact_probe_url(probe_url),
         "meta": meta,
+        "checked_at": utc_stamp(),
     }
     if not probe_url:
         result.update({"reason": "missing_url", "category": "data_error", "elapsed_ms": 0})
@@ -376,8 +377,32 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
     return result
 
 
-def select_candidates(cameras: list[dict], region: dict) -> list[dict]:
+def status_signal_sets(status: dict) -> tuple[set[str], set[str]]:
+    passed_ids: set[str] = set()
+    failed_ids: set[str] = set()
+    for item in (status.get("regions") or {}).values() if isinstance(status, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        passed_ids.update(str(cid) for cid in item.get("passed_ids", []) if cid)
+        failed_ids.update(str(cid) for cid in item.get("failed_ids", []) if cid)
+        for sample in item.get("failed_samples", []) or []:
+            if isinstance(sample, dict) and sample.get("id"):
+                failed_ids.add(str(sample["id"]))
+    failures = status.get("camera_failures", {}) if isinstance(status, dict) else {}
+    if isinstance(failures, dict):
+        failed_ids.update(str(cid) for cid in failures.keys() if cid)
+    return passed_ids, failed_ids
+
+
+def select_candidates(
+    cameras: list[dict],
+    region: dict,
+    passed_ids: set[str] | None = None,
+    failed_ids: set[str] | None = None,
+) -> list[dict]:
     terms = [term.lower() for term in region.get("keywords", [])]
+    passed_ids = passed_ids or set()
+    failed_ids = failed_ids or set()
     out = []
     for cam in cameras:
         try:
@@ -390,11 +415,14 @@ def select_candidates(cameras: list[dict], region: dict) -> list[dict]:
         keyword_match = any(term in text for term in terms)
         if dist > region.get("radius_km", 30) and not keyword_match:
             continue
+        cid = str(cam.get("id") or "")
         status_penalty = 2.5 if str(cam.get("status") or "").lower() == "manual_check" else 0
         source_bonus = -1.2 if source_of(cam) in {"KBS", "SPATIC", "NOWJEJU"} else 0
         z3_penalty = 0.8 if is_z3_camera(cam) else 0
         keyword_bonus = -2.0 if keyword_match else 0
-        score = dist + status_penalty + source_bonus + z3_penalty + keyword_bonus
+        observed_success_bonus = -4.0 if cid in passed_ids else 0
+        observed_failure_penalty = 4.0 if cid in failed_ids and cid not in passed_ids else 0
+        score = dist + status_penalty + source_bonus + z3_penalty + keyword_bonus + observed_success_bonus + observed_failure_penalty
         out.append((score, dist, cam))
     out.sort(key=lambda item: (item[0], item[1], str(item[2].get("id"))))
     seen = set()
@@ -656,10 +684,12 @@ def run() -> tuple[dict, dict]:
     if not isinstance(cameras, list):
         raise SystemExit("cctv_data.json must be a list")
     z3_cache = load_json(Z3_CACHE_FILE, {})
+    regional_status = load_json(STATUS_FILE, {})
+    passed_ids, failed_ids = status_signal_sets(regional_status)
     regions: dict[str, Any] = {}
     camera_index: dict[str, Any] = {}
     for region in CANARY_REGIONS:
-        candidates = select_candidates(cameras, region)
+        candidates = select_candidates(cameras, region, passed_ids=passed_ids, failed_ids=failed_ids)
         print(f"[canary] {region['label']} candidates={len(candidates)}")
         results = []
         for cam in candidates:
