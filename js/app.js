@@ -44,6 +44,7 @@ const WORLD_TOUR_CHEVRON_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" wid
 const WORLD_TOUR_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const WORLD_TOUR_LIST_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>';
 const WORLD_TOUR_VIDEO_OFF_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-video-off" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 3l18 18"/><path d="M15 11v-1l4.553 -2.276a1 1 0 0 1 1.447 .894v6.764a1 1 0 0 1 -.675 .946"/><path d="M10 6h3a2 2 0 0 1 2 2v3m0 4v1a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2h1"/></svg>';
+const SEARCH_VIDEO_SHARE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51 15.42 17.49"/><path d="M15.41 6.51 8.59 10.49"/></svg>';
 const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
 const CANARY_STATUS_BUCKET_MS = 10 * 60 * 1000;
 const QUALITY_SUMMARY_TIMEOUT_MS = 1800;
@@ -816,7 +817,7 @@ function setupEventListeners() {
     // Location Button
     $('#location-btn').addEventListener('click', handleCurrentLocation);
 
-    // Search Results Click (Delegation for items, bookmark, delete, cctv favorite, open compare)
+    // Search Results Click (Delegation for items, share, bookmark, delete, cctv favorite, open compare)
     $('#search-results').addEventListener('click', (e) => {
         const favItem = e.target.closest('.cctv-favorite-item');
         if (favItem) {
@@ -885,7 +886,9 @@ function setupEventListeners() {
                 type: item.dataset.type
             };
 
-            if (actionBtn.dataset.action === 'bookmark') {
+            if (actionBtn.dataset.action === 'share-video') {
+                openSearchPointVideoView(itemData);
+            } else if (actionBtn.dataset.action === 'bookmark') {
                 toggleBookmark(itemData);
             } else if (actionBtn.dataset.action === 'delete') {
                 deleteHistoryItem(itemData.name);
@@ -1154,6 +1157,7 @@ function renderSearchItem(item, isBookmarked, options = {}) {
     const bookmarkClass = isBookmarked ? 'active' : '';
     const escape = s => String(s ?? '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
     const isWorld = item?.type === 'world' || item?.isWorldTourCam || item?.worldCamId;
+    const hasPoint = Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
     const dataAttrs = isWorld
         ? `data-type="world" data-world-cam-id="${escape(item.worldCamId || '')}" data-name="${escape(item.name)}" data-address="${escape(item.address || '')}"`
         : `data-lat="${escape(item.lat)}" data-lng="${escape(item.lng)}" data-name="${escape(item.name)}" data-address="${escape(item.address || '')}"`;
@@ -1171,6 +1175,7 @@ function renderSearchItem(item, isBookmarked, options = {}) {
                 <div class="search-result-address">${isWorld ? '전세계 라이브 · ' : ''}${escape(item.address || '')}</div>
             </div>
             <div class="search-result-actions">
+                ${!isWorld && hasPoint ? `<button class="btn-share-search" data-action="share-video" title="4분할 영상으로 열기" aria-label="4분할 영상으로 열기">${SEARCH_VIDEO_SHARE_SVG}</button>` : ''}
                 <button class="btn-bookmark ${bookmarkClass}" data-action="bookmark" title="${isBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}" aria-pressed="${isBookmarked}" aria-label="${isBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="${isBookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
@@ -1324,6 +1329,9 @@ function renderSearchResults(data) {
                 <div class="search-result-info">
                     <div class="search-result-name">${place.place_name}</div>
                     <div class="search-result-address">${place.address_name || ''}</div>
+                </div>
+                <div class="search-result-actions">
+                    <button class="btn-share-search" data-action="share-video" title="4분할 영상으로 열기" aria-label="4분할 영상으로 열기">${SEARCH_VIDEO_SHARE_SVG}</button>
                 </div>
             </div>
         `}).join('');
@@ -3605,6 +3613,33 @@ function buildShareUrl(cctv) {
         params.set('cctv', cctv.id);
     }
     return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function buildSearchPointVideoUrl(itemData) {
+    const lat = Number(itemData?.lat);
+    const lng = Number(itemData?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    const params = new URLSearchParams();
+    params.set('lat', lat.toFixed(6));
+    params.set('lng', lng.toFixed(6));
+    params.set('name', itemData?.name || '검색 지점');
+    params.set('mode', 'video');
+    return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function openSearchPointVideoView(itemData) {
+    const shareUrl = buildSearchPointVideoUrl(itemData);
+    if (!shareUrl) return;
+
+    saveSearchHistory({
+        lat: Number(itemData.lat),
+        lng: Number(itemData.lng),
+        name: itemData.name || '검색 지점',
+        address: itemData.address || ''
+    });
+
+    window.location.assign(shareUrl);
 }
 
 // Configure once the worker is deployed. Leave as null to disable dynamic OG.
