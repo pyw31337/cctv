@@ -846,6 +846,7 @@ function setupEventListeners() {
             const removeWorldBtn = e.target.closest('[data-action="remove-favorite-world"]');
             const removeBtn = e.target.closest('[data-action="remove-favorite"]');
             if (shareBtn) {
+                e.preventDefault();
                 e.stopPropagation();
                 if (isWorld) {
                     copyWorldTourShareLinkById(favItem.dataset.worldCamId, {
@@ -908,6 +909,7 @@ function setupEventListeners() {
 
         const actionBtn = e.target.closest('[data-action]');
         if (actionBtn) {
+            e.preventDefault();
             e.stopPropagation();
             const itemData = {
                 lat: parseFloat(item.dataset.lat),
@@ -3803,7 +3805,6 @@ async function openSearchPointVideoView(itemData) {
     await copyShareUrl(shareUrl, {
         successMessage: '공유링크가 복사되었습니다.'
     });
-    window.location.assign(shareUrl);
 }
 
 // Configure once the worker is deployed. Leave as null to disable dynamic OG.
