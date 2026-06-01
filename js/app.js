@@ -447,6 +447,8 @@ const state = {
     mapInitialized: false,
     searchMarker: null, // Reference to the red marker
     initialSelectionId: null,
+    initialWorldTourId: null,
+    initialWorldTourViewMode: 'video',
     activeCctvId: null,
     serviceBannerTimer: null,
     serviceBannerCountdownTimer: null,
@@ -487,13 +489,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderServiceStatusBanner();
     renderVideoGrid();
     switchMode(state.mode);
-    syncUrlState();
+    if (!state.initialWorldTourId) {
+        syncUrlState();
+    }
 
     if (state.initialSelectionId) {
         const initialCctv = findCctvById(state.initialSelectionId);
         if (initialCctv) {
             openVideoLayer(initialCctv);
         }
+    }
+
+    if (state.initialWorldTourId || new URLSearchParams(window.location.search).get('mode') === 'world') {
+        $('#weather-layer')?.classList.add('active');
+        $('#weather-btn')?.classList.add('active');
+        openWorldTourPanel({
+            selectedId: state.initialWorldTourId,
+            viewMode: state.initialWorldTourViewMode || 'video'
+        }).catch(error => console.warn('[WorldTour] initial shared link failed:', error));
     }
 
     console.log('Initialization Complete.');
@@ -666,6 +679,8 @@ function restoreInitialViewState() {
     const name = params.get('name');
     const mode = params.get('mode');
     const cctvId = params.get('cctv');
+    const worldTourId = params.get('world') || params.get('worldCam') || params.get('worldCamId');
+    const worldTourViewMode = params.get('worldMode') || params.get('view') || 'video';
 
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
         state.center = { lat, lng };
@@ -689,6 +704,11 @@ function restoreInitialViewState() {
             state.center = { lat: selected.lat, lng: selected.lng };
             state.keyword = selected.name || state.keyword;
         }
+    }
+
+    if (worldTourId || mode === 'world') {
+        state.initialWorldTourId = worldTourId;
+        state.initialWorldTourViewMode = worldTourViewMode === 'map' ? 'map' : 'video';
     }
 
     $('#search-input').value = state.keyword;
@@ -887,7 +907,11 @@ function setupEventListeners() {
             };
 
             if (actionBtn.dataset.action === 'share-video') {
-                openSearchPointVideoView(itemData);
+                if (itemData.isWorldTourCam) {
+                    copyWorldTourShareLinkById(itemData.worldCamId, itemData);
+                } else {
+                    openSearchPointVideoView(itemData);
+                }
             } else if (actionBtn.dataset.action === 'bookmark') {
                 toggleBookmark(itemData);
             } else if (actionBtn.dataset.action === 'delete') {
@@ -1175,7 +1199,7 @@ function renderSearchItem(item, isBookmarked, options = {}) {
                 <div class="search-result-address">${isWorld ? '전세계 라이브 · ' : ''}${escape(item.address || '')}</div>
             </div>
             <div class="search-result-actions">
-                ${!isWorld && hasPoint ? `<button class="btn-share-search" data-action="share-video" title="4분할 영상으로 열기" aria-label="4분할 영상으로 열기">${SEARCH_VIDEO_SHARE_SVG}</button>` : ''}
+                ${(isWorld || hasPoint) ? `<button class="btn-share-search" data-action="share-video" title="${isWorld ? '글로벌 영상 링크 복사' : '4분할 영상 링크 복사'}" aria-label="${isWorld ? '글로벌 영상 링크 복사' : '4분할 영상 링크 복사'}">${SEARCH_VIDEO_SHARE_SVG}</button>` : ''}
                 <button class="btn-bookmark ${bookmarkClass}" data-action="bookmark" title="${isBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}" aria-pressed="${isBookmarked}" aria-label="${isBookmarked ? '즐겨찾기 해제' : '즐겨찾기 추가'}">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="${isBookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
@@ -1318,6 +1342,7 @@ function renderSearchResults(data) {
                         <div class="search-result-address">전세계 라이브 · ${place.address_name || ''}</div>
                     </div>
                     <div class="search-result-actions">
+                        <button class="btn-share-search" data-action="share-video" title="글로벌 영상 링크 복사" aria-label="글로벌 영상 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
                         <span class="search-result-tag">World</span>
                     </div>
                 </div>`;
@@ -3628,7 +3653,114 @@ function buildSearchPointVideoUrl(itemData) {
     return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }
 
-function openSearchPointVideoView(itemData) {
+function buildWorldTourShareUrl(camOrId, options = {}) {
+    const id = typeof camOrId === 'object' ? camOrId?.id : camOrId;
+    if (!id) return null;
+
+    const params = new URLSearchParams();
+    params.set('mode', 'world');
+    params.set('world', id);
+    params.set('worldMode', options.viewMode === 'map' ? 'map' : 'video');
+    const title = typeof camOrId === 'object' ? (camOrId?.title || camOrId?.name) : null;
+    if (title) params.set('name', title);
+    return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function fallbackCopyText(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } catch (error) {
+        copied = false;
+    }
+    textarea.remove();
+    return copied;
+}
+
+function showShareFeedback(message, tone = 'ok') {
+    const previous = document.querySelector('.share-copy-toast');
+    if (previous) previous.remove();
+
+    const toast = document.createElement('div');
+    toast.className = `share-copy-toast ${tone === 'warn' ? 'is-warn' : ''}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('active'));
+    window.setTimeout(() => {
+        toast.classList.remove('active');
+        window.setTimeout(() => toast.remove(), 220);
+    }, 2200);
+}
+
+async function copyShareUrl(url, options = {}) {
+    if (!url) return false;
+    const successMessage = options.successMessage || '공유 링크를 복사했습니다.';
+
+    try {
+        if (navigator.clipboard?.writeText && window.isSecureContext) {
+            await navigator.clipboard.writeText(url);
+            showShareFeedback(successMessage);
+            return true;
+        }
+
+        if (fallbackCopyText(url)) {
+            showShareFeedback(successMessage);
+            return true;
+        }
+    } catch (error) {
+        console.warn('Clipboard copy failed:', error);
+    }
+
+    window.prompt('아래 링크를 복사해 주세요.', url);
+    showShareFeedback('브라우저 권한 때문에 직접 복사가 필요합니다.', 'warn');
+    return false;
+}
+
+function syncWorldTourUrlState(cam, options = {}) {
+    const nextUrl = buildWorldTourShareUrl(cam, {
+        viewMode: options.viewMode || state.worldTourViewMode || 'video'
+    });
+    if (nextUrl) {
+        window.history.replaceState({}, '', nextUrl);
+    }
+}
+
+async function copyWorldTourShareLink(cam, options = {}) {
+    const shareUrl = buildWorldTourShareUrl(cam, {
+        viewMode: options.viewMode || state.worldTourViewMode || 'video'
+    });
+    return copyShareUrl(shareUrl, {
+        successMessage: '글로벌 영상 링크를 복사했습니다.'
+    });
+}
+
+async function copyWorldTourShareLinkById(worldCamId, fallbackMeta = {}) {
+    if (!worldCamId && !fallbackMeta?.worldCamId) return false;
+    const id = worldCamId || fallbackMeta.worldCamId;
+    const cams = Array.isArray(state.worldTourCams) ? state.worldTourCams : [];
+    const cam = cams.find(item => String(item.id) === String(id));
+    if (cam) {
+        return copyWorldTourShareLink(cam, { viewMode: 'video' });
+    }
+
+    return copyWorldTourShareLink({
+        id,
+        title: fallbackMeta.name || fallbackMeta.place_name || '전세계 라이브'
+    }, { viewMode: 'video' });
+}
+
+async function openSearchPointVideoView(itemData) {
     const shareUrl = buildSearchPointVideoUrl(itemData);
     if (!shareUrl) return;
 
@@ -3639,6 +3771,9 @@ function openSearchPointVideoView(itemData) {
         address: itemData.address || ''
     });
 
+    await copyShareUrl(shareUrl, {
+        successMessage: '4분할 영상 링크를 복사했습니다.'
+    });
     window.location.assign(shareUrl);
 }
 
@@ -3689,8 +3824,7 @@ async function shareCurrentView(cctv) {
             return;
         }
 
-        await navigator.clipboard.writeText(shareUrl);
-        alert('공유 링크를 복사했습니다.');
+        await copyShareUrl(shareUrl);
     } catch (error) {
         console.warn('Share failed:', error);
     }
@@ -6389,6 +6523,7 @@ function renderWorldTourListItems(items, selectedId) {
                 <div class="world-tour-list-item-actions">
                     <button type="button" data-world-tour-list-map="${escapeWorldTourHtml(cam.id)}">지도</button>
                     <button type="button" data-world-tour-list-video="${escapeWorldTourHtml(cam.id)}">영상</button>
+                    <button type="button" data-world-tour-list-share="${escapeWorldTourHtml(cam.id)}" title="공유 링크 복사" aria-label="${escapeWorldTourHtml(cam.title)} 공유 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
                 </div>
             </article>
         `;
@@ -6513,6 +6648,15 @@ function renderWorldTourSections(cams, selectedId) {
 }
 
 function renderWorldTourBottomMenu(cams, visibleCams, selected) {
+    const shareButton = `
+        <button
+            type="button"
+            class="world-tour-open-btn world-tour-share-btn"
+            data-world-tour-share="${escapeWorldTourHtml(selected.id)}"
+            aria-label="공유 링크 복사"
+            title="공유 링크 복사"
+        >${SEARCH_VIDEO_SHARE_SVG}</button>
+    `;
     const openLink = selected.sourceUrl
         ? `
             <a
@@ -6569,6 +6713,7 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
                 ${renderWorldTourHashTags(selected)}
                 <div class="world-tour-actions">
                     ${renderWorldTourModeSwitch(selected)}
+                    ${shareButton}
                     ${openLink}
                 </div>
             </div>
@@ -6696,7 +6841,10 @@ function createWorldTourMarkerPopup(cam) {
     popup.innerHTML = `
         <strong>${escapeWorldTourHtml(cam.title)}</strong>
         <span>${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
-        <button type="button" class="world-tour-marker-video-btn">영상보기</button>
+        <div class="world-tour-marker-popup-actions">
+            <button type="button" class="world-tour-marker-video-btn">영상보기</button>
+            <button type="button" class="world-tour-marker-share-btn">공유</button>
+        </div>
     `;
 
     popup.querySelector('.world-tour-marker-video-btn')?.addEventListener('click', event => {
@@ -6707,6 +6855,12 @@ function createWorldTourMarkerPopup(cam) {
             focusSelected: true,
             listScrollToSelected: true
         });
+    });
+
+    popup.querySelector('.world-tour-marker-share-btn')?.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        copyWorldTourShareLink(cam, { viewMode: 'video' });
     });
 
     return popup;
@@ -6994,6 +7148,14 @@ function bindWorldTourListPanel(root, cams, selected) {
             return;
         }
 
+        const shareButton = event.target.closest('[data-world-tour-list-share]');
+        if (shareButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            copyWorldTourShareLinkById(shareButton.dataset.worldTourListShare);
+            return;
+        }
+
         const item = event.target.closest('[data-world-tour-list-item]');
         if (item) {
             state.worldTourListScrollTop = panel.querySelector('[data-world-tour-list-results]')?.scrollTop ?? state.worldTourListScrollTop;
@@ -7135,6 +7297,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         }
         const selected = selectedFromVisible || selectedFromAll || visibleCams[0] || cams[0];
         state.selectedWorldTourId = selected.id;
+        syncWorldTourUrlState(selected, { viewMode: state.worldTourViewMode });
         destroyWorldTourMap();
 
         const isMapView = state.worldTourViewMode === 'map';
@@ -7163,6 +7326,15 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         });
 
         bindWorldTourListPanel(list, cams, selected);
+
+        list.querySelectorAll('[data-world-tour-share]').forEach(button => {
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const cam = cams.find(item => String(item.id) === String(button.dataset.worldTourShare)) || selected;
+                copyWorldTourShareLink(cam, { viewMode: state.worldTourViewMode || 'video' });
+            });
+        });
 
         list.querySelectorAll('.world-tour-card').forEach(card => {
             const selectCard = () => {

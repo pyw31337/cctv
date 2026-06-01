@@ -1118,6 +1118,37 @@ body {
     color: var(--accent-primary);
 }
 
+.share-copy-toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 96px);
+    z-index: 3000;
+    max-width: min(92vw, 420px);
+    padding: 12px 16px;
+    border: 1px solid rgba(52, 211, 153, 0.42);
+    border-radius: var(--radius-full);
+    background: rgba(15, 23, 42, 0.96);
+    color: #bbf7d0;
+    font-size: 13px;
+    font-weight: 900;
+    text-align: center;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 14px);
+    transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.share-copy-toast.active {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+.share-copy-toast.is-warn {
+    border-color: rgba(251, 191, 36, 0.42);
+    color: #fde68a;
+}
+
 .btn-bookmark.active {
     color: #fbbf24;
     /* Yellow for bookmarked */
@@ -1894,7 +1925,13 @@ body.world-tour-active #pwa-install-prompt {
     font-weight: 700;
 }
 
-.world-tour-marker-video-btn {
+.world-tour-marker-popup-actions {
+    display: flex;
+    gap: 7px;
+}
+
+.world-tour-marker-video-btn,
+.world-tour-marker-share-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1909,7 +1946,15 @@ body.world-tour-active #pwa-install-prompt {
     box-shadow: 0 10px 22px rgba(16, 185, 129, 0.24);
 }
 
-.world-tour-marker-video-btn:hover {
+.world-tour-marker-share-btn {
+    border-color: rgba(148, 163, 184, 0.26);
+    background: rgba(148, 163, 184, 0.12);
+    color: #e2e8f0;
+    box-shadow: none;
+}
+
+.world-tour-marker-video-btn:hover,
+.world-tour-marker-share-btn:hover {
     filter: brightness(1.06);
 }
 
@@ -1992,6 +2037,11 @@ body.world-tour-active #pwa-install-prompt {
 .world-tour-open-btn svg {
     width: 22px;
     height: 22px;
+}
+
+.world-tour-share-btn svg {
+    width: 18px;
+    height: 18px;
 }
 
 .world-tour-mode-switch {
@@ -2528,6 +2578,11 @@ body.world-tour-active #pwa-install-prompt {
     font-size: 12px;
     font-weight: 900;
     cursor: pointer;
+}
+
+.world-tour-list-item-actions button svg {
+    width: 15px;
+    height: 15px;
 }
 
 .world-tour-list-empty {
