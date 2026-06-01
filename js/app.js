@@ -7121,6 +7121,9 @@ function bindWorldTourListPanel(root, cams, selected) {
         rerenderWithList();
     });
 
+    const listChipRow = panel.querySelector('.world-tour-list-chip-row');
+    enableHorizontalDragScroll(listChipRow);
+
     panel.addEventListener('click', event => {
         const closeButton = event.target.closest('[data-world-tour-list-close]');
         if (closeButton) {

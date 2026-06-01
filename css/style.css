@@ -1677,13 +1677,15 @@ body.world-tour-active #pwa-install-prompt {
 }
 
 .world-tour-region-tabs.is-dragging,
-.world-tour-card-rail.is-dragging {
+.world-tour-card-rail.is-dragging,
+.world-tour-list-chip-row.is-dragging {
     cursor: grabbing;
     scroll-behavior: auto;
 }
 
 .world-tour-region-tabs.is-dragging *,
-.world-tour-card-rail.is-dragging * {
+.world-tour-card-rail.is-dragging *,
+.world-tour-list-chip-row.is-dragging * {
     cursor: grabbing;
     pointer-events: none;
 }
@@ -2360,6 +2362,10 @@ body.world-tour-active #pwa-install-prompt {
     gap: 8px;
     overflow-x: auto;
     padding-bottom: 2px;
+    overscroll-behavior-x: contain;
+    cursor: grab;
+    touch-action: pan-x;
+    user-select: none;
     scrollbar-width: none;
 }
 
