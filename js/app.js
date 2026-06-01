@@ -6427,7 +6427,16 @@ function renderWorldTourCard(cam, selectedId) {
         <article class="world-tour-card ${isActive ? 'active' : ''}" data-id="${escapeWorldTourHtml(cam.id)}" tabindex="0" aria-label="${escapeWorldTourHtml(`${cam.title} 영상 선택`)}">
             <span class="world-tour-card-title-row">
                 <span class="world-tour-card-title">${escapeWorldTourHtml(cam.title)}${externalBadge}</span>
-                ${renderWorldTourFavoriteButton(cam, 'card')}
+                <span class="world-tour-card-actions">
+                    <button
+                        type="button"
+                        class="world-tour-share-card-btn"
+                        data-world-tour-share="${escapeWorldTourHtml(cam.id)}"
+                        title="단일 영상 공유 링크 복사"
+                        aria-label="${escapeWorldTourHtml(cam.title)} 단일 영상 공유 링크 복사"
+                    >${SEARCH_VIDEO_SHARE_SVG}</button>
+                    ${renderWorldTourFavoriteButton(cam, 'card')}
+                </span>
             </span>
             <span class="world-tour-card-sub">${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
             <span class="world-tour-card-footer">
@@ -7363,7 +7372,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 });
             };
             card.addEventListener('click', event => {
-                if (event.target.closest('.world-tour-favorite-btn')) return;
+                if (event.target.closest('.world-tour-favorite-btn, .world-tour-share-card-btn')) return;
                 selectCard();
             });
             card.addEventListener('keydown', event => {
