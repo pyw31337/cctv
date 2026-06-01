@@ -842,8 +842,21 @@ function setupEventListeners() {
         const favItem = e.target.closest('.cctv-favorite-item');
         if (favItem) {
             const isWorld = favItem.classList.contains('cctv-favorite-item--world');
+            const shareBtn = e.target.closest('[data-action="share-video"]');
             const removeWorldBtn = e.target.closest('[data-action="remove-favorite-world"]');
             const removeBtn = e.target.closest('[data-action="remove-favorite"]');
+            if (shareBtn) {
+                e.stopPropagation();
+                if (isWorld) {
+                    copyWorldTourShareLinkById(favItem.dataset.worldCamId, {
+                        name: favItem.dataset.name
+                    });
+                } else {
+                    const cctv = favItem.dataset.cctvId ? findCctvById(favItem.dataset.cctvId) : null;
+                    copyShareUrl(buildCctvVideoShareUrl(cctv));
+                }
+                return;
+            }
             if (removeWorldBtn || removeBtn) {
                 e.stopPropagation();
                 const targetId = isWorld ? favItem.dataset.worldCamId : favItem.dataset.cctvId;
@@ -1090,7 +1103,7 @@ function showSearchHistory() {
     const STAR_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
     html += `<div class="search-section-title">
         ${STAR_SVG}
-        <span>즐겨찾기 · Favorite</span>
+        <span>즐겨찾기</span>
         ${totalFavorites > 0 ? `<span class="search-section-count">${totalFavorites}</span>` : ''}
     </div>`;
     if (totalFavorites > 0) {
@@ -1132,12 +1145,13 @@ function renderWorldTourFavoriteSearchItem(cam) {
     const title = cam.title || cam.city || cam.country || 'World Cam';
     const city = cam.city || cam.country || cam.region || '';
     return `
-        <div class="search-result-item cctv-favorite-item cctv-favorite-item--world" data-world-cam-id="${escape(cam.id)}">
+        <div class="search-result-item cctv-favorite-item cctv-favorite-item--world" data-world-cam-id="${escape(cam.id)}" data-name="${escape(title)}">
             <div class="search-result-info">
                 <div class="search-result-name">${escape(title)}</div>
                 <div class="search-result-address">전세계 · ${escape(city)}</div>
             </div>
             <div class="search-result-actions">
+                <button class="btn-share-search" data-action="share-video" title="공유 링크 복사" aria-label="${escape(title)} 공유 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
                 <button class="btn-bookmark active" data-action="remove-favorite-world" title="즐겨찾기 해제" aria-pressed="true" aria-label="즐겨찾기 해제">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
@@ -1164,6 +1178,7 @@ function renderCctvFavoriteSearchItem(cctv) {
                 <div class="search-result-address">${sourceMeta.label}</div>
             </div>
             <div class="search-result-actions">
+                <button class="btn-share-search" data-action="share-video" title="공유 링크 복사" aria-label="${parsed.main} 공유 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
                 <button class="btn-bookmark active" data-action="remove-favorite" title="즐겨찾기 해제" aria-pressed="true" aria-label="즐겨찾기 해제">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
@@ -3640,6 +3655,20 @@ function buildShareUrl(cctv) {
     return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }
 
+function buildCctvVideoShareUrl(cctv) {
+    if (!cctv || !Number.isFinite(Number(cctv.lat)) || !Number.isFinite(Number(cctv.lng))) {
+        return null;
+    }
+
+    const params = new URLSearchParams();
+    params.set('lat', Number(cctv.lat).toFixed(6));
+    params.set('lng', Number(cctv.lng).toFixed(6));
+    params.set('name', cctv.name || 'CCTV');
+    params.set('mode', 'video');
+    if (cctv.id) params.set('cctv', cctv.id);
+    return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
 function buildSearchPointVideoUrl(itemData) {
     const lat = Number(itemData?.lat);
     const lng = Number(itemData?.lng);
@@ -3705,7 +3734,7 @@ function showShareFeedback(message, tone = 'ok') {
 
 async function copyShareUrl(url, options = {}) {
     if (!url) return false;
-    const successMessage = options.successMessage || '공유 링크를 복사했습니다.';
+    const successMessage = options.successMessage || '공유링크가 복사되었습니다.';
 
     try {
         if (navigator.clipboard?.writeText && window.isSecureContext) {
@@ -3741,7 +3770,7 @@ async function copyWorldTourShareLink(cam, options = {}) {
         viewMode: options.viewMode || state.worldTourViewMode || 'video'
     });
     return copyShareUrl(shareUrl, {
-        successMessage: '글로벌 영상 링크를 복사했습니다.'
+        successMessage: '공유링크가 복사되었습니다.'
     });
 }
 
@@ -3772,7 +3801,7 @@ async function openSearchPointVideoView(itemData) {
     });
 
     await copyShareUrl(shareUrl, {
-        successMessage: '4분할 영상 링크를 복사했습니다.'
+        successMessage: '공유링크가 복사되었습니다.'
     });
     window.location.assign(shareUrl);
 }
@@ -3802,8 +3831,6 @@ function syncUrlState() {
 
 async function shareCurrentView(cctv) {
     const shareUrl = buildShareUrl(cctv);
-    const shareTitle = cctv ? `${cctv.name} CCTV` : `${state.keyword} 주변 CCTV`;
-    const shareText = cctv ? `${state.keyword} 주변 ${cctv.name} CCTV를 확인해보세요.` : `${state.keyword} 주변 CCTV를 확인해보세요.`;
     // Dynamic OG image (no-op when CCTV_OG_WORKER_URL is null). Share APIs
     // that respect URL preview metadata will surface this richer card.
     const ogImageUrl = buildOgImageUrl(cctv);
@@ -3814,20 +3841,7 @@ async function shareCurrentView(cctv) {
         } catch (_) { /* meta updates are best-effort */ }
     }
 
-    try {
-        if (navigator.share) {
-            await navigator.share({
-                title: shareTitle,
-                text: shareText,
-                url: shareUrl
-            });
-            return;
-        }
-
-        await copyShareUrl(shareUrl);
-    } catch (error) {
-        console.warn('Share failed:', error);
-    }
+    await copyShareUrl(shareUrl);
 }
 
 function openIssueReporter(cctv) {
