@@ -17,7 +17,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data/world_tour_cams.json'
@@ -155,6 +155,11 @@ HARD_NEGATIVE_TITLE = re.compile(r'(트로피컬\s*머피|바오밥\s*레스토�
 NEGATIVE_TITLE = re.compile(r'(고양이|독수리|새 모이|피더|동물|야생동물|\b(Alligator|Spoonbill|Osprey|Otter|Eagle|Cat|Feeder|Wildlife|Zoo|Bird|Animal|Penguin|Parrot|Bear|Bison|Wolf|Tiger|Lion)\b|카지노)', re.I)
 POSITIVE_TITLE = re.compile(r'(타임|광장|해변|비치|항구|하버|공항|타워|브리지|대교|성|궁|공원|강|시티|도시|스카이라인|라이브|역|거리|마켓|파노라마|폭포|산|리조트|마리나|해안|도쿄|오사카|서울|부산|뉴욕|파리|런던|로마|베니스|교토|후지|시부야|Times|Square|Beach|Harbour|Harbor|Airport|Tower|Bridge|Castle|Park|River|Skyline|City|Panorama|Falls|Mountain|Resort|Marina)', re.I)
 UNSTABLE_TITLE = re.compile(r'(private video|deleted video|video unavailable|비공개|삭제|사용할 수 없는)', re.I)
+YOUTUBE_UNPLAYABLE_REASON = re.compile(
+    r'(live stream recording is not available|실시간 스트림 녹화를 볼 수 없습니다|private video|'
+    r'deleted video|video unavailable|비공개|삭제|사용할 수 없는)',
+    re.I
+)
 YOUTUBE_SEARCH_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_LIMIT', '420'))
 YOUTUBE_SEARCH_PER_QUERY_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_PER_QUERY_LIMIT', '48'))
 WORLD_TOUR_EARTHCAM_LIMIT = int(os.getenv('WORLD_TOUR_EARTHCAM_LIMIT', '90'))
@@ -1236,6 +1241,102 @@ def extract_youtube_id(text):
         if vid != 'live_stream':
             return vid
     return None
+
+
+def is_youtube_url(url):
+    host = urlparse(str(url or '')).netloc.lower()
+    return host.endswith('youtube.com') or host.endswith('youtu.be') or host.endswith('youtube-nocookie.com')
+
+
+def youtube_id_from_url(url):
+    parsed = urlparse(str(url or ''))
+    host = parsed.netloc.lower()
+    if host.endswith('youtu.be'):
+        candidate = parsed.path.strip('/').split('/')[0]
+        return candidate if re.fullmatch(r'[A-Za-z0-9_-]{11}', candidate or '') else None
+    if host.endswith('youtube.com') or host.endswith('youtube-nocookie.com'):
+        if parsed.path.startswith('/embed/'):
+            candidate = parsed.path.strip('/').split('/')[1] if len(parsed.path.strip('/').split('/')) > 1 else ''
+            return candidate if re.fullmatch(r'[A-Za-z0-9_-]{11}', candidate or '') else None
+        candidate = parse_qs(parsed.query).get('v', [''])[0]
+        return candidate if re.fullmatch(r'[A-Za-z0-9_-]{11}', candidate or '') else None
+    return None
+
+
+def extract_json_object_after_marker(text, marker):
+    idx = text.find(marker)
+    if idx < 0:
+        return None
+    start = text.find('{', idx)
+    if start < 0:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+        return obj
+    except Exception:
+        return None
+
+
+def youtube_playability(video_id):
+    """Return current YouTube player playability, not just metadata availability.
+
+    YouTube oEmbed can return 200 for ended live-stream recordings. The embedded
+    player still fails with UNPLAYABLE, so this check reads the same initial
+    player response the iframe receives.
+    """
+    if not video_id:
+        return {'status': 'NO_VIDEO_ID', 'reason': 'missing videoId'}
+    url = f'https://www.youtube.com/watch?v={video_id}'
+    try:
+        page = fetch_text(url, timeout=12, cache=False)
+    except Exception as error:
+        return {'status': 'CHECK_ERROR', 'reason': f'{type(error).__name__}: {error}'}
+    player = extract_json_object_after_marker(page, 'ytInitialPlayerResponse = ')
+    if not player:
+        return {'status': 'CHECK_ERROR', 'reason': 'missing ytInitialPlayerResponse'}
+    playability = player.get('playabilityStatus') or {}
+    details = player.get('videoDetails') or {}
+    return {
+        'status': playability.get('status') or 'UNKNOWN',
+        'reason': playability.get('reason') or '',
+        'isLive': bool(details.get('isLive')),
+        'isLiveContent': bool(details.get('isLiveContent')),
+        'playableInEmbed': playability.get('playableInEmbed'),
+        'title': details.get('title') or '',
+    }
+
+
+def refresh_source_video_id(item):
+    """Refresh rotating YouTube live IDs from the original source page.
+
+    Many global webcam providers replace their YouTube live IDs. Keeping the
+    old ID is the main reason stale "verified" videos later show YouTube's
+    "live stream recording is not available" overlay.
+    """
+    source_url = item.get('sourceUrl') or ''
+    if not source_url or is_youtube_url(source_url):
+        return item
+    try:
+        page = fetch_text(source_url, timeout=12, cache=False)
+    except Exception as error:
+        item['sourceRefreshError'] = f'{type(error).__name__}: {error}'
+        return item
+    fresh_id = extract_youtube_id(page)
+    if fresh_id and fresh_id != item.get('videoId'):
+        if item.get('videoId'):
+            item['previousVideoId'] = item.get('videoId')
+        item['videoId'] = fresh_id
+        item['sourceRefreshedAt'] = utc_now().isoformat()
+        item['playbackStatus'] = 'unchecked'
+        item['sourceOnly'] = False
+    elif not item.get('videoId'):
+        embed_url = extract_iframe_embed(page)
+        if embed_url and not re.search(r'(google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)', embed_url, re.I):
+            item['embedUrl'] = embed_url
+            item['playbackStatus'] = 'verified'
+            item['sourceOnly'] = False
+            item['sourceRefreshedAt'] = utc_now().isoformat()
+    return item
 
 
 def clean_youtube_search_title(title):
@@ -4328,6 +4429,7 @@ def enrich_source_only_embeds(items, limit=WORLD_TOUR_SOURCE_ENRICH_LIMIT):
 
 
 def validate_youtube_item(item):
+    item = refresh_source_video_id(item)
     video_id = item.get('videoId')
     if not video_id:
         item['playbackStatus'] = 'verified' if item.get('embedUrl') else 'source-only' if item.get('sourceUrl') else 'unchecked'
@@ -4335,32 +4437,30 @@ def validate_youtube_item(item):
         item['stabilityScore'] = max(55, int(float(item.get('priority') or 60)))
         return item
 
-    oembed_url = 'https://www.youtube.com/oembed?format=json&url=' + quote(
-        f'https://www.youtube.com/watch?v={video_id}',
-        safe=''
-    )
-
-    try:
-        meta = fetch_json(oembed_url, timeout=10)
-        title = str(meta.get('title') or '')
-        if UNSTABLE_TITLE.search(title):
-            return None
+    playability = youtube_playability(video_id)
+    item['youtubePlayabilityStatus'] = playability.get('status')
+    item['youtubePlayabilityReason'] = playability.get('reason') or ''
+    item['lastCheckedAt'] = dt.date.today().isoformat()
+    status = str(playability.get('status') or '').upper()
+    reason = str(playability.get('reason') or '')
+    title = str(playability.get('title') or item.get('title') or '')
+    if status == 'OK' and not YOUTUBE_UNPLAYABLE_REASON.search(reason) and not UNSTABLE_TITLE.search(title):
         item['playbackStatus'] = 'verified'
-        item['lastCheckedAt'] = dt.date.today().isoformat()
         item['stabilityScore'] = max(75, int(float(item.get('priority') or 60)))
+        if playability.get('isLive'):
+            item['status'] = 'is_live'
         return item
-    except HTTPError as error:
-        if error.code in {400, 401, 403, 404}:
-            return None
-        item['playbackStatus'] = 'unchecked'
-        item['lastCheckedAt'] = dt.date.today().isoformat()
-        item['stabilityScore'] = min(65, int(float(item.get('priority') or 60)))
+
+    if status in {'UNPLAYABLE', 'LOGIN_REQUIRED', 'AGE_CHECK_REQUIRED'} or YOUTUBE_UNPLAYABLE_REASON.search(reason):
+        item['playbackStatus'] = 'unavailable'
+        item['stabilityScore'] = 5
         return item
-    except Exception:
-        item['playbackStatus'] = 'unchecked'
-        item['lastCheckedAt'] = dt.date.today().isoformat()
-        item['stabilityScore'] = min(65, int(float(item.get('priority') or 60)))
-        return item
+
+    # Network/rate-limit/check-parser failures should not permanently remove a
+    # camera, but they must not be treated as green/verified either.
+    item['playbackStatus'] = 'unchecked'
+    item['stabilityScore'] = min(65, int(float(item.get('priority') or 60)))
+    return item
 
 
 def calculate_quality_score(item):
@@ -4377,6 +4477,8 @@ def calculate_quality_score(item):
         score -= 4
     elif item.get('playbackStatus') == 'unchecked':
         score -= 12
+    elif item.get('playbackStatus') == 'unavailable':
+        score -= 80
     if POSITIVE_TITLE.search(combined_title):
         score += 5
     if NEGATIVE_TITLE.search(combined_title) and source_type not in WILDLIFE_SOURCE_TYPES:
@@ -4543,6 +4645,7 @@ def main():
     playback_counts = Counter(i.get('playbackStatus', 'unknown') for i in items)
     quality_counts = Counter(i.get('qualityTier', 'unknown') for i in items)
     payload = {
+        'generatedAt': utc_now().isoformat().replace('+00:00', 'Z'),
         'updated_at': dt.date.today().isoformat(),
         'description': 'Curated public world tourist live/webcam directory. In-app playable YouTube/embed streams are prioritized; snapshot-only feeds are excluded because they are not continuous video.',
         'collectionMeta': {

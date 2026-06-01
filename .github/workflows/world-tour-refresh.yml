@@ -1,0 +1,67 @@
+name: World Tour CCTV Refresh
+
+on:
+  schedule:
+    # Daily global CCTV refresh: 13:27 KST (= 04:27 UTC), away from the
+    # midnight/03:00 culture-flow windows and CCTV/Z3 maintenance jobs.
+    - cron: '27 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cctv-repo-writes
+  cancel-in-progress: false
+
+jobs:
+  refresh-world-tour:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yt-dlp
+
+      - name: Refresh global CCTV directory
+        env:
+          WORLD_TOUR_HTTP_CACHE_TTL_HOURS: '6'
+          WORLD_TOUR_STALE_CACHE_HOURS: '24'
+          WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS: '120'
+          WORLD_TOUR_SOURCE_ENRICH_LIMIT: '260'
+          WORLD_TOUR_YOUTUBE_SEARCH_LIMIT: '420'
+          WORLD_TOUR_WEBCAMERA24_LIMIT: '190'
+          WORLD_TOUR_WEBCAMSMEXICO_LIMIT: '80'
+          # LiveBeaches sitemap traversal is frequently slow/rate-limited; keep
+          # retained historical entries but do not let it block daily health.
+          WORLD_TOUR_LIVEBEACHES_LIMIT: '0'
+        run: python scripts/build_world_tour_cams.py
+
+      - name: Remove snapshot-only feeds
+        run: python scripts/enrich_world_tour_snapshots.py
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if [[ -n $(git status -s data/world_tour_cams.json .cache/world_tour_http_cache.json .cache/world_tour_geocode_cache.json) ]]; then
+            echo "changes_detected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changes_detected=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changes_detected == 'true'
+        run: |
+          scripts/commit_and_push_changes.sh "Auto-update: World tour CCTV data [skip ci]" \
+            data/world_tour_cams.json \
+            .cache/world_tour_http_cache.json \
+            .cache/world_tour_geocode_cache.json
