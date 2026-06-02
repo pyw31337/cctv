@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260602-quality-path-fix';
+const APP_BUILD_VERSION = '20260602-stability-polish';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6057,17 +6057,42 @@ async function loadWorldTourCams() {
     state.worldTourCams = (payload.items || [])
         .filter(item => item && (item.videoId || item.embedUrl || item.playUrl || item.sourceUrl))
         .filter(item => !(item.snapshotUrl && !item.videoId && !item.embedUrl && !item.playUrl))
+        .map(item => ({
+            ...item,
+            embedUrl: isValidWorldTourEmbedUrl(item.embedUrl) ? item.embedUrl : '',
+            playUrl: isValidWorldTourEmbedUrl(item.playUrl) ? item.playUrl : ''
+        }))
         .sort((a, b) => (
-            Number(b.qualityScore || b.stabilityScore || b.priority || 0)
+            (canPlayWorldTourInApp(b) ? 1000 : 0) - (canPlayWorldTourInApp(a) ? 1000 : 0)
+            || Number(b.qualityScore || b.stabilityScore || b.priority || 0)
             - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
         ) || String(a.title).localeCompare(String(b.title)));
     pruneWorldTourFavorites(state.worldTourCams);
     return state.worldTourCams;
 }
 
+function isValidWorldTourEmbedUrl(url) {
+    const value = String(url || '').trim();
+    if (!value) return false;
+    if (/(?:googletagmanager\.com|google-analytics\.com|doubleclick\.net|google\.com\/maps|openstreetmap|leaflet|facebook\.com\/plugins)/i.test(value)) {
+        return false;
+    }
+    return /(?:youtube\.com\/embed|player|webtv|stream|live|\.(?:m3u8|mp4|webm|ogv)(?:[?#].*)?$)/i.test(value);
+}
+
+function isWorldTourUnavailable(cam) {
+    const playbackStatus = String(cam?.playbackStatus || '').toLowerCase();
+    const youtubeStatus = String(cam?.youtubePlayabilityStatus || '').toUpperCase();
+    const reason = String(cam?.youtubePlayabilityReason || '');
+    return playbackStatus === 'unavailable'
+        || ['UNPLAYABLE', 'LOGIN_REQUIRED', 'AGE_CHECK_REQUIRED'].includes(youtubeStatus)
+        || /(?:live stream recording is not available|실시간 스트림 녹화를 볼 수 없습니다|private video|deleted video|video unavailable|비공개|삭제|사용할 수 없는)/i.test(reason);
+}
+
 function getWorldTourEmbedUrl(cam) {
-    if (cam.embedUrl) return cam.embedUrl;
-    if (cam.playUrl) return cam.playUrl;
+    if (!cam || isWorldTourUnavailable(cam)) return null;
+    if (cam.embedUrl && isValidWorldTourEmbedUrl(cam.embedUrl)) return cam.embedUrl;
+    if (cam.playUrl && isValidWorldTourEmbedUrl(cam.playUrl)) return cam.playUrl;
     if (!cam.videoId) return null;
     return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
 }
@@ -6110,9 +6135,13 @@ function renderWorldTourHashTags(cam) {
 }
 
 function canPlayWorldTourInApp(cam) {
-    // Snapshot-only feeds are intentionally excluded from the global CCTV list;
-    // in-app playback should mean a real video/embed stream.
-    return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
+    // Keep source-only cameras in the directory, but don't present them as
+    // guaranteed in-app video candidates. This prevents broken embeds and
+    // ended YouTube live recordings from looking like playable live feeds.
+    if (!cam || isWorldTourUnavailable(cam)) return false;
+    if (cam.snapshotUrl && !cam.videoId && !cam.embedUrl && !cam.playUrl) return false;
+    if (cam.sourceOnly && !cam.videoId && !isValidWorldTourEmbedUrl(cam.embedUrl) && !isValidWorldTourEmbedUrl(cam.playUrl)) return false;
+    return Boolean(cam.videoId || isValidWorldTourEmbedUrl(cam.embedUrl) || isValidWorldTourEmbedUrl(cam.playUrl));
 }
 
 // Returns a suggested refresh cadence (ms) for snapshot-based cameras.
@@ -6793,8 +6822,9 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
 function renderWorldTourVideoHero(selected) {
     const embedUrl = getWorldTourEmbedUrl(selected);
     const sourceLabel = getWorldTourSourceLabel(selected);
+    const isUnavailable = isWorldTourUnavailable(selected);
     const isDirectVideo = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl);
-    const snapshotUrl = !embedUrl ? (selected.snapshotUrl || '') : '';
+    const snapshotUrl = !embedUrl && !isUnavailable ? (selected.snapshotUrl || '') : '';
 
     let mediaHtml;
     if (embedUrl && isDirectVideo) {
@@ -6819,34 +6849,25 @@ function renderWorldTourVideoHero(selected) {
                 ></iframe>
             </div>`;
     } else if (snapshotUrl) {
-        // In-app snapshot playback for sources without an embeddable player
-        // (HK Traffic, USGS VolcView, Panomax, Roundshot). The image auto-
-        // refreshes via initWorldTourSnapshotRefresh after the DOM mounts.
-        const refreshMs = getWorldTourSnapshotRefreshMs(selected);
         mediaHtml = `
-            <div class="world-tour-video world-tour-snapshot-hero">
-                <img
-                    class="world-tour-snapshot-img"
-                    src="${escapeWorldTourHtml(snapshotUrl)}"
-                    alt="${escapeWorldTourHtml(selected.title)} 실시간 스냅샷"
-                    data-world-tour-snapshot="${escapeWorldTourHtml(snapshotUrl)}"
-                    data-world-tour-snapshot-refresh="${refreshMs}"
-                    loading="eager"
-                    decoding="async"
-                />
-                <div class="world-tour-snapshot-overlay">
-                    <span class="world-tour-snapshot-badge">${escapeWorldTourHtml(sourceLabel)} 정지 스냅샷</span>
-                    ${refreshMs > 0 ? `<span class="world-tour-snapshot-meta">동영상 스트림 없음 · ${Math.round(refreshMs / 1000)}초마다 새 이미지 확인</span>` : '<span class="world-tour-snapshot-meta">동영상 스트림 없음 · 최신 캡처 이미지</span>'}
+            <div class="world-tour-video world-tour-external-preview">
+                <div class="world-tour-external-copy">
+                    <span>${escapeWorldTourHtml(sourceLabel)} 스냅샷 소스</span>
+                    <strong>연속 영상이 아닌 정지 스냅샷이라 인앱 영상 후보에서 제외했습니다.</strong>
+                    ${selected.sourceUrl ? `<a href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본에서 보기</a>` : ''}
                 </div>
             </div>`;
     } else {
+        const statusCopy = isUnavailable
+            ? '최근 점검에서 YouTube/플레이어가 재생 불가로 응답했습니다.'
+            : '이 영상은 원본 사이트에서 재생되는 원본 전용 소스입니다.';
         mediaHtml = `
             <div class="world-tour-video world-tour-external-preview">
                 ${selected.thumbnailUrl ? `<img src="${escapeWorldTourHtml(selected.thumbnailUrl)}" alt="${escapeWorldTourHtml(selected.title)} preview" loading="lazy">` : ''}
                 <div class="world-tour-external-copy">
-                    <span>${escapeWorldTourHtml(sourceLabel)} 공식 플레이어</span>
-                    <strong>이 영상은 원본 사이트에서 안정적으로 재생됩니다.</strong>
-                    <a href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본에서 보기</a>
+                    <span>${escapeWorldTourHtml(sourceLabel)} ${isUnavailable ? '재확인 필요' : '공식 플레이어'}</span>
+                    <strong>${escapeWorldTourHtml(statusCopy)}</strong>
+                    ${selected.sourceUrl ? `<a href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본에서 보기</a>` : ''}
                 </div>
             </div>`;
     }

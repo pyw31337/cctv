@@ -219,6 +219,39 @@ YOUTUBE_SEARCH_QUERIES = [
     'traffic city live webcam',
 ]
 YTDLP_BIN = shutil.which(os.getenv('YTDLP_BIN', 'yt-dlp'))
+
+BAD_EMBED_URL = re.compile(
+    r'(?:googletagmanager\.com|google-analytics\.com|doubleclick\.net|google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)',
+    re.I,
+)
+DIRECT_PLAYABLE_URL = re.compile(r'\.(?:m3u8|mp4|webm|ogv)(?:[?#].*)?$', re.I)
+PLAYER_EMBED_URL = re.compile(r'(?:youtube\.com/embed|player|webtv|stream|live|m3u8|mp4)', re.I)
+
+
+def is_valid_embed_url(url):
+    value = str(url or '').strip()
+    if not value or BAD_EMBED_URL.search(value):
+        return False
+    return bool(PLAYER_EMBED_URL.search(value) or DIRECT_PLAYABLE_URL.search(value))
+
+
+def normalize_world_tour_playback_item(item):
+    """Keep every known camera, but separate true in-app playback from source-only entries."""
+    if not isinstance(item, dict):
+        return item
+    embed_url = item.get('embedUrl')
+    if embed_url and not is_valid_embed_url(embed_url):
+        item.pop('embedUrl', None)
+        item['sourceOnly'] = True
+        item['playbackStatus'] = 'source-only' if item.get('sourceUrl') else 'unchecked'
+        item['embedRejectedReason'] = 'invalid_or_tracking_embed'
+    if item.get('playUrl') and not is_valid_embed_url(item.get('playUrl')):
+        item.pop('playUrl', None)
+        item['sourceOnly'] = True
+        item['playbackStatus'] = 'source-only' if item.get('sourceUrl') else 'unchecked'
+        item['embedRejectedReason'] = 'invalid_play_url'
+    return item
+
 YOUTUBE_SEARCH_NEGATIVE = re.compile(
     r'(around the world|top live cams|rolling cam|camera feeds|middle east|smooth jazz|relaxing music|'
     r'timelapse|armchair travel|bus rides|walking|walk |drive |cab view|train moments|family real life|'
@@ -1277,6 +1310,53 @@ def extract_json_object_after_marker(text, marker):
         return None
 
 
+
+def youtube_playability_with_ytdlp(video_id, timeout=22):
+    if not video_id or not YTDLP_BIN:
+        return {'status': 'CHECK_ERROR', 'reason': 'yt-dlp unavailable'}
+    url = f'https://www.youtube.com/watch?v={video_id}'
+    try:
+        completed = subprocess.run(
+            [
+                YTDLP_BIN,
+                '--skip-download',
+                '--no-warnings',
+                '--print',
+                '%(live_status)s\t%(availability)s\t%(title)s',
+                url,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError) as error:
+        return {'status': 'CHECK_ERROR', 'reason': f'yt-dlp {type(error).__name__}: {error}'}
+    output = (completed.stdout or '').strip()
+    error_text = (completed.stderr or '').strip()
+    combined = f'{output}\n{error_text}'
+    if completed.returncode != 0:
+        if YOUTUBE_UNPLAYABLE_REASON.search(combined) or UNSTABLE_TITLE.search(combined):
+            return {'status': 'UNPLAYABLE', 'reason': error_text[:240] or 'yt-dlp unavailable'}
+        return {'status': 'CHECK_ERROR', 'reason': error_text[:240] or 'yt-dlp failed'}
+    parts = output.split('\t')
+    live_status = parts[0] if parts else ''
+    availability = parts[1] if len(parts) > 1 else ''
+    title = parts[2] if len(parts) > 2 else ''
+    if UNSTABLE_TITLE.search(title):
+        return {'status': 'UNPLAYABLE', 'reason': title, 'title': title}
+    return {
+        'status': 'OK',
+        'reason': 'yt-dlp fallback',
+        'isLive': live_status == 'is_live',
+        'isLiveContent': live_status in {'is_live', 'was_live', 'post_live'},
+        'playableInEmbed': None,
+        'title': title,
+        'availability': availability,
+    }
+
+
 def youtube_playability(video_id):
     """Return current YouTube player playability, not just metadata availability.
 
@@ -1290,6 +1370,10 @@ def youtube_playability(video_id):
     try:
         page = fetch_text(url, timeout=12, cache=False)
     except Exception as error:
+        fallback = youtube_playability_with_ytdlp(video_id)
+        if fallback.get('status') != 'CHECK_ERROR':
+            fallback['reason'] = fallback.get('reason') or f'yt-dlp fallback after {type(error).__name__}'
+            return fallback
         return {'status': 'CHECK_ERROR', 'reason': f'{type(error).__name__}: {error}'}
     player = extract_json_object_after_marker(page, 'ytInitialPlayerResponse = ')
     if not player:
@@ -1313,6 +1397,7 @@ def refresh_source_video_id(item):
     old ID is the main reason stale "verified" videos later show YouTube's
     "live stream recording is not available" overlay.
     """
+    item = normalize_world_tour_playback_item(item)
     source_url = item.get('sourceUrl') or ''
     if not source_url or is_youtube_url(source_url):
         return item
@@ -1331,7 +1416,7 @@ def refresh_source_video_id(item):
         item['sourceOnly'] = False
     elif not item.get('videoId'):
         embed_url = extract_iframe_embed(page)
-        if embed_url and not re.search(r'(google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)', embed_url, re.I):
+        if embed_url and is_valid_embed_url(embed_url):
             item['embedUrl'] = embed_url
             item['playbackStatus'] = 'verified'
             item['sourceOnly'] = False
@@ -4420,7 +4505,7 @@ def enrich_source_only_embeds(items, limit=WORLD_TOUR_SOURCE_ENRICH_LIMIT):
             promoted += 1
             continue
         embed_url = extract_iframe_embed(page)
-        if embed_url and not re.search(r'(google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)', embed_url, re.I):
+        if embed_url and is_valid_embed_url(embed_url):
             item['embedUrl'] = embed_url
             item['playbackStatus'] = 'verified'
             item['sourceOnly'] = False
@@ -4429,6 +4514,7 @@ def enrich_source_only_embeds(items, limit=WORLD_TOUR_SOURCE_ENRICH_LIMIT):
 
 
 def validate_youtube_item(item):
+    item = normalize_world_tour_playback_item(item)
     item = refresh_source_video_id(item)
     video_id = item.get('videoId')
     if not video_id:
@@ -4520,7 +4606,7 @@ def validate_items(items):
     snapshot_only_removed = sum(1 for item in items if is_snapshot_only_item(item))
     if snapshot_only_removed:
         print(f'excluding snapshot-only world tour feeds: {snapshot_only_removed}', flush=True)
-    candidates = [item for item in items if not is_snapshot_only_item(item)]
+    candidates = [normalize_world_tour_playback_item(item) for item in items if not is_snapshot_only_item(item)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
         validated = [item for item in executor.map(validate_youtube_item, candidates) if item]
     return [enrich_item_quality(item) for item in validated if calculate_quality_score(item) >= 52]
