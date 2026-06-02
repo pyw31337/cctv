@@ -6,6 +6,7 @@ import re
 import requests
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
@@ -27,6 +28,7 @@ CAMERA_CHECK_REGISTRY_LIMIT = 30000
 DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET = 320
 DEFAULT_SENTINEL_MAX_REGION_CHECKS = 48
 DEFAULT_SENTINEL_MIN_REGION_CHECKS = 2
+DEFAULT_SENTINEL_MAX_WORKERS = 24
 DAEJEON_MP4_OFFSETS = [2, 4, 6, 8, 10, 1]
 DAEJEON_REQUEST_TIMEOUT = (1.0, 1.5)
 ORACLE_BASE = 'https://158.179.194.163.sslip.io'
@@ -104,6 +106,10 @@ def env_int(name, default, minimum=None, maximum=None):
     if maximum is not None:
         value = min(maximum, value)
     return value
+
+
+def get_sentinel_max_workers():
+    return env_int('CCTV_SENTINEL_MAX_WORKERS', DEFAULT_SENTINEL_MAX_WORKERS, minimum=1, maximum=128)
 
 
 def save_json(filepath, data):
@@ -677,7 +683,7 @@ def allocate_region_sample_sizes(region_map):
 
     total_budget = env_int('CCTV_SENTINEL_TOTAL_CHECK_BUDGET', DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET, minimum=1, maximum=5000)
     min_region = env_int('CCTV_SENTINEL_MIN_REGION_CHECKS', DEFAULT_SENTINEL_MIN_REGION_CHECKS, minimum=0, maximum=100)
-    max_region = env_int('CCTV_SENTINEL_MAX_REGION_CHECKS', DEFAULT_SENTINEL_MAX_REGION_CHECKS, minimum=1, maximum=1000)
+    max_region = env_int('CCTV_SENTINEL_MAX_REGION_CHECKS', DEFAULT_SENTINEL_MAX_REGION_CHECKS, minimum=1, maximum=5000)
     total_cameras = sum(len(cameras) for cameras in active_regions.values())
     budgets = {}
 
@@ -702,6 +708,21 @@ def allocate_region_sample_sizes(region_map):
                 break
 
     return budgets
+
+
+def check_camera_safe(region_name, cam):
+    try:
+        return bool(check_camera(region_name, cam))
+    except Exception as error:
+        set_probe_result(
+            cam,
+            False,
+            reason='check_exception',
+            category='check_exception',
+            detail=f'{type(error).__name__}: {error}'
+        )
+        log(f"[ERR] {region_name} {cam.get('id')} checker crashed: {error}")
+        return False
 
 
 def get_sampling_bucket():
@@ -1156,8 +1177,33 @@ def test_region(region_name, cameras, current_status=None, target_size=None):
         f'(stable={stable_count}, coverage={coverage_count}, exploratory={exploratory_count}, total_cameras={len(cameras)})'
     )
 
-    for cam in sample:
-        success = check_camera(region_name, cam)
+    max_workers = min(get_sentinel_max_workers(), max(1, len(sample)))
+    checked_results = []
+    if len(sample) <= 1 or max_workers <= 1:
+        for cam in sample:
+            checked_results.append((cam, check_camera_safe(region_name, cam)))
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_camera = {
+                executor.submit(check_camera_safe, region_name, cam): cam
+                for cam in sample
+            }
+            for future in as_completed(future_to_camera):
+                cam = future_to_camera[future]
+                try:
+                    success = bool(future.result())
+                except Exception as error:
+                    set_probe_result(
+                        cam,
+                        False,
+                        reason='check_exception',
+                        category='check_exception',
+                        detail=f'{type(error).__name__}: {error}'
+                    )
+                    success = False
+                checked_results.append((cam, success))
+
+    for cam, success in checked_results:
         checked_samples.append({
             'id': cam.get('id'),
             'name': cam.get('name'),
@@ -1197,7 +1243,8 @@ def test_region(region_name, cameras, current_status=None, target_size=None):
             'stable': stable_count,
             'exploratory': exploratory_count,
             'coverage': coverage_count,
-            'policy': 'least_recently_checked_rotation'
+            'policy': 'least_recently_checked_rotation',
+            'max_workers': max_workers
         },
         'target_size': target_size
     }
@@ -1269,7 +1316,8 @@ def run_sentinel():
             'policy': 'least_recently_checked_rotation',
             'total_check_budget': env_int('CCTV_SENTINEL_TOTAL_CHECK_BUDGET', DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET, minimum=1, maximum=5000),
             'min_region_checks': env_int('CCTV_SENTINEL_MIN_REGION_CHECKS', DEFAULT_SENTINEL_MIN_REGION_CHECKS, minimum=0, maximum=100),
-            'max_region_checks': env_int('CCTV_SENTINEL_MAX_REGION_CHECKS', DEFAULT_SENTINEL_MAX_REGION_CHECKS, minimum=1, maximum=1000),
+            'max_region_checks': env_int('CCTV_SENTINEL_MAX_REGION_CHECKS', DEFAULT_SENTINEL_MAX_REGION_CHECKS, minimum=1, maximum=5000),
+            'max_workers': get_sentinel_max_workers(),
             'region_budgets': region_budgets,
             'note': '각 실행마다 최근 점검되지 않은 CCTV를 우선 선택해 전체 카탈로그 커버리지를 누적합니다.'
         }

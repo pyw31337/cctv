@@ -1,9 +1,11 @@
 name: Regional Health Sentinel
 
 on:
-  # Scheduled runs moved to Oracle cron to preserve GitHub Actions minutes.
-  # schedule:
-  #   - cron: '17 * * * *'
+  # Four rotating coverage runs per day. Each run prioritizes never/least
+  # recently checked cameras, so the full catalog can be covered in roughly
+  # one day when Actions capacity is available.
+  schedule:
+    - cron: '17 1,7,13,19 * * *'
   workflow_dispatch:        # Allow manual trigger
 
 permissions:
@@ -31,14 +33,24 @@ jobs:
           pip install -r requirements.txt
           
       - name: Run Sentinel Script
+        env:
+          CCTV_SENTINEL_TOTAL_CHECK_BUDGET: '5000'
+          CCTV_SENTINEL_MAX_REGION_CHECKS: '4500'
+          CCTV_SENTINEL_MIN_REGION_CHECKS: '8'
+          CCTV_SENTINEL_MAX_WORKERS: '32'
         run: |
           python scripts/sentinel.py
+
+      - name: Refresh quality dashboard fallback
+        run: |
+          python3 scripts/build_quality_summary_fallback.py
+          python3 scripts/standardize_quality_times.py --source github-health-sentinel || true
           
       - name: Commit and Push Status
         run: |
           # Check if data/status.json was modified
-          if [[ -n $(git status -s data/status.json) ]]; then
-            GIT_COMMIT_USER_NAME='Sentinel Bot' GIT_COMMIT_USER_EMAIL='actions@github.com' scripts/commit_and_push_changes.sh "AUTO: Update Regional Health Status [skip ci]" data/status.json
+          if [[ -n $(git status -s data/status.json data/quality_summary.json data/workflow_status.json) ]]; then
+            GIT_COMMIT_USER_NAME='Sentinel Bot' GIT_COMMIT_USER_EMAIL='actions@github.com' scripts/commit_and_push_changes.sh "AUTO: Update Regional Health Status [skip ci]" data/status.json data/quality_summary.json data/workflow_status.json
           else
             echo "No changes in health status."
           fi

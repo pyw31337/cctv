@@ -145,7 +145,7 @@ if ! git diff --quiet -- data/z3_cache.json data/cache_status.json data/quality_
     git add data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json
     git commit -m "AUTO: Local Z3 cache refresh [skip ci]"
     git pull --rebase --autostash origin main || true
-    if git push origin main; then
+    if git push origin HEAD:main; then
       epoch_now > "$GITHUB_FALLBACK_STATE_FILE"
     fi
   else

@@ -1,9 +1,11 @@
 name: Z3 Cache Refresh
 
 on:
-  # Temporarily manual-only while GitHub Actions minutes are exhausted.
-  # Local launchd job `com.pyw31337.cctv.z3-cache-refresh` keeps Oracle and the
-  # static GitHub Pages fallback fresh without consuming Actions minutes.
+  # Keep the static GitHub Pages fallback fresh now that monthly Actions
+  # capacity has reset. Local launchd/Oracle refresh remains the emergency
+  # backup path if Actions capacity is exhausted again.
+  schedule:
+    - cron: '13 */2 * * *'
   workflow_dispatch:
 
 jobs:
