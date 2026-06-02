@@ -420,14 +420,25 @@ def select_candidates(
         source_bonus = -1.2 if source_of(cam) in {"KBS", "SPATIC", "NOWJEJU"} else 0
         z3_penalty = 0.8 if is_z3_camera(cam) else 0
         keyword_bonus = -2.0 if keyword_match else 0
-        observed_success_bonus = -4.0 if cid in passed_ids else 0
-        observed_failure_penalty = 4.0 if cid in failed_ids and cid not in passed_ids else 0
+        # Canary should actively look for cameras that were recently proven playable.
+        # A failed candidate remains in the catalog, but should not crowd out a
+        # recently successful nearby candidate and make the whole region look
+        # permanently broken.
+        observed_success_bonus = -24.0 if cid in passed_ids else 0
+        observed_failure_penalty = 8.0 if cid in failed_ids and cid not in passed_ids else 0
         score = dist + status_penalty + source_bonus + z3_penalty + keyword_bonus + observed_success_bonus + observed_failure_penalty
         out.append((score, dist, cam))
     out.sort(key=lambda item: (item[0], item[1], str(item[2].get("id"))))
+
+    max_candidates = int(region.get("max_candidates", 6))
+    min_success_seed = min(4, max(1, max_candidates // 3))
+    success_seed = [item for item in out if str(item[2].get("id") or "") in passed_ids][:min_success_seed]
+    remaining = [item for item in out if item not in success_seed]
+    ordered_candidates = success_seed + remaining
+
     seen = set()
     selected = []
-    for _, dist, cam in out:
+    for _, dist, cam in ordered_candidates:
         cid = cam.get("id")
         if not cid or cid in seen:
             continue
@@ -435,7 +446,7 @@ def select_candidates(
         clone = dict(cam)
         clone["_canary_distance_km"] = round(dist, 3)
         selected.append(clone)
-        if len(selected) >= region.get("max_candidates", 6):
+        if len(selected) >= max_candidates:
             break
     return selected
 

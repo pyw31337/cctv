@@ -2109,10 +2109,10 @@ function getCanaryHealthMeta(cctv, regionKey) {
         return {
             regionKey,
             status: 'CANARY_FAIL',
-            shortLabel: '카나리 실패',
-            longLabel: `${camera.region_label || getRegionLabel(regionKey)} 카나리 점검에서 이 CCTV가 실패했습니다. 원인: ${camera.reason || camera.category || '확인 필요'}`,
-            tone: 'danger',
-            penalty: 9,
+            shortLabel: '카나리 재확인',
+            longLabel: `${camera.region_label || getRegionLabel(regionKey)} 카나리 점검에서 이 CCTV가 실패했습니다. 단, 실제 브라우저 재생 성공 시 즉시 정상으로 반영합니다. 원인: ${camera.reason || camera.category || '확인 필요'}`,
+            tone: 'warn',
+            penalty: 2.6,
             lastUpdated: checkedAt
         };
     }
@@ -2125,10 +2125,10 @@ function getCanaryHealthMeta(cctv, regionKey) {
         return {
             regionKey,
             status: 'CANARY_REGION_IMPACT',
-            shortLabel: '핵심지역 장애',
-            longLabel: `${region.label || getRegionLabel(regionKey)} 카나리 정상 후보가 기준 미달입니다. ${region.recommended_action || ''}`,
-            tone: 'danger',
-            penalty: 7,
+            shortLabel: '핵심지역 주의',
+            longLabel: `${region.label || getRegionLabel(regionKey)} 카나리 정상 후보가 기준 미달입니다. 개별 카메라는 실제 재생을 우선 확인합니다. ${region.recommended_action || ''}`,
+            tone: 'warn',
+            penalty: 2.8,
             lastUpdated: checkedAt
         };
     }
@@ -2428,9 +2428,9 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
 
     if (health.status === 'CANARY_FAIL' || health.status === 'CANARY_REGION_IMPACT') {
         return {
-            tone: 'danger',
-            label: health.shortLabel || '카나리 실패',
-            title: health.longLabel || '핵심 카나리 점검에서 실패했습니다.'
+            tone: 'warn',
+            label: health.shortLabel || '카나리 재확인',
+            title: health.longLabel || '카나리는 주의 신호이며, 실제 브라우저 재생 결과가 우선입니다.'
         };
     }
 
@@ -2601,7 +2601,7 @@ function shouldIsolateProblemCamera(cctv) {
     if (['CAMERA_CRITICAL', 'CAMERA_INVESTIGATE', 'PLAYBACK_ERROR', 'QUALITY_DOWN', 'Z3_CACHE_MISS'].includes(health.status)) {
         return true;
     }
-    if (health.status === 'DOWN' && !isAggregateOnlyHealthWarning(cctv, health)) {
+    if (health.status === 'DOWN' && !isAggregateOnlyHealthWarning(cctv, health) && hasCameraSpecificPlaybackProblem(cctv)) {
         return true;
     }
     return false;
