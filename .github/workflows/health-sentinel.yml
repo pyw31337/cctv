@@ -34,10 +34,12 @@ jobs:
           
       - name: Run Sentinel Script
         env:
-          CCTV_SENTINEL_TOTAL_CHECK_BUDGET: '5000'
-          CCTV_SENTINEL_MAX_REGION_CHECKS: '4500'
+          CCTV_SENTINEL_TOTAL_CHECK_BUDGET: '3000'
+          CCTV_SENTINEL_MAX_REGION_CHECKS: '2200'
           CCTV_SENTINEL_MIN_REGION_CHECKS: '8'
-          CCTV_SENTINEL_MAX_WORKERS: '32'
+          CCTV_SENTINEL_MAX_WORKERS: '24'
+          CCTV_SENTINEL_ORACLE_MAX_WORKERS: '8'
+          CCTV_SENTINEL_REQUEST_TIMEOUT_SECONDS: '10'
         run: |
           python scripts/sentinel.py
 

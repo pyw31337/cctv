@@ -20,7 +20,11 @@ DATA_FILE = os.path.join(BASE_DIR, 'cctv_data.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'configs', 'region_config.json')
 STATUS_FILE = os.path.join(BASE_DIR, 'data', 'status.json')
 LOG_FILE = os.path.join(BASE_DIR, 'sentinel.log')
-REQUEST_TIMEOUT = 15
+try:
+    REQUEST_TIMEOUT = int(os.getenv('CCTV_SENTINEL_REQUEST_TIMEOUT_SECONDS', '15'))
+except Exception:
+    REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = max(2, min(30, REQUEST_TIMEOUT))
 EMERGENCY_INVESTIGATE_AFTER_MINUTES = 60
 EMERGENCY_CRITICAL_AFTER_MINUTES = 120
 CAMERA_FAILURE_REGISTRY_LIMIT = 500
@@ -29,6 +33,7 @@ DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET = 320
 DEFAULT_SENTINEL_MAX_REGION_CHECKS = 48
 DEFAULT_SENTINEL_MIN_REGION_CHECKS = 2
 DEFAULT_SENTINEL_MAX_WORKERS = 24
+DEFAULT_SENTINEL_ORACLE_MAX_WORKERS = 8
 DAEJEON_MP4_OFFSETS = [2, 4, 6, 8, 10, 1]
 DAEJEON_REQUEST_TIMEOUT = (1.0, 1.5)
 ORACLE_BASE = 'https://158.179.194.163.sslip.io'
@@ -74,6 +79,11 @@ SOURCE_REGION_ALIASES = {
     'YT_CUSTOM': 'YT'
 }
 
+ORACLE_BACKED_REGIONS = {
+    'DAEJEON', 'GITS', 'JEJU', 'KBS', 'NTIC',
+    'UTIC_DIRECT', 'UTIC_LEGACY', 'UTIC_Z3'
+}
+
 os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
 
 
@@ -110,6 +120,19 @@ def env_int(name, default, minimum=None, maximum=None):
 
 def get_sentinel_max_workers():
     return env_int('CCTV_SENTINEL_MAX_WORKERS', DEFAULT_SENTINEL_MAX_WORKERS, minimum=1, maximum=128)
+
+
+def get_region_max_workers(region_name):
+    max_workers = get_sentinel_max_workers()
+    if region_name in ORACLE_BACKED_REGIONS:
+        oracle_workers = env_int(
+            'CCTV_SENTINEL_ORACLE_MAX_WORKERS',
+            DEFAULT_SENTINEL_ORACLE_MAX_WORKERS,
+            minimum=1,
+            maximum=32
+        )
+        return min(max_workers, oracle_workers)
+    return max_workers
 
 
 def save_json(filepath, data):
@@ -1177,7 +1200,7 @@ def test_region(region_name, cameras, current_status=None, target_size=None):
         f'(stable={stable_count}, coverage={coverage_count}, exploratory={exploratory_count}, total_cameras={len(cameras)})'
     )
 
-    max_workers = min(get_sentinel_max_workers(), max(1, len(sample)))
+    max_workers = min(get_region_max_workers(region_name), max(1, len(sample)))
     checked_results = []
     if len(sample) <= 1 or max_workers <= 1:
         for cam in sample:
@@ -1318,6 +1341,8 @@ def run_sentinel():
             'min_region_checks': env_int('CCTV_SENTINEL_MIN_REGION_CHECKS', DEFAULT_SENTINEL_MIN_REGION_CHECKS, minimum=0, maximum=100),
             'max_region_checks': env_int('CCTV_SENTINEL_MAX_REGION_CHECKS', DEFAULT_SENTINEL_MAX_REGION_CHECKS, minimum=1, maximum=5000),
             'max_workers': get_sentinel_max_workers(),
+            'oracle_max_workers': env_int('CCTV_SENTINEL_ORACLE_MAX_WORKERS', DEFAULT_SENTINEL_ORACLE_MAX_WORKERS, minimum=1, maximum=32),
+            'request_timeout_seconds': REQUEST_TIMEOUT,
             'region_budgets': region_budgets,
             'note': '각 실행마다 최근 점검되지 않은 CCTV를 우선 선택해 전체 카탈로그 커버리지를 누적합니다.'
         }
