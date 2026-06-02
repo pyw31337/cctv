@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260527-no-snapshot-feeds';
+const APP_BUILD_VERSION = '20260602-quality-path-fix';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -558,8 +558,8 @@ async function loadCctvData() {
 async function loadHealthStatus() {
     const cacheBucket = Math.floor(Date.now() / HEALTH_STATUS_BUCKET_MS);
     const urls = [
-        LIVE_HEALTH_STATUS_URL ? `${LIVE_HEALTH_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
-        `data/status.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+        `data/status.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
+        LIVE_HEALTH_STATUS_URL ? `${LIVE_HEALTH_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null
     ].filter(Boolean);
 
     for (const url of urls) {
@@ -604,8 +604,8 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
 async function loadQualitySummary() {
     const cacheBucket = Math.floor(Date.now() / QUALITY_SUMMARY_BUCKET_MS);
     const urls = [
-        QUALITY_SUMMARY_URL ? `${QUALITY_SUMMARY_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
-        `${QUALITY_SUMMARY_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+        `${QUALITY_SUMMARY_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
+        QUALITY_SUMMARY_URL ? `${QUALITY_SUMMARY_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null
     ].filter(Boolean);
 
     for (const url of urls) {
@@ -641,8 +641,8 @@ function applyQualitySummary(summary) {
 async function loadCanaryStatus() {
     const cacheBucket = Math.floor(Date.now() / CANARY_STATUS_BUCKET_MS);
     const urls = [
-        CANARY_STATUS_URL ? `${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
-        `${CANARY_STATUS_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+        `${CANARY_STATUS_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
+        CANARY_STATUS_URL ? `${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null
     ].filter(Boolean);
 
     for (const url of urls) {
@@ -1930,7 +1930,8 @@ function normalizeQualitySummary(summary) {
     const slow = getQualityMetric(summary, 'slow', 'slow', 0);
     const fallback = getQualityMetric(summary, 'fallback', 'fallback', 0);
     const sourceOnly = getQualityMetric(summary, 'source_only', 'sourceOnly', 0);
-    const directPlayableSamples = getQualityMetric(summary, 'direct_playable_samples', 'directPlayableSamples', Math.max(0, samples - sourceOnly));
+    const monitorUnverified = getQualityMetric(summary, 'monitor_unverified', 'monitorUnverified', 0);
+    const directPlayableSamples = getQualityMetric(summary, 'direct_playable_samples', 'directPlayableSamples', Math.max(0, samples - sourceOnly - monitorUnverified));
     const successRate = getQualityMetric(summary, 'success_rate', 'successRate', samples ? success / samples : 0);
     const directSuccessRate = getQualityMetric(summary, 'direct_success_rate', 'directSuccessRate', directPlayableSamples ? success / directPlayableSamples : Number.NaN);
     const sourceOnlyRate = getQualityMetric(summary, 'source_only_rate', 'sourceOnlyRate', samples ? sourceOnly / samples : 0);
@@ -1944,6 +1945,7 @@ function normalizeQualitySummary(summary) {
     return {
         samples,
         sourceOnly,
+        monitorUnverified,
         directPlayableSamples,
         successRate,
         directSuccessRate,
@@ -2003,7 +2005,7 @@ function getQualitySummaryAdjustment(cctv) {
     if (!effective) return 0;
     const { metrics } = effective;
 
-    if (metrics.sourceOnly > 0 && metrics.directPlayableSamples === 0) {
+    if ((metrics.sourceOnly > 0 || metrics.monitorUnverified > 0) && metrics.directPlayableSamples === 0) {
         return effective.scope === 'camera' ? 0.8 : 0.35;
     }
 
@@ -2041,12 +2043,13 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
     const slowFirstFrameMs = aggregate ? 10000 : QUALITY_SLOW_FIRST_FRAME_MS;
     const effectiveSuccessRate = Number.isFinite(metrics.directSuccessRate) ? metrics.directSuccessRate : metrics.successRate;
 
-    if (metrics.sourceOnly > 0 && metrics.directPlayableSamples === 0) {
+    if ((metrics.sourceOnly > 0 || metrics.monitorUnverified > 0) && metrics.directPlayableSamples === 0) {
+        const monitorOnly = metrics.monitorUnverified > 0 && !metrics.sourceOnly;
         return {
             regionKey,
-            status: 'SOURCE_ONLY',
-            shortLabel: '원본 전용',
-            longLabel: `${label}은 원본 플레이어/프레임 전용 소스라 직접 HLS/MP4 장애와 분리해서 봅니다`,
+            status: monitorOnly ? 'MONITOR_UNVERIFIED' : 'SOURCE_ONLY',
+            shortLabel: monitorOnly ? '점검 제한' : '원본 전용',
+            longLabel: monitorOnly ? `${label}은 브라우저 직접 재생 경로와 점검 서버 경로가 달라 장애와 분리해서 봅니다` : `${label}은 원본 플레이어/프레임 전용 소스라 직접 HLS/MP4 장애와 분리해서 봅니다`,
             tone: 'unknown',
             penalty: aggregate ? 0.4 : 0.9,
             lastUpdated: timeText
@@ -2484,11 +2487,11 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
         };
     }
 
-    if (health.status === 'SOURCE_ONLY') {
+    if (health.status === 'SOURCE_ONLY' || health.status === 'MONITOR_UNVERIFIED') {
         return {
             tone: 'unknown',
-            label: health.shortLabel || '원본 전용',
-            title: health.longLabel || '원본 플레이어 전용 소스입니다.'
+            label: health.shortLabel || '미확인',
+            title: health.longLabel || '직접 장애와 분리해서 보는 소스입니다.'
         };
     }
 

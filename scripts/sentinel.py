@@ -84,6 +84,16 @@ ORACLE_BACKED_REGIONS = {
     'UTIC_DIRECT', 'UTIC_LEGACY', 'UTIC_Z3'
 }
 
+MONITOR_UNVERIFIED_DIRECT_HLS_SOURCES = {'SPATIC', 'ULSAN'}
+MONITOR_UNVERIFIED_DIRECT_HLS_HOSTS = {
+    'trafficcctv.paju.go.kr',
+    'strm1.spatic.go.kr',
+    'strm2.spatic.go.kr',
+    'strm3.spatic.go.kr',
+    'strm4.spatic.go.kr',
+    'webcctv.its.ulsan.kr',
+}
+
 os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
 
 
@@ -134,6 +144,28 @@ def get_region_max_workers(region_name):
         return min(max_workers, oracle_workers)
     return max_workers
 
+
+def is_browser_direct_hls_monitor_timeout(cctv, url):
+    source = cctv.get('source', '')
+    parsed = urlparse(str(url or ''))
+    return (
+        parsed.scheme.startswith('http')
+        and parsed.path.lower().endswith('.m3u8')
+        and (source in MONITOR_UNVERIFIED_DIRECT_HLS_SOURCES or parsed.netloc.lower() in MONITOR_UNVERIFIED_DIRECT_HLS_HOSTS)
+    )
+
+
+def mark_monitor_path_unverified(cctv, url, error):
+    set_probe_result(
+        cctv,
+        True,
+        reason='monitor_path_timeout_browser_direct_priority',
+        category='monitor_path_unverified',
+        url=url,
+        detail=error,
+    )
+    log(f"[WARN] {cctv.get('id')} monitor path timed out; browser-direct HLS path is kept eligible")
+    return True
 
 def save_json(filepath, data):
     with open(filepath, 'w', encoding='utf-8') as handle:
@@ -495,6 +527,8 @@ def check_paju_stream(cctv):
         set_probe_result(cctv, False, reason='http_error', category='http_error', status_code=resp.status_code, url=url, content_type=resp.headers.get('Content-Type'))
         log(f"[FAIL] Paju {cctv.get('id')} returned {resp.status_code}")
     except requests.Timeout as error:
+        if is_browser_direct_hls_monitor_timeout(cctv, url):
+            return mark_monitor_path_unverified(cctv, url, error)
         set_probe_result(cctv, False, reason='timeout', category='timeout', url=url, detail=error)
         log(f"[ERR] Paju {cctv.get('id')} timed out: {error}")
     except Exception as error:
@@ -657,6 +691,8 @@ def check_generic_stream(cctv):
         set_probe_result(cctv, False, reason='http_error', category=category, status_code=resp.status_code, url=url, content_type=content_type)
         log(f"[FAIL] {cctv.get('id')} returned {resp.status_code}")
     except requests.Timeout as error:
+        if is_browser_direct_hls_monitor_timeout(cctv, url):
+            return mark_monitor_path_unverified(cctv, url, error)
         set_probe_result(cctv, False, reason='timeout', category=get_source_specific_failure_category(cctv, 'timeout'), url=url, detail=error)
         log(f"[ERR] {cctv.get('id')} timed out: {error}")
     except Exception as error:

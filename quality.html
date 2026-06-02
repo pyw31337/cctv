@@ -141,7 +141,7 @@
 
     <section class="card">
         <h2>소스별 품질</h2>
-        <table><thead><tr><th>소스</th><th>직접 성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>원본 전용</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
+        <table><thead><tr><th>소스</th><th>직접 성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>원본/경로 제한</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
     </section>
 
     <section class="card">
@@ -157,7 +157,7 @@
 
     <section class="card">
         <h2>지역별 품질</h2>
-        <table><thead><tr><th>지역</th><th>직접 성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>원본 전용</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table>
+        <table><thead><tr><th>지역</th><th>직접 성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>원본/경로 제한</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table>
     </section>
 
     <section class="card">
@@ -166,12 +166,11 @@
     </section>
 </main>
 <script>
-const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
-const FALLBACK_URL = 'data/quality_summary.json';
+const SUMMARY_URLS = ['data/quality_summary.json', window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary'];
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
-const CANARY_URLS = [`${ORACLE_BASE}/canary-status`, 'data/canary_status.json'];
-const OPS_URLS = [`${ORACLE_BASE}/ops-status`, 'data/ops_status.json'];
-const CANARY_HISTORY_URLS = [`${ORACLE_BASE}/canary-history`, 'data/canary_history.json'];
+const CANARY_URLS = ['data/canary_status.json', `${ORACLE_BASE}/canary-status`];
+const OPS_URLS = ['data/ops_status.json', `${ORACLE_BASE}/ops-status`];
+const CANARY_HISTORY_URLS = ['data/canary_history.json', `${ORACLE_BASE}/canary-history`];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
 const STATUS_URL = 'data/status.json';
@@ -240,9 +239,10 @@ function normalize(item) {
     const slow = Number(item.slow || 0);
     const fallback = Number(item.fallback || 0);
     const sourceOnly = Number(item.source_only || item.sourceOnly || 0);
+    const monitorUnverified = Number(item.monitor_unverified || item.monitorUnverified || 0);
     const directPlayableSamples = Number.isFinite(Number(item.direct_playable_samples))
         ? Number(item.direct_playable_samples)
-        : Math.max(0, samples - sourceOnly);
+        : Math.max(0, samples - sourceOnly - monitorUnverified);
     const successRate = Number.isFinite(Number(item.success_rate)) ? Number(item.success_rate) : (samples ? success / samples : 0);
     const directSuccessRate = Number.isFinite(Number(item.direct_success_rate))
         ? Number(item.direct_success_rate)
@@ -251,17 +251,18 @@ function normalize(item) {
         ? Number(item.source_only_rate)
         : (samples ? sourceOnly / samples : 0);
     const avgFirstFrameMs = Number(item.avg_first_frame_ms || 0);
-    return { ...item, samples, success, failure, slow, fallback, sourceOnly, directPlayableSamples, successRate, directSuccessRate, sourceOnlyRate, avgFirstFrameMs };
+    return { ...item, samples, success, failure, slow, fallback, sourceOnly, monitorUnverified, directPlayableSamples, successRate, directSuccessRate, sourceOnlyRate, avgFirstFrameMs };
 }
 function displaySuccessRate(item) {
     return Number.isFinite(item.directSuccessRate) ? item.directSuccessRate : item.successRate;
 }
 function qualityTone(item) {
-    if (item.samples && item.sourceOnly >= item.samples && !item.directPlayableSamples) return 'info';
+    if (item.samples && (item.sourceOnly + item.monitorUnverified) >= item.samples && !item.directPlayableSamples) return 'info';
     return tone(displaySuccessRate(item), item.avgFirstFrameMs);
 }
 function qualityLabel(item) {
     if (item.samples && item.sourceOnly >= item.samples && !item.directPlayableSamples) return '원본 전용';
+    if (item.samples && item.monitorUnverified >= item.samples && !item.directPlayableSamples) return '경로 제한';
     return pct(displaySuccessRate(item));
 }
 function weightedRate(items) {
@@ -277,7 +278,7 @@ function weightedLoad(items) {
 }
 async function loadSummary() {
     let summary = null;
-    for (const url of [SUMMARY_URL, FALLBACK_URL]) {
+    for (const url of SUMMARY_URLS) {
         try {
             const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
             if (!res.ok) throw new Error(res.status);
@@ -315,7 +316,7 @@ async function loadFirstJson(urls, fallback) {
     return fallback;
 }
 function qualityRow(item, label) {
-    return `<tr><td>${esc(label)}</td><td><span class="pill ${qualityTone(item)}">${qualityLabel(item)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td class="info">${item.sourceOnly}</td><td>${item.samples}</td></tr>`;
+    return `<tr><td>${esc(label)}</td><td><span class="pill ${qualityTone(item)}">${qualityLabel(item)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td class="info">${item.sourceOnly + item.monitorUnverified}</td><td>${item.samples}</td></tr>`;
 }
 function render(summary, opsData = {}) {
     const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
@@ -340,7 +341,7 @@ function render(summary, opsData = {}) {
         .sort((a,b) => displaySuccessRate(a) - displaySuccessRate(b) || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
         .slice(0, 35)
         .map(item => `<tr><td>${esc(item.camera_name || item.id)}</td><td>${esc(item.source || '-')}</td><td>${esc(item.region || '-')}</td><td><span class="pill ${qualityTone(item)}">${qualityLabel(item)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td>${item.samples}</td><td>${esc(item.recommended_action || item.reason || item.category || '-')}</td></tr>`)
-        .join('') || (sourceOnlyCameras.length ? '<tr><td colspan="8">직접 재생 장애 후보는 없습니다. 원본 전용 소스는 소스별 품질의 원본 전용 열에서 확인하세요.</td></tr>' : '<tr><td colspan="8">우선 점검 후보가 아직 없습니다.</td></tr>');
+        .join('') || (sourceOnlyCameras.length ? '<tr><td colspan="8">직접 재생 장애 후보는 없습니다. 원본 전용/점검 경로 제한 소스는 소스별 품질에서 확인하세요.</td></tr>' : '<tr><td colspan="8">우선 점검 후보가 아직 없습니다.</td></tr>');
 
     $('source-rows').innerHTML = sources
         .sort((a,b) => displaySuccessRate(a) - displaySuccessRate(b) || b.failure - a.failure || b.samples - a.samples)

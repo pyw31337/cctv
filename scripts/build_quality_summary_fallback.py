@@ -12,6 +12,7 @@ import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,8 @@ OUTPUT_FILE = ROOT / "data" / "quality_summary.json"
 SOURCE_ONLY_CATEGORIES = {"frame_only", "frame_or_bad_content", "html_or_frame"}
 SOURCE_ONLY_REASONS = {"iframe_only_source", "html_not_direct_video"}
 SOURCE_ONLY_SOURCES = {"GANGWON", "GIGAEYES", "KNPS", "CCTVWORLD"}
+MONITOR_UNVERIFIED_SOURCES = {"SPATIC", "ULSAN"}
+MONITOR_UNVERIFIED_HOSTS = {"trafficcctv.paju.go.kr", "strm1.spatic.go.kr", "strm2.spatic.go.kr", "strm3.spatic.go.kr", "strm4.spatic.go.kr", "webcctv.its.ulsan.kr"}
 
 
 def load_json(path: Path, fallback: Any) -> Any:
@@ -51,13 +54,25 @@ def is_source_only_evidence(source: str, category: Any, reason: Any) -> bool:
     )
 
 
+def is_monitor_unverified_evidence(source: str, category: Any, reason: Any, url: Any) -> bool:
+    if str(category or "") != "timeout" and str(reason or "") != "timeout":
+        return False
+    parsed = urlparse(str(url or ""))
+    if not parsed.scheme.startswith("http"):
+        return False
+    if not str(parsed.path or "").lower().endswith(".m3u8"):
+        return False
+    return source in MONITOR_UNVERIFIED_SOURCES or parsed.netloc.lower() in MONITOR_UNVERIFIED_HOSTS
+
+
 def row_from_result(result: dict[str, Any], region_label: str) -> dict[str, Any]:
     ok = bool(result.get("ok"))
     elapsed = int(result.get("elapsed_ms") or 0)
     samples = 1
     source = str(result.get("source") or "UNKNOWN")
     source_only = (not ok) and is_source_only_evidence(source, result.get("category"), result.get("reason"))
-    failure = 0 if ok or source_only else 1
+    monitor_unverified = (not ok) and is_monitor_unverified_evidence(source, result.get("category"), result.get("reason"), result.get("url"))
+    failure = 0 if ok or source_only or monitor_unverified else 1
     return {
         "camera_name": result.get("name") or result.get("id") or "UNKNOWN",
         "source": source,
@@ -68,7 +83,8 @@ def row_from_result(result: dict[str, Any], region_label: str) -> dict[str, Any]
         "slow": 1 if ok and elapsed >= 8000 else 0,
         "fallback": 0,
         "source_only": 1 if source_only else 0,
-        "direct_playable_samples": 0 if source_only else 1,
+        "monitor_unverified": 1 if monitor_unverified else 0,
+        "direct_playable_samples": 0 if source_only or monitor_unverified else 1,
         "success_rate": 1 if ok else 0,
         "failure_rate": failure / samples if samples else 0,
         "slow_rate": 1 if ok and elapsed >= 8000 else 0,
@@ -123,7 +139,8 @@ def row_from_status_sample(
     category = (failed_sample or {}).get("category")
     reason = (failed_sample or {}).get("reason")
     source_only = (not ok) and is_source_only_evidence(source, category, reason)
-    failure = 0 if ok or source_only else 1
+    monitor_unverified = (not ok) and is_monitor_unverified_evidence(source, category, reason, (failed_sample or {}).get("url") or (cam or {}).get("url") or (cam or {}).get("directUrl"))
+    failure = 0 if ok or source_only or monitor_unverified else 1
     return {
         "camera_name": name,
         "source": source,
@@ -134,7 +151,8 @@ def row_from_status_sample(
         "slow": 0,
         "fallback": 0,
         "source_only": 1 if source_only else 0,
-        "direct_playable_samples": 0 if source_only else 1,
+        "monitor_unverified": 1 if monitor_unverified else 0,
+        "direct_playable_samples": 0 if source_only or monitor_unverified else 1,
         "success_rate": 1 if ok else 0,
         "failure_rate": failure / 1,
         "slow_rate": 0,
@@ -158,6 +176,7 @@ def add_rollup(bucket: dict[str, Any], row: dict[str, Any]) -> None:
     bucket["slow"] += int(row.get("slow") or 0)
     bucket["fallback"] += int(row.get("fallback") or 0)
     bucket["source_only"] += int(row.get("source_only") or 0)
+    bucket["monitor_unverified"] += int(row.get("monitor_unverified") or 0)
     bucket["direct_playable_samples"] += int(row.get("direct_playable_samples") or 0)
     bucket["first_frame_sum"] += int(row.get("avg_first_frame_ms") or 0) * int(row.get("success") or 0)
     bucket["fail_sum"] += int(row.get("avg_fail_ms") or 0) * int(row.get("failure") or 0)
@@ -173,7 +192,8 @@ def finalize_rollup(bucket: dict[str, Any]) -> dict[str, Any]:
     slow = int(bucket.get("slow") or 0)
     fallback = int(bucket.get("fallback") or 0)
     source_only = int(bucket.get("source_only") or 0)
-    direct_playable_samples = int(bucket.get("direct_playable_samples") or max(0, samples - source_only))
+    monitor_unverified = int(bucket.get("monitor_unverified") or 0)
+    direct_playable_samples = int(bucket.get("direct_playable_samples") or max(0, samples - source_only - monitor_unverified))
     direct_success_rate = success / direct_playable_samples if direct_playable_samples else None
     return {
         "samples": samples,
@@ -182,10 +202,12 @@ def finalize_rollup(bucket: dict[str, Any]) -> dict[str, Any]:
         "slow": slow,
         "fallback": fallback,
         "source_only": source_only,
+        "monitor_unverified": monitor_unverified,
         "direct_playable_samples": direct_playable_samples,
         "success_rate": success / samples if samples else 0,
         "direct_success_rate": direct_success_rate,
         "source_only_rate": source_only / samples if samples else 0,
+        "monitor_unverified_rate": monitor_unverified / samples if samples else 0,
         "failure_rate": failure / direct_playable_samples if direct_playable_samples else 0,
         "slow_rate": slow / samples if samples else 0,
         "fallback_rate": fallback / samples if samples else 0,
