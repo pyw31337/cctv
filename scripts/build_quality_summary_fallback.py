@@ -20,6 +20,9 @@ CANARY_FILE = ROOT / "data" / "canary_status.json"
 OPS_FILE = ROOT / "data" / "ops_status.json"
 STATUS_FILE = ROOT / "data" / "status.json"
 OUTPUT_FILE = ROOT / "data" / "quality_summary.json"
+SOURCE_ONLY_CATEGORIES = {"frame_only", "frame_or_bad_content", "html_or_frame"}
+SOURCE_ONLY_REASONS = {"iframe_only_source", "html_not_direct_video"}
+SOURCE_ONLY_SOURCES = {"GANGWON", "GIGAEYES", "KNPS", "CCTVWORLD"}
 
 
 def load_json(path: Path, fallback: Any) -> Any:
@@ -38,22 +41,36 @@ def latest_stamp(*values: Any) -> str:
     return max(stamps) if stamps else utc_stamp()
 
 
+def is_source_only_evidence(source: str, category: Any, reason: Any) -> bool:
+    category_text = str(category or "")
+    reason_text = str(reason or "")
+    return (
+        category_text in SOURCE_ONLY_CATEGORIES
+        or reason_text in SOURCE_ONLY_REASONS
+        or (source in SOURCE_ONLY_SOURCES and category_text in {"unknown", "not_checked"})
+    )
+
+
 def row_from_result(result: dict[str, Any], region_label: str) -> dict[str, Any]:
     ok = bool(result.get("ok"))
     elapsed = int(result.get("elapsed_ms") or 0)
     samples = 1
     source = str(result.get("source") or "UNKNOWN")
+    source_only = (not ok) and is_source_only_evidence(source, result.get("category"), result.get("reason"))
+    failure = 0 if ok or source_only else 1
     return {
         "camera_name": result.get("name") or result.get("id") or "UNKNOWN",
         "source": source,
         "region": region_label,
         "samples": samples,
         "success": 1 if ok else 0,
-        "failure": 0 if ok else 1,
+        "failure": failure,
         "slow": 1 if ok and elapsed >= 8000 else 0,
         "fallback": 0,
+        "source_only": 1 if source_only else 0,
+        "direct_playable_samples": 0 if source_only else 1,
         "success_rate": 1 if ok else 0,
-        "failure_rate": 0 if ok else 1,
+        "failure_rate": failure / samples if samples else 0,
         "slow_rate": 1 if ok and elapsed >= 8000 else 0,
         "fallback_rate": 0,
         "avg_first_frame_ms": elapsed if ok else 0,
@@ -103,17 +120,23 @@ def row_from_status_sample(
     name = (failed_sample or {}).get("name") or (cam or {}).get("name") or camera_id
     checked_at = (failed_sample or {}).get("checked_at") or region.get("checked_at")
     elapsed = int((failed_sample or {}).get("elapsed_ms") or 0)
+    category = (failed_sample or {}).get("category")
+    reason = (failed_sample or {}).get("reason")
+    source_only = (not ok) and is_source_only_evidence(source, category, reason)
+    failure = 0 if ok or source_only else 1
     return {
         "camera_name": name,
         "source": source,
         "region": region_key,
         "samples": 1,
         "success": 1 if ok else 0,
-        "failure": 0 if ok else 1,
+        "failure": failure,
         "slow": 0,
         "fallback": 0,
+        "source_only": 1 if source_only else 0,
+        "direct_playable_samples": 0 if source_only else 1,
         "success_rate": 1 if ok else 0,
-        "failure_rate": 0 if ok else 1,
+        "failure_rate": failure / 1,
         "slow_rate": 0,
         "fallback_rate": 0,
         "avg_first_frame_ms": elapsed if ok else 0,
@@ -123,7 +146,7 @@ def row_from_status_sample(
         "updated_at": checked_at,
         "quality_basis": "regional_health_sample",
         "reason": (failed_sample or {}).get("reason"),
-        "category": (failed_sample or {}).get("category"),
+        "category": category,
         "recommended_action": (((failed_sample or {}).get("diagnosis") or {}).get("recommended_action") or ((region.get("failure_breakdown") or {}).get("dominant") or {}).get("recommended_action")),
     }
 
@@ -134,6 +157,8 @@ def add_rollup(bucket: dict[str, Any], row: dict[str, Any]) -> None:
     bucket["failure"] += int(row.get("failure") or 0)
     bucket["slow"] += int(row.get("slow") or 0)
     bucket["fallback"] += int(row.get("fallback") or 0)
+    bucket["source_only"] += int(row.get("source_only") or 0)
+    bucket["direct_playable_samples"] += int(row.get("direct_playable_samples") or 0)
     bucket["first_frame_sum"] += int(row.get("avg_first_frame_ms") or 0) * int(row.get("success") or 0)
     bucket["fail_sum"] += int(row.get("avg_fail_ms") or 0) * int(row.get("failure") or 0)
     updated = row.get("updated_at")
@@ -147,14 +172,21 @@ def finalize_rollup(bucket: dict[str, Any]) -> dict[str, Any]:
     failure = int(bucket.get("failure") or 0)
     slow = int(bucket.get("slow") or 0)
     fallback = int(bucket.get("fallback") or 0)
+    source_only = int(bucket.get("source_only") or 0)
+    direct_playable_samples = int(bucket.get("direct_playable_samples") or max(0, samples - source_only))
+    direct_success_rate = success / direct_playable_samples if direct_playable_samples else None
     return {
         "samples": samples,
         "success": success,
         "failure": failure,
         "slow": slow,
         "fallback": fallback,
+        "source_only": source_only,
+        "direct_playable_samples": direct_playable_samples,
         "success_rate": success / samples if samples else 0,
-        "failure_rate": failure / samples if samples else 0,
+        "direct_success_rate": direct_success_rate,
+        "source_only_rate": source_only / samples if samples else 0,
+        "failure_rate": failure / direct_playable_samples if direct_playable_samples else 0,
         "slow_rate": slow / samples if samples else 0,
         "fallback_rate": fallback / samples if samples else 0,
         "avg_first_frame_ms": bucket.get("first_frame_sum", 0) / success if success else 0,

@@ -141,7 +141,7 @@
 
     <section class="card">
         <h2>소스별 품질</h2>
-        <table><thead><tr><th>소스</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
+        <table><thead><tr><th>소스</th><th>직접 성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>원본 전용</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
     </section>
 
     <section class="card">
@@ -157,7 +157,7 @@
 
     <section class="card">
         <h2>지역별 품질</h2>
-        <table><thead><tr><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table>
+        <table><thead><tr><th>지역</th><th>직접 성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>원본 전용</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table>
     </section>
 
     <section class="card">
@@ -239,14 +239,36 @@ function normalize(item) {
     const failure = Number(item.failure || 0);
     const slow = Number(item.slow || 0);
     const fallback = Number(item.fallback || 0);
+    const sourceOnly = Number(item.source_only || item.sourceOnly || 0);
+    const directPlayableSamples = Number.isFinite(Number(item.direct_playable_samples))
+        ? Number(item.direct_playable_samples)
+        : Math.max(0, samples - sourceOnly);
     const successRate = Number.isFinite(Number(item.success_rate)) ? Number(item.success_rate) : (samples ? success / samples : 0);
+    const directSuccessRate = Number.isFinite(Number(item.direct_success_rate))
+        ? Number(item.direct_success_rate)
+        : (directPlayableSamples ? success / directPlayableSamples : NaN);
+    const sourceOnlyRate = Number.isFinite(Number(item.source_only_rate))
+        ? Number(item.source_only_rate)
+        : (samples ? sourceOnly / samples : 0);
     const avgFirstFrameMs = Number(item.avg_first_frame_ms || 0);
-    return { ...item, samples, success, failure, slow, fallback, successRate, avgFirstFrameMs };
+    return { ...item, samples, success, failure, slow, fallback, sourceOnly, directPlayableSamples, successRate, directSuccessRate, sourceOnlyRate, avgFirstFrameMs };
+}
+function displaySuccessRate(item) {
+    return Number.isFinite(item.directSuccessRate) ? item.directSuccessRate : item.successRate;
+}
+function qualityTone(item) {
+    if (item.samples && item.sourceOnly >= item.samples && !item.directPlayableSamples) return 'info';
+    return tone(displaySuccessRate(item), item.avgFirstFrameMs);
+}
+function qualityLabel(item) {
+    if (item.samples && item.sourceOnly >= item.samples && !item.directPlayableSamples) return '원본 전용';
+    return pct(displaySuccessRate(item));
 }
 function weightedRate(items) {
-    const total = items.reduce((sum, item) => sum + item.samples, 0);
+    const directItems = items.filter(item => item.directPlayableSamples > 0);
+    const total = directItems.reduce((sum, item) => sum + item.directPlayableSamples, 0);
     if (!total) return NaN;
-    return items.reduce((sum, item) => sum + item.success, 0) / total;
+    return directItems.reduce((sum, item) => sum + item.success, 0) / total;
 }
 function weightedLoad(items) {
     const successful = items.reduce((sum, item) => sum + item.success, 0);
@@ -293,14 +315,15 @@ async function loadFirstJson(urls, fallback) {
     return fallback;
 }
 function qualityRow(item, label) {
-    return `<tr><td>${esc(label)}</td><td><span class="pill ${tone(item.successRate, item.avgFirstFrameMs)}">${pct(item.successRate)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.samples}</td></tr>`;
+    return `<tr><td>${esc(label)}</td><td><span class="pill ${qualityTone(item)}">${qualityLabel(item)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td class="info">${item.sourceOnly}</td><td>${item.samples}</td></tr>`;
 }
 function render(summary, opsData = {}) {
     const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const sources = Object.entries(summary.sources || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const regions = Object.entries(summary.regions || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const sampleCount = cameras.reduce((sum, item) => sum + item.samples, 0);
-    const problemCameras = cameras.filter(item => item.successRate < .78 || item.failure > 0 || item.avgFirstFrameMs > 8000);
+    const problemCameras = cameras.filter(item => item.failure > 0 || (item.directPlayableSamples > 0 && displaySuccessRate(item) < .78) || item.avgFirstFrameMs > 8000);
+    const sourceOnlyCameras = cameras.filter(item => item.sourceOnly > 0 && item.failure === 0);
 
     $('camera-count').textContent = cameras.length.toLocaleString('ko-KR');
     $('sample-count').textContent = sampleCount.toLocaleString('ko-KR');
@@ -314,20 +337,20 @@ function render(summary, opsData = {}) {
     renderInventory(opsData.inventory || [], summary);
 
     $('camera-rows').innerHTML = problemCameras
-        .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
+        .sort((a,b) => displaySuccessRate(a) - displaySuccessRate(b) || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
         .slice(0, 35)
-        .map(item => `<tr><td>${esc(item.camera_name || item.id)}</td><td>${esc(item.source || '-')}</td><td>${esc(item.region || '-')}</td><td><span class="pill ${tone(item.successRate, item.avgFirstFrameMs)}">${pct(item.successRate)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td>${item.samples}</td><td>${esc(item.recommended_action || item.reason || item.category || '-')}</td></tr>`)
-        .join('') || '<tr><td colspan="8">우선 점검 후보가 아직 없습니다.</td></tr>';
+        .map(item => `<tr><td>${esc(item.camera_name || item.id)}</td><td>${esc(item.source || '-')}</td><td>${esc(item.region || '-')}</td><td><span class="pill ${qualityTone(item)}">${qualityLabel(item)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td>${item.samples}</td><td>${esc(item.recommended_action || item.reason || item.category || '-')}</td></tr>`)
+        .join('') || (sourceOnlyCameras.length ? '<tr><td colspan="8">직접 재생 장애 후보는 없습니다. 원본 전용 소스는 소스별 품질의 원본 전용 열에서 확인하세요.</td></tr>' : '<tr><td colspan="8">우선 점검 후보가 아직 없습니다.</td></tr>');
 
     $('source-rows').innerHTML = sources
-        .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
+        .sort((a,b) => displaySuccessRate(a) - displaySuccessRate(b) || b.failure - a.failure || b.samples - a.samples)
         .map(item => qualityRow(item, item.id))
-        .join('') || '<tr><td colspan="7">소스 집계가 아직 없습니다.</td></tr>';
+        .join('') || '<tr><td colspan="8">소스 집계가 아직 없습니다.</td></tr>';
 
     $('region-rows').innerHTML = regions
-        .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
+        .sort((a,b) => displaySuccessRate(a) - displaySuccessRate(b) || b.failure - a.failure || b.samples - a.samples)
         .map(item => qualityRow(item, item.id))
-        .join('') || '<tr><td colspan="7">지역 집계가 아직 없습니다.</td></tr>';
+        .join('') || '<tr><td colspan="8">지역 집계가 아직 없습니다.</td></tr>';
 }
 
 function renderFreshness(summary, { canary, ops, cache, regionalStatus, z3Cache, workflowStatus }) {

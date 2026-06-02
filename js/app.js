@@ -1929,8 +1929,12 @@ function normalizeQualitySummary(summary) {
     const failure = getQualityMetric(summary, 'failure', 'failure', 0);
     const slow = getQualityMetric(summary, 'slow', 'slow', 0);
     const fallback = getQualityMetric(summary, 'fallback', 'fallback', 0);
+    const sourceOnly = getQualityMetric(summary, 'source_only', 'sourceOnly', 0);
+    const directPlayableSamples = getQualityMetric(summary, 'direct_playable_samples', 'directPlayableSamples', Math.max(0, samples - sourceOnly));
     const successRate = getQualityMetric(summary, 'success_rate', 'successRate', samples ? success / samples : 0);
-    const failureRate = getQualityMetric(summary, 'failure_rate', 'failureRate', samples ? failure / samples : 0);
+    const directSuccessRate = getQualityMetric(summary, 'direct_success_rate', 'directSuccessRate', directPlayableSamples ? success / directPlayableSamples : Number.NaN);
+    const sourceOnlyRate = getQualityMetric(summary, 'source_only_rate', 'sourceOnlyRate', samples ? sourceOnly / samples : 0);
+    const failureRate = getQualityMetric(summary, 'failure_rate', 'failureRate', directPlayableSamples ? failure / directPlayableSamples : 0);
     const slowRate = getQualityMetric(summary, 'slow_rate', 'slowRate', samples ? slow / samples : 0);
     const fallbackRate = getQualityMetric(summary, 'fallback_rate', 'fallbackRate', samples ? fallback / samples : 0);
     const avgFirstFrameMs = getQualityMetric(summary, 'avg_first_frame_ms', 'avgFirstFrameMs', 0);
@@ -1939,7 +1943,11 @@ function normalizeQualitySummary(summary) {
 
     return {
         samples,
+        sourceOnly,
+        directPlayableSamples,
         successRate,
+        directSuccessRate,
+        sourceOnlyRate,
         failureRate,
         slowRate,
         fallbackRate,
@@ -1995,10 +2003,15 @@ function getQualitySummaryAdjustment(cctv) {
     if (!effective) return 0;
     const { metrics } = effective;
 
+    if (metrics.sourceOnly > 0 && metrics.directPlayableSamples === 0) {
+        return effective.scope === 'camera' ? 0.8 : 0.35;
+    }
+
+    const effectiveSuccessRate = Number.isFinite(metrics.directSuccessRate) ? metrics.directSuccessRate : metrics.successRate;
     let adjustment = 0;
-    if (metrics.successRate < 0.5) adjustment += 6;
-    else if (metrics.successRate < 0.72) adjustment += 3.2;
-    else if (metrics.successRate < 0.85) adjustment += 1.2;
+    if (effectiveSuccessRate < 0.5) adjustment += 6;
+    else if (effectiveSuccessRate < 0.72) adjustment += 3.2;
+    else if (effectiveSuccessRate < 0.85) adjustment += 1.2;
 
     if (metrics.failureRate >= 0.45) adjustment += 2;
     if (metrics.slowRate >= 0.4) adjustment += 1.4;
@@ -2007,7 +2020,7 @@ function getQualitySummaryAdjustment(cctv) {
     if (metrics.avgFirstFrameMs > 12000) adjustment += 2.4;
     else if (metrics.avgFirstFrameMs > QUALITY_SLOW_FIRST_FRAME_MS) adjustment += 1.2;
 
-    if (metrics.samples >= 6 && metrics.successRate >= 0.9 && metrics.avgFirstFrameMs > 0 && metrics.avgFirstFrameMs < 3500) {
+    if (metrics.samples >= 6 && effectiveSuccessRate >= 0.9 && metrics.avgFirstFrameMs > 0 && metrics.avgFirstFrameMs < 3500) {
         adjustment -= 1;
     }
 
@@ -2026,8 +2039,21 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
     const downSuccessRate = aggregate ? 0.38 : 0.45;
     const slowRate = aggregate ? 0.5 : 0.4;
     const slowFirstFrameMs = aggregate ? 10000 : QUALITY_SLOW_FIRST_FRAME_MS;
+    const effectiveSuccessRate = Number.isFinite(metrics.directSuccessRate) ? metrics.directSuccessRate : metrics.successRate;
 
-    if (metrics.failureRate >= downFailureRate || metrics.successRate < downSuccessRate) {
+    if (metrics.sourceOnly > 0 && metrics.directPlayableSamples === 0) {
+        return {
+            regionKey,
+            status: 'SOURCE_ONLY',
+            shortLabel: '원본 전용',
+            longLabel: `${label}은 원본 플레이어/프레임 전용 소스라 직접 HLS/MP4 장애와 분리해서 봅니다`,
+            tone: 'unknown',
+            penalty: aggregate ? 0.4 : 0.9,
+            lastUpdated: timeText
+        };
+    }
+
+    if (metrics.failureRate >= downFailureRate || effectiveSuccessRate < downSuccessRate) {
         return {
             regionKey,
             status: 'QUALITY_DOWN',
@@ -2051,8 +2077,8 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
         };
     }
 
-    if ((effective.scope === 'camera' && metrics.samples >= 5 && metrics.successRate >= 0.88)
-        || (aggregate && metrics.samples >= 20 && metrics.successRate >= 0.9)) {
+    if ((effective.scope === 'camera' && metrics.samples >= 5 && effectiveSuccessRate >= 0.88)
+        || (aggregate && metrics.samples >= 20 && effectiveSuccessRate >= 0.9)) {
         return {
             regionKey,
             status: 'QUALITY_OK',
@@ -2455,6 +2481,14 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
             tone: 'danger',
             label: health.shortLabel || '연결 불안정',
             title: health.longLabel || '현재 재생 실패 가능성이 높습니다.'
+        };
+    }
+
+    if (health.status === 'SOURCE_ONLY') {
+        return {
+            tone: 'unknown',
+            label: health.shortLabel || '원본 전용',
+            title: health.longLabel || '원본 플레이어 전용 소스입니다.'
         };
     }
 
