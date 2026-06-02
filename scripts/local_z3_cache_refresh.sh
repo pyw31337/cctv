@@ -9,7 +9,7 @@ LOCK_FILE="${CCTV_LOCAL_Z3_LOCK:-/tmp/cctv_local_z3_cache_refresh.lock}"
 LOCK_DIR="${LOCK_FILE}.dir"
 MAX_AGE_MINUTES="${CCTV_Z3_MAX_AGE_MINUTES:-25}"
 FALLBACK_HOURS="${CCTV_Z3_FALLBACK_HOURS:-8}"
-GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES="${CCTV_Z3_GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES:-360}"
+GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES="${CCTV_Z3_GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES:-60}"
 GITHUB_FALLBACK_STATE_FILE="${CCTV_Z3_GITHUB_FALLBACK_STATE_FILE:-$ROOT/logs/local_z3_cache_refresh.last_github_push}"
 ORACLE_BASE="${CCTV_ORACLE_BASE:-https://158.179.194.163.sslip.io}"
 
@@ -137,9 +137,9 @@ else
   echo "[$(stamp)] oracle key not found; skipped Oracle rsync"
 fi
 
-# Commit and push the static GitHub Pages fallback sparingly. Even with
-# `[skip ci]`, GitHub Pages deployment can still run for every commit, so the
-# Oracle sync above is the primary freshness path while Actions minutes are low.
+# Commit and push the static GitHub Pages fallback often enough for the
+# public quality dashboard to stay trustworthy. Even with `[skip ci]`, GitHub
+# Pages deployment can still run, so keep this bounded rather than every local tick.
 if ! git diff --quiet -- data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json; then
   if should_push_github_fallback; then
     git add data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json

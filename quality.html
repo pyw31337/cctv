@@ -195,6 +195,12 @@ function ageText(hours) {
     if (value < 1) return `${Math.round(value * 60)}분`;
     return `${Math.round(value * 10) / 10}시간`;
 }
+function z3AgeHours(z3) {
+    const hours = Number(z3?.age_hours);
+    if (Number.isFinite(hours)) return hours;
+    const minutes = Number(z3?.age_minutes);
+    return Number.isFinite(minutes) ? minutes / 60 : NaN;
+}
 
 function parseTime(value) {
     if (!value) return null;
@@ -521,12 +527,13 @@ function renderOps({ canary, ops, cache, audit }) {
     const serviceText = ops?.service_status === 'SERVICE_IMPACT' || impact.length
         ? '영향 있음'
         : (ops?.service_status === 'DEGRADED' || degraded.length ? '주의' : '정상');
-    const z3Severity = z3.severity || (Number(z3.age_hours) > 8 ? 'danger' : (Number(z3.age_hours) > 4 ? 'warn' : 'ok'));
+    const z3Age = z3AgeHours(z3);
+    const z3Severity = z3.severity || (z3Age > 8 ? 'danger' : (z3Age > 4 ? 'warn' : 'ok'));
     const auditRuns = Array.isArray(audit) ? audit : (Array.isArray(audit?.runs) ? audit.runs : []);
     const recoveries = auditRuns.reduce((sum, run) => sum + Number(run.recovered || run.restored || 0), 0);
 
     setCard('ops-service', serviceText, serviceSeverity);
-    setCard('ops-z3', ageText(z3.age_hours), z3Severity);
+    setCard('ops-z3', ageText(z3Age), z3Severity);
     setCard('ops-token', z3.status || cache?.z3?.status || '-', z3Severity);
     setCard('ops-canary', `${Object.keys(canaryRegions).length || 0}지역`, serviceSeverity);
     setCard('ops-recovery', `${recoveries}건`, recoveries > 0 ? 'ok' : 'warn');
