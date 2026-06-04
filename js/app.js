@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260604-33859e3a';
+const APP_BUILD_VERSION = '20260604-mobile-world-favorites';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6626,6 +6626,8 @@ function renderWorldTourListItems(items, selectedId) {
 function renderWorldTourListPanel(cams, selected) {
     sanitizeWorldTourListFilters(cams);
     const filteredCams = getWorldTourListFilteredCams(cams);
+    const favoriteCount = getWorldTourFavoriteIds().size;
+    const favoritesActive = state.worldTourListRegion === WORLD_TOUR_FAVORITE_REGION;
     const countryOptions = renderWorldTourListSelectOptions(
         getWorldTourListCountries(cams),
         state.worldTourListCountry,
@@ -6656,6 +6658,14 @@ function renderWorldTourListPanel(cams, selected) {
                         autocomplete="off"
                     >
                 </label>
+                <button
+                    type="button"
+                    class="world-tour-list-mobile-favorites ${favoritesActive ? 'active' : ''}"
+                    data-world-tour-list-favorites
+                    aria-pressed="${favoritesActive}"
+                    aria-label="${favoritesActive ? '전체 영상 목록 보기' : `즐겨찾기 ${favoriteCount}개 보기`}"
+                    title="${favoritesActive ? '전체 영상 목록 보기' : `즐겨찾기 ${favoriteCount}개 보기`}"
+                >${WORLD_TOUR_STAR_SVG}</button>
                 <div class="world-tour-list-filter-group">
                     <div class="world-tour-list-chip-row" aria-label="대륙/즐겨찾기 필터">
                         ${renderWorldTourListRegionChips(cams)}
@@ -7247,6 +7257,18 @@ function bindWorldTourListPanel(root, cams, selected) {
         if (closeButton) {
             state.worldTourListOpen = false;
             rerenderWithList(state.selectedWorldTourId, { focusSelected: true });
+            return;
+        }
+
+        const mobileFavoritesButton = event.target.closest('[data-world-tour-list-favorites]');
+        if (mobileFavoritesButton) {
+            state.worldTourListRegion = state.worldTourListRegion === WORLD_TOUR_FAVORITE_REGION
+                ? 'All'
+                : WORLD_TOUR_FAVORITE_REGION;
+            state.worldTourListCountry = 'All';
+            state.worldTourListSource = 'All';
+            state.worldTourListSearch = '';
+            rerenderWithList();
             return;
         }
 

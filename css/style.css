@@ -2349,6 +2349,10 @@ body.world-tour-active #pwa-install-prompt {
     color: var(--text-secondary);
 }
 
+.world-tour-list-mobile-favorites {
+    display: none;
+}
+
 .world-tour-list-search svg {
     flex: 0 0 auto;
     width: 18px;
@@ -3398,7 +3402,7 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-list-panel {
         display: grid;
-        grid-template-columns: minmax(104px, 0.72fr) minmax(0, 1.35fr);
+        grid-template-columns: minmax(104px, 0.72fr) minmax(0, 1.35fr) 40px;
         grid-template-rows: auto minmax(0, 1fr);
         gap: 6px;
         width: 100%;
@@ -3449,6 +3453,33 @@ body.world-tour-active #pwa-install-prompt {
         margin: 0;
         padding: 0 10px;
         border-radius: 12px;
+    }
+
+    .world-tour-list-mobile-favorites {
+        display: grid;
+        grid-column: 3;
+        grid-row: 1;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        border: 1px solid rgba(250, 204, 21, 0.42);
+        border-radius: 50%;
+        background: rgba(113, 63, 18, 0.34);
+        color: #facc15;
+        cursor: pointer;
+    }
+
+    .world-tour-list-mobile-favorites svg {
+        width: 19px;
+        height: 19px;
+        fill: currentColor;
+    }
+
+    .world-tour-list-mobile-favorites.active {
+        border-color: #facc15;
+        background: rgba(202, 138, 4, 0.32);
+        box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.12);
     }
 
     .world-tour-list-search input {
