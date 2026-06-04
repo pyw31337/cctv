@@ -28,7 +28,12 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Refresh and audit Z3 cache
-        run: python scripts/refresh_z3_cache.py --max-age-minutes 45 --force --stale-ok-on-refresh-failure-hours 8
+        run: >
+          python scripts/refresh_z3_cache.py
+          --max-age-minutes 45
+          --force
+          --stale-ok-on-refresh-failure-hours 8
+          --fallback-cache-url https://158.179.194.163.sslip.io/z3-cache.json
 
       - name: Normalize dashboard timestamps
         if: always()

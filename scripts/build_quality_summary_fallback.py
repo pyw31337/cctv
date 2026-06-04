@@ -169,6 +169,53 @@ def row_from_status_sample(
     }
 
 
+def row_from_check_registry(
+    camera_id: str,
+    entry: dict[str, Any],
+    cam: dict[str, Any] | None,
+) -> dict[str, Any]:
+    ok = bool(entry.get("last_ok"))
+    source = str(entry.get("source") or (cam or {}).get("source") or "UNKNOWN")
+    region_key = str(entry.get("region") or source_region_from_camera(cam or {}))
+    name = entry.get("name") or (cam or {}).get("name") or camera_id
+    category = entry.get("last_category")
+    reason = entry.get("last_reason")
+    source_only = (not ok) and is_source_only_evidence(source, category, reason)
+    monitor_unverified = (not ok) and is_monitor_unverified_evidence(
+        source,
+        category,
+        reason,
+        entry.get("last_url") or (cam or {}).get("url") or (cam or {}).get("directUrl"),
+    )
+    failure = 0 if ok or source_only or monitor_unverified else 1
+    return {
+        "camera_name": name,
+        "source": source,
+        "region": region_key,
+        "samples": 1,
+        "success": 1 if ok else 0,
+        "failure": failure,
+        "slow": 0,
+        "fallback": 0,
+        "source_only": 1 if source_only else 0,
+        "monitor_unverified": 1 if monitor_unverified else 0,
+        "direct_playable_samples": 0 if source_only or monitor_unverified else 1,
+        "success_rate": 1 if ok else 0,
+        "failure_rate": failure / 1,
+        "slow_rate": 0,
+        "fallback_rate": 0,
+        "avg_first_frame_ms": 0,
+        "avg_fail_ms": 0,
+        "avg_width": 0,
+        "avg_height": 0,
+        "updated_at": entry.get("last_checked_at"),
+        "quality_basis": "cumulative_camera_check_registry",
+        "reason": reason,
+        "category": category,
+        "recommended_action": entry.get("recommended_action"),
+    }
+
+
 def add_rollup(bucket: dict[str, Any], row: dict[str, Any]) -> None:
     bucket["samples"] += int(row.get("samples") or 0)
     bucket["success"] += int(row.get("success") or 0)
@@ -242,6 +289,18 @@ def main() -> int:
             cameras[camera_id] = row
             add_rollup(source_buckets[row["source"]], row)
             add_rollup(region_buckets[region_key], row)
+
+    # The regional sample above represents the current run. The status file also
+    # keeps a cumulative camera_checks registry, which is the source of truth for
+    # catalog coverage. Include it so the dashboard does not under-report quality
+    # samples after the checker has already covered most of the catalog.
+    for camera_id, entry in (status.get("camera_checks") or {}).items():
+        if not isinstance(entry, dict) or camera_id in cameras:
+            continue
+        row = row_from_check_registry(str(camera_id), entry, catalog_index.get(str(camera_id)))
+        cameras[str(camera_id)] = row
+        add_rollup(source_buckets[row["source"]], row)
+        add_rollup(region_buckets[row["region"]], row)
 
     for region in (canary.get("regions") or {}).values():
         region_label = region.get("label") or region.get("key") or "UNKNOWN"

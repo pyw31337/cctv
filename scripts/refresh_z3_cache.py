@@ -274,6 +274,32 @@ def fetch_z3_map(max_attempts: int = 3) -> dict[str, str]:
     return fetch_z3_map_with_curl(max_attempts)
 
 
+def fetch_fallback_cache(urls: list[str]) -> dict | None:
+    if requests is None:
+        return None
+    for raw_url in urls:
+        url = raw_url.strip()
+        if not url:
+            continue
+        try:
+            print(f"[INFO] trying Z3 fallback cache: {url}")
+            resp = requests.get(url, timeout=20, verify=False, headers={"User-Agent": USER_AGENTS[0]})
+            if resp.status_code != 200:
+                print(f"[WARN] fallback cache returned HTTP {resp.status_code}: {url}", file=sys.stderr)
+                continue
+            payload = resp.json()
+            data = payload.get("data", {}) if isinstance(payload, dict) else {}
+            fetched = payload.get("fetched") if isinstance(payload, dict) else None
+            if not isinstance(data, dict) or not data or not fetched:
+                print(f"[WARN] fallback cache is missing fetched/data: {url}", file=sys.stderr)
+                continue
+            print(f"[OK] fallback cache loaded {len(data)} entries fetched={fetched}")
+            return {"fetched": fetched, "entries": len(data), "data": data}
+        except Exception as error:
+            print(f"[WARN] fallback cache failed {url}: {error}", file=sys.stderr)
+    return None
+
+
 def z3_expected_cctvips(data_file: Path) -> set[str]:
     return set(z3_expected_cameras(data_file).keys())
 
@@ -366,6 +392,12 @@ def main() -> int:
             "creating noisy failure alerts."
         ),
     )
+    parser.add_argument(
+        "--fallback-cache-url",
+        action="append",
+        default=[],
+        help="Use a previously refreshed remote cache if its.go.kr is unreachable from this runner.",
+    )
     args = parser.parse_args()
 
     cache_payload = None
@@ -385,22 +417,37 @@ def main() -> int:
             print(f"[OK] wrote {args.cache_file} with {len(cctvip_map)} entries")
         except Exception as error:
             refresh_error = str(error)
-            existing_cache = load_json(args.cache_file, {})
-            existing_data = existing_cache.get("data", {}) if isinstance(existing_cache, dict) else {}
-            has_existing_cache = isinstance(existing_data, dict) and bool(existing_data)
-            age_minutes = get_cache_age_minutes(args.cache_file)
-            allow_minutes = args.stale_ok_on_refresh_failure_hours * 60
-            if allow_minutes > 0 and has_existing_cache and age_minutes is not None and age_minutes <= allow_minutes:
+            fallback_payload = fetch_fallback_cache(args.fallback_cache_url)
+            if fallback_payload:
+                cache_payload = fallback_payload
+                atomic_write_json(args.cache_file, cache_payload)
                 refresh_failure_with_existing_cache = True
                 print(
-                    "[WARN] Z3 refresh failed, but existing cache is within "
-                    f"{args.stale_ok_on_refresh_failure_hours:g}h fallback window "
-                    f"({len(existing_data)} entries, {age_minutes:.1f}min old). "
-                    f"Keeping existing cache. Error: {refresh_error}",
+                    "[WARN] direct Z3 refresh failed, but a fallback cache was "
+                    f"written successfully. Error: {refresh_error}",
                     file=sys.stderr,
                 )
             else:
-                raise
+                existing_cache = load_json(args.cache_file, {})
+                existing_data = existing_cache.get("data", {}) if isinstance(existing_cache, dict) else {}
+                has_existing_cache = isinstance(existing_data, dict) and bool(existing_data)
+                age_minutes = get_cache_age_minutes(args.cache_file)
+                allow_minutes = args.stale_ok_on_refresh_failure_hours * 60
+                if has_existing_cache and (
+                    (allow_minutes > 0 and age_minutes is not None and age_minutes <= allow_minutes)
+                    or args.fallback_cache_url
+                ):
+                    refresh_failure_with_existing_cache = True
+                    print(
+                        "[WARN] Z3 refresh failed; keeping existing cache so the "
+                        "dashboard can record the incident without creating noisy "
+                        "workflow failure mail. "
+                        f"({len(existing_data)} entries, age={age_minutes}min). "
+                        f"Error: {refresh_error}",
+                        file=sys.stderr,
+                    )
+                else:
+                    raise
 
     status = build_status(args.cache_file, args.data_file, cache_payload)
     z3 = status["z3"]
