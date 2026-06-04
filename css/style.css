@@ -1971,7 +1971,9 @@ body.world-tour-active #pwa-install-prompt {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    min-width: 64px;
     min-height: 30px;
+    padding: 0 16px;
     border: 1px solid rgba(52, 211, 153, 0.38);
     border-radius: var(--radius-full);
     background: linear-gradient(135deg, rgba(34, 197, 94, 0.96), rgba(20, 184, 166, 0.92));
@@ -3325,6 +3327,169 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-selected-summary p {
         font-size: 12px;
+    }
+}
+
+@media (max-width: 600px) {
+    .weather-content.world-tour-content {
+        --world-tour-mobile-list-height: min(46dvh, 380px);
+        --world-tour-menu-height: min(54dvh, 380px);
+    }
+
+    .world-tour-list-overlay,
+    .world-tour-list-overlay.is-searching {
+        top: calc(100dvh - var(--world-tour-mobile-list-height));
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 2100;
+        display: block;
+        height: var(--world-tour-mobile-list-height);
+        background: linear-gradient(180deg, rgba(2, 6, 23, 0.18), rgba(2, 6, 23, 0.9));
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        pointer-events: none;
+    }
+
+    .world-tour-list-panel {
+        display: grid;
+        grid-template-columns: minmax(104px, 0.82fr) minmax(0, 1.35fr);
+        grid-template-rows: auto auto minmax(0, 1fr);
+        gap: 8px;
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        padding: 12px 12px max(12px, env(safe-area-inset-bottom));
+        border-top: 1px solid rgba(52, 211, 153, 0.2);
+        border-left: 0;
+        border-radius: 20px 20px 0 0;
+        background:
+            radial-gradient(circle at top left, rgba(20, 184, 166, 0.16), transparent 36%),
+            rgba(7, 12, 24, 0.98);
+        box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.42);
+        pointer-events: auto;
+    }
+
+    .world-tour-list-head {
+        grid-column: 1 / -1;
+        grid-row: 1;
+        min-height: 32px;
+        padding: 0;
+        border-bottom: 0;
+        justify-content: flex-end;
+    }
+
+    .world-tour-list-head > div {
+        display: none;
+    }
+
+    .world-tour-list-close {
+        width: 34px;
+        height: 34px;
+        font-size: 20px;
+    }
+
+    .world-tour-list-search {
+        grid-column: 2;
+        grid-row: 2;
+        min-height: 42px;
+        margin: 0;
+        padding: 0 10px;
+        border-radius: 12px;
+    }
+
+    .world-tour-list-search input {
+        font-size: 12px;
+    }
+
+    .world-tour-list-filter-group {
+        display: contents;
+        padding: 0;
+    }
+
+    .world-tour-list-chip-row,
+    .world-tour-list-external-toggle,
+    .world-tour-list-count {
+        display: none;
+    }
+
+    .world-tour-list-select-row {
+        display: contents;
+    }
+
+    .world-tour-list-select-row select {
+        grid-column: 1;
+        grid-row: 2;
+        width: 100%;
+        height: 42px;
+        padding: 0 9px;
+        border-radius: 12px;
+        font-size: 12px;
+    }
+
+    .world-tour-list-results {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        gap: 10px;
+        padding: 2px 0 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .world-tour-list-item {
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 8px 10px;
+        padding: 12px;
+        border-radius: 10px;
+    }
+
+    .world-tour-list-item-main strong {
+        font-size: 13px;
+    }
+
+    .world-tour-list-item-main span,
+    .world-tour-list-item-main em {
+        font-size: 11px;
+    }
+
+    .world-tour-list-item-actions {
+        grid-column: 2;
+        gap: 7px;
+        padding-left: 0;
+    }
+
+    .world-tour-list-item-actions button {
+        min-height: 32px;
+        padding: 0 13px;
+        font-size: 12px;
+    }
+
+    .world-tour-list-item-actions button[data-world-tour-list-share] {
+        width: 34px;
+        padding: 0;
+    }
+
+    .world-tour-shell.is-searching .world-tour-bottom-menu {
+        display: none;
+    }
+
+    .world-tour-shell.is-searching .world-tour-hero,
+    .world-tour-shell.is-searching .world-tour-map-stage {
+        inset: 0 0 var(--world-tour-mobile-list-height) 0;
+        bottom: var(--world-tour-mobile-list-height);
+    }
+
+    .world-tour-shell.is-searching .world-tour-video {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        border-radius: 0;
+    }
+
+    .world-tour-shell.is-searching .world-tour-map-wrap,
+    .world-tour-shell.is-searching .world-tour-map {
+        min-height: 0;
+        border-radius: 0;
     }
 }
 

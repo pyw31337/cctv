@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260602-stability-polish';
+const APP_BUILD_VERSION = '20260604-mobile-world-sheet';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -7213,6 +7213,8 @@ function bindWorldTourListPanel(root, cams, selected) {
 
         const videoButton = event.target.closest('[data-world-tour-list-video]');
         if (videoButton) {
+            event.preventDefault();
+            event.stopPropagation();
             state.worldTourListScrollTop = panel.querySelector('[data-world-tour-list-results]')?.scrollTop ?? state.worldTourListScrollTop;
             renderWorldTourCams(videoButton.dataset.worldTourListVideo, {
                 viewMode: 'video',
@@ -7224,6 +7226,8 @@ function bindWorldTourListPanel(root, cams, selected) {
 
         const mapButton = event.target.closest('[data-world-tour-list-map]');
         if (mapButton) {
+            event.preventDefault();
+            event.stopPropagation();
             state.worldTourListScrollTop = panel.querySelector('[data-world-tour-list-results]')?.scrollTop ?? state.worldTourListScrollTop;
             renderWorldTourCams(mapButton.dataset.worldTourListMap, {
                 viewMode: 'map',
