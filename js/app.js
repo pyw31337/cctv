@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260604-136eda80';
+const APP_BUILD_VERSION = '20260604-mobile-world-pan';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6606,8 +6606,9 @@ function renderWorldTourListItems(items, selectedId) {
                         <span class="world-tour-list-item-title-text">${highlightWorldTourMatch(cam.title, search)}</span>
                         ${externalBadge}
                     </strong>
-                    <span>${highlightWorldTourMatch(cam.city, search)} · ${highlightWorldTourMatch(cam.country, search)}</span>
-                    <em>${highlightWorldTourMatch(regionLabel, search)} · ${highlightWorldTourMatch(sourceLabel, search)}</em>
+                    <span class="world-tour-list-item-location">${highlightWorldTourMatch(cam.city, search)} · ${highlightWorldTourMatch(cam.country, search)}</span>
+                    <em class="world-tour-list-item-source">${highlightWorldTourMatch(regionLabel, search)} · ${highlightWorldTourMatch(sourceLabel, search)}</em>
+                    <span class="world-tour-list-item-compact-meta">${highlightWorldTourMatch(cam.country, search)} / ${highlightWorldTourMatch(regionLabel, search)} · ${highlightWorldTourMatch(sourceLabel, search)}</span>
                     ${subtitleRow}
                 </div>
                 <div class="world-tour-list-item-actions">
@@ -7094,6 +7095,63 @@ function initWorldTourVideoPlayback() {
     video.addEventListener('loadedmetadata', playSafely, { once: true });
 }
 
+function initWorldTourMobileMediaPan() {
+    if (!window.matchMedia?.('(max-width: 600px)').matches) return;
+
+    document.querySelectorAll('.world-tour-video').forEach(container => {
+        if (container.dataset.mobilePanBound === 'true') return;
+        const media = container.querySelector('iframe, .world-tour-direct-video');
+        if (!media) return;
+
+        const rect = container.getBoundingClientRect();
+        const mediaWidth = Math.max(rect.width, rect.height * (16 / 9));
+        const maxOffset = Math.max(0, (mediaWidth - rect.width) / 2);
+        if (maxOffset < 4) return;
+
+        container.dataset.mobilePanBound = 'true';
+        container.classList.add('is-mobile-pannable');
+        media.classList.add('world-tour-pannable-media');
+        media.style.width = `${mediaWidth}px`;
+        media.style.height = `${rect.height}px`;
+
+        let offsetX = 0;
+        let startX = 0;
+        let startOffsetX = 0;
+        let dragging = false;
+
+        const applyOffset = () => {
+            media.style.transform = `translate3d(calc(-50% + ${offsetX}px), 0, 0)`;
+        };
+        applyOffset();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'world-tour-media-pan-overlay';
+        overlay.setAttribute('aria-label', '영상을 좌우로 드래그하여 보기');
+        container.appendChild(overlay);
+
+        overlay.addEventListener('pointerdown', event => {
+            dragging = true;
+            startX = event.clientX;
+            startOffsetX = offsetX;
+            overlay.setPointerCapture?.(event.pointerId);
+            overlay.classList.add('is-dragging');
+        });
+        overlay.addEventListener('pointermove', event => {
+            if (!dragging) return;
+            offsetX = Math.max(-maxOffset, Math.min(maxOffset, startOffsetX + event.clientX - startX));
+            applyOffset();
+        });
+        const finish = event => {
+            if (!dragging) return;
+            dragging = false;
+            overlay.releasePointerCapture?.(event.pointerId);
+            overlay.classList.remove('is-dragging');
+        };
+        overlay.addEventListener('pointerup', finish);
+        overlay.addEventListener('pointercancel', finish);
+    });
+}
+
 function bindWorldTourListPanel(root, cams, selected) {
     const overlay = root.querySelector('[data-world-tour-list-overlay]');
     const panel = root.querySelector('.world-tour-list-panel');
@@ -7553,6 +7611,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             requestAnimationFrame(() => {
                 initWorldTourVideoPlayback();
                 initWorldTourSnapshotRefresh();
+                initWorldTourMobileMediaPan();
             });
         }
     } catch (error) {

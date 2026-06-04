@@ -2566,6 +2566,10 @@ body.world-tour-active #pwa-install-prompt {
     font-weight: 700;
 }
 
+.world-tour-list-item-compact-meta {
+    display: none;
+}
+
 .world-tour-list-item-main em {
     color: #86efac;
     font-size: 11px;
@@ -3353,13 +3357,13 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-list-panel {
         display: grid;
-        grid-template-columns: minmax(104px, 0.82fr) minmax(0, 1.35fr);
-        grid-template-rows: auto auto minmax(0, 1fr);
-        gap: 8px;
+        grid-template-columns: minmax(104px, 0.72fr) minmax(0, 1.35fr) 36px;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 6px;
         width: 100%;
         height: 100%;
         max-height: none;
-        padding: 12px 12px max(12px, env(safe-area-inset-bottom));
+        padding: 8px 8px max(8px, env(safe-area-inset-bottom));
         border-top: 1px solid rgba(52, 211, 153, 0.2);
         border-left: 0;
         border-radius: 20px 20px 0 0;
@@ -3371,12 +3375,11 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .world-tour-list-head {
-        grid-column: 1 / -1;
+        display: contents;
+        grid-column: auto;
         grid-row: 1;
-        min-height: 32px;
         padding: 0;
         border-bottom: 0;
-        justify-content: flex-end;
     }
 
     .world-tour-list-head > div {
@@ -3384,15 +3387,18 @@ body.world-tour-active #pwa-install-prompt {
     }
 
     .world-tour-list-close {
-        width: 34px;
-        height: 34px;
+        grid-column: 3;
+        grid-row: 1;
+        width: 40px;
+        height: 40px;
+        align-self: center;
         font-size: 20px;
     }
 
     .world-tour-list-search {
         grid-column: 2;
-        grid-row: 2;
-        min-height: 42px;
+        grid-row: 1;
+        min-height: 40px;
         margin: 0;
         padding: 0 10px;
         border-radius: 12px;
@@ -3419,9 +3425,9 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-list-select-row select {
         grid-column: 1;
-        grid-row: 2;
+        grid-row: 1;
         width: 100%;
-        height: 42px;
+        height: 40px;
         padding: 0 9px;
         border-radius: 12px;
         font-size: 12px;
@@ -3429,44 +3435,75 @@ body.world-tour-active #pwa-install-prompt {
 
     .world-tour-list-results {
         grid-column: 1 / -1;
-        grid-row: 3;
-        gap: 10px;
+        grid-row: 2;
+        gap: 6px;
         padding: 2px 0 0;
         overflow-y: auto;
         overscroll-behavior: contain;
     }
 
     .world-tour-list-item {
-        grid-template-columns: 34px minmax(0, 1fr);
-        gap: 8px 10px;
-        padding: 12px;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        grid-template-rows: auto auto;
+        gap: 3px 7px;
+        min-height: 52px;
+        padding: 6px 8px;
         border-radius: 10px;
     }
 
-    .world-tour-list-item-main strong {
-        font-size: 13px;
+    .world-tour-list-item .world-tour-favorite-btn {
+        grid-column: 1;
+        grid-row: 1 / 3;
+        align-self: center;
+        width: 28px;
+        height: 28px;
     }
 
-    .world-tour-list-item-main span,
-    .world-tour-list-item-main em {
-        font-size: 11px;
+    .world-tour-list-item-main {
+        grid-column: 2;
+        grid-row: 1 / 3;
+        align-self: center;
+        gap: 3px;
+    }
+
+    .world-tour-list-item-main strong {
+        font-size: 12px;
+    }
+
+    .world-tour-list-item-location,
+    .world-tour-list-item-source {
+        display: none;
+    }
+
+    .world-tour-list-item-main .world-tour-list-item-compact-meta {
+        display: block;
+        color: #86efac;
+        font-size: 10px;
+        font-weight: 800;
     }
 
     .world-tour-list-item-actions {
-        grid-column: 2;
-        gap: 7px;
+        grid-column: 3;
+        grid-row: 1 / 3;
+        align-self: center;
+        gap: 4px;
         padding-left: 0;
     }
 
     .world-tour-list-item-actions button {
-        min-height: 32px;
-        padding: 0 13px;
-        font-size: 12px;
+        min-height: 26px;
+        padding: 0 7px;
+        font-size: 10px;
     }
 
     .world-tour-list-item-actions button[data-world-tour-list-share] {
-        width: 34px;
+        width: 28px;
         padding: 0;
+    }
+
+    .world-tour-list-item-actions button svg {
+        width: 13px;
+        height: 13px;
     }
 
     .world-tour-shell.is-searching .world-tour-bottom-menu {
@@ -3484,6 +3521,34 @@ body.world-tour-active #pwa-install-prompt {
         height: 100%;
         min-height: 0;
         border-radius: 0;
+    }
+
+    .world-tour-video.is-mobile-pannable {
+        cursor: grab;
+        touch-action: pan-y;
+    }
+
+    .world-tour-video .world-tour-pannable-media {
+        position: absolute;
+        top: 0;
+        right: auto;
+        bottom: auto;
+        left: 50%;
+        max-width: none;
+        object-fit: cover;
+        will-change: transform;
+    }
+
+    .world-tour-media-pan-overlay {
+        position: absolute;
+        inset: 44px 0 52px;
+        z-index: 5;
+        cursor: grab;
+        touch-action: pan-y;
+    }
+
+    .world-tour-media-pan-overlay.is-dragging {
+        cursor: grabbing;
     }
 
     .world-tour-shell.is-searching .world-tour-map-wrap,
