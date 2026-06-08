@@ -43,6 +43,7 @@ const WORLD_TOUR_DATA_URL = `data/world_tour_cams.json?v=${APP_BUILD_VERSION}`;
 const WORLD_TOUR_CHEVRON_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const WORLD_TOUR_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const WORLD_TOUR_LIST_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>';
+const WORLD_TOUR_SEARCH_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>';
 const WORLD_TOUR_VIDEO_OFF_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-video-off" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 3l18 18"/><path d="M15 11v-1l4.553 -2.276a1 1 0 0 1 1.447 .894v6.764a1 1 0 0 1 -.675 .946"/><path d="M10 6h3a2 2 0 0 1 2 2v3m0 4v1a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2h1"/></svg>';
 const SEARCH_VIDEO_SHARE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51 15.42 17.49"/><path d="M15.41 6.51 8.59 10.49"/></svg>';
 const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
@@ -86,13 +87,12 @@ const LIVE_HEALTH_STATUS_URL = QUALITY_CONFIG.healthStatusUrl || `${ORACLE_BASE}
 const MARKER_DANGER_FILTER = 'hue-rotate(145deg) saturate(1.85) contrast(1.08)';
 const MARKER_WARN_FILTER = 'hue-rotate(185deg) saturate(1.55) contrast(1.05)';
 const DEFAULT_QUALITY_SORT_MODE = 'nearest';
-const QUALITY_SORT_MODES = ['nearest', 'urban', 'traffic', 'stability', 'quality'];
+const QUALITY_SORT_MODES = ['nearest', 'urban', 'traffic', 'stability'];
 const QUALITY_SORT_LABELS = {
     nearest: '가까운순',
     urban: '시내우선',
     traffic: '교통우선',
-    stability: '안정우선',
-    quality: '화질우선'
+    stability: '안정우선'
 };
 const SEARCH_HISTORY_PANEL_ITEM_LIMIT = 4;
 const WORLD_TOUR_FAVORITE_REGION = 'Favorite';
@@ -2785,8 +2785,6 @@ function getSortPriorityScore(parts) {
             return (distance * 0.72) + (healthPenalty * 0.85) + ((1 - streamQuality) * 4.5) + trafficContextPriority + (qualityAdjustment * 0.85) + sourceResilience - (backupBonus * 0.7);
         case 'stability':
             return (distance * 0.55) + (healthPenalty * 1.35) + ((1 - streamQuality) * 5.5) + (qualityAdjustment * 1.45) + roadContextPriority + sourceResilience - backupBonus;
-        case 'quality':
-            return (distance * 0.7) + (healthPenalty * 0.85) + ((1 - streamQuality) * 10) + (qualityAdjustment * 0.9) + roadContextPriority + sourceResilience - (backupBonus * 1.2);
         default:
             return distance + (healthPenalty * 0.65) + qualityAdjustment + sourceResilience - (backupBonus * 0.4);
     }
@@ -6380,6 +6378,24 @@ function getWorldTourListCountries(cams) {
     );
 }
 
+function getWorldTourCountryEntries(cams, region = state.worldTourRegion || 'All') {
+    const favorites = getWorldTourFavoriteIds();
+    const baseCams = cams.filter(cam => {
+        if (state.worldTourListExcludeExternal && !canPlayWorldTourInApp(cam)) return false;
+        if (region === WORLD_TOUR_FAVORITE_REGION) return favorites.has(String(cam.id));
+        if (region === 'All') return true;
+        return cam.region === region;
+    });
+    const counts = baseCams.reduce((acc, cam) => {
+        const country = cam.country || 'Unknown';
+        acc[country] = (acc[country] || 0) + 1;
+        return acc;
+    }, {});
+    return Object.entries(counts).sort((a, b) =>
+        a[0].localeCompare(b[0], undefined, { sensitivity: 'base' })
+    );
+}
+
 function getWorldTourListSources(cams) {
     const counts = getWorldTourListBaseCams(cams).reduce((acc, cam) => {
         const sourceType = String(cam.sourceType || (cam.videoId ? 'youtube' : 'external')).toLowerCase();
@@ -6418,7 +6434,7 @@ function sanitizeWorldTourListFilters(cams) {
     const region = isWorldTourRegionAvailable(state.worldTourListRegion) ? state.worldTourListRegion : 'All';
     state.worldTourListRegion = region;
 
-    const countries = new Set(getWorldTourListCountries(cams).map(([country]) => country));
+    const countries = new Set(getWorldTourCountryEntries(cams, 'All').map(([country]) => country));
     if (state.worldTourListCountry !== 'All' && !countries.has(state.worldTourListCountry)) {
         state.worldTourListCountry = 'All';
     }
@@ -6579,12 +6595,17 @@ function getWorldTourVisibleCams(cams) {
     const base = state.worldTourListExcludeExternal
         ? cams.filter(canPlayWorldTourInApp)
         : cams;
+    let visible = base;
     if (state.worldTourRegion === WORLD_TOUR_FAVORITE_REGION) {
         const favorites = getWorldTourFavoriteIds();
-        return base.filter(cam => favorites.has(String(cam.id)));
+        visible = base.filter(cam => favorites.has(String(cam.id)));
+    } else if (state.worldTourRegion !== 'All') {
+        visible = base.filter(cam => cam.region === state.worldTourRegion);
     }
-    if (state.worldTourRegion === 'All') return base;
-    return base.filter(cam => cam.region === state.worldTourRegion);
+    if (state.worldTourListCountry && state.worldTourListCountry !== 'All') {
+        visible = visible.filter(cam => cam.country === state.worldTourListCountry);
+    }
+    return visible;
 }
 
 function getWorldTourNearbyCams(selected, cams, limit = 6) {
@@ -6634,8 +6655,33 @@ function renderWorldTourListToggle(cams) {
             aria-label="세계 CCTV 리스트 열기"
             title="세계 CCTV 리스트"
         >
-            ${WORLD_TOUR_LIST_SVG}
+            ${WORLD_TOUR_SEARCH_SVG}
         </button>
+    `;
+}
+
+function renderWorldTourCountrySelect(cams) {
+    const entries = getWorldTourCountryEntries(cams, state.worldTourRegion || 'All');
+    const selectedCountry = entries.some(([country]) => country === state.worldTourListCountry)
+        ? state.worldTourListCountry
+        : 'All';
+    if (selectedCountry !== state.worldTourListCountry) {
+        state.worldTourListCountry = 'All';
+    }
+    return `
+        <select
+            class="world-tour-country-select"
+            data-world-tour-country-select
+            aria-label="국가 필터"
+            title="국가 필터"
+        >
+            <option value="All"${selectedCountry === 'All' ? ' selected' : ''}>모든국가</option>
+            ${entries.map(([country, count]) => `
+                <option value="${escapeWorldTourHtml(country)}"${selectedCountry === country ? ' selected' : ''}>
+                    ${escapeWorldTourHtml(country)} (${count})
+                </option>
+            `).join('')}
+        </select>
     `;
 }
 
@@ -6643,8 +6689,9 @@ function renderWorldTourRegionControls(cams) {
     return `
         <div class="world-tour-region-bar">
             ${renderWorldTourRegionTabs(cams)}
-            ${renderWorldTourListToggle(cams)}
+            ${renderWorldTourCountrySelect(cams)}
         </div>
+        ${renderWorldTourListToggle(cams)}
     `;
 }
 
@@ -7346,6 +7393,7 @@ function bindWorldTourListPanel(root, cams, selected) {
 
     panel.querySelector('[data-world-tour-list-country]')?.addEventListener('change', event => {
         state.worldTourListCountry = event.target.value;
+        state.worldTourRegion = state.worldTourListRegion || state.worldTourRegion || 'All';
         rerenderWithList();
     });
 
@@ -7541,6 +7589,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         let visibleCams = getWorldTourVisibleCams(cams);
         if (!visibleCams.length && state.worldTourRegion !== WORLD_TOUR_FAVORITE_REGION) {
             state.worldTourRegion = 'All';
+            state.worldTourListCountry = 'All';
             visibleCams = state.worldTourListExcludeExternal
                 ? cams.filter(canPlayWorldTourInApp)
                 : cams;
@@ -7557,6 +7606,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             // is outside the current bottom rail filter, move the rail to the
             // selected camera's region so the active button remains visible.
             state.worldTourRegion = selectedFromAll.region || 'All';
+            state.worldTourListCountry = selectedFromAll.country || 'All';
             visibleCams = getWorldTourVisibleCams(cams);
             selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
         }
@@ -7651,6 +7701,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         list.querySelectorAll('.world-tour-region-tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 const region = tab.dataset.worldRegion || 'All';
+                state.worldTourListCountry = 'All';
                 const nextVisibleCams = region === WORLD_TOUR_FAVORITE_REGION
                     ? cams.filter(cam => isWorldTourFavorite(cam))
                     : region === 'All'
@@ -7669,6 +7720,24 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                     focusSelected: true,
                     listScrollToSelected: true
                 });
+            });
+        });
+        list.querySelector('[data-world-tour-country-select]')?.addEventListener('change', event => {
+            const cardRail = list.querySelector('.world-tour-card-rail');
+            const regionTabs = list.querySelector('.world-tour-region-tabs');
+            state.worldTourListCountry = event.target.value || 'All';
+            state.worldTourListRegion = state.worldTourRegion || 'All';
+            const nextVisibleCams = getWorldTourVisibleCams(cams);
+            const nextSelected = nextVisibleCams.find(cam => cam.id === state.selectedWorldTourId)
+                || nextVisibleCams[0]
+                || cams.find(cam => cam.id === state.selectedWorldTourId)
+                || cams[0];
+            renderWorldTourCams(nextSelected?.id, {
+                viewMode: state.worldTourViewMode,
+                cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+                regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+                focusSelected: true,
+                listScrollToSelected: true
             });
         });
         list.querySelectorAll('.world-tour-mode-option').forEach(button => {
