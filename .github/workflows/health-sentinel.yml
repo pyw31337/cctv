@@ -11,6 +11,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
+
 concurrency:
   group: cctv-repo-writes
   cancel-in-progress: false
@@ -51,8 +54,8 @@ jobs:
       - name: Commit and Push Status
         run: |
           # Check if data/status.json was modified
-          if [[ -n $(git status -s data/status.json data/quality_summary.json data/workflow_status.json) ]]; then
-            GIT_COMMIT_USER_NAME='Sentinel Bot' GIT_COMMIT_USER_EMAIL='actions@github.com' scripts/commit_and_push_changes.sh "AUTO: Update Regional Health Status [skip ci]" data/status.json data/quality_summary.json data/workflow_status.json
+          if [[ -n $(git status -s data/status.json data/quality_summary.json data/workflow_status.json data/canary_status.json data/ops_status.json data/cache_status.json data/z3_cache.json) ]]; then
+            GIT_COMMIT_USER_NAME='Sentinel Bot' GIT_COMMIT_USER_EMAIL='actions@github.com' scripts/commit_and_push_changes.sh "AUTO: Update Regional Health Status [skip ci]" data/status.json data/quality_summary.json data/workflow_status.json data/canary_status.json data/ops_status.json data/cache_status.json data/z3_cache.json
           else
             echo "No changes in health status."
           fi

@@ -190,6 +190,10 @@ WORLD_TOUR_STALE_CACHE_HOURS = float(os.getenv('WORLD_TOUR_STALE_CACHE_HOURS', '
 WORLD_TOUR_HTTP_TIMEOUT_CAP = float(os.getenv('WORLD_TOUR_HTTP_TIMEOUT_CAP', '14'))
 WORLD_TOUR_SOURCE_ENRICH_LIMIT = int(os.getenv('WORLD_TOUR_SOURCE_ENRICH_LIMIT', '160'))
 WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS = int(os.getenv('WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS', '150'))
+WORLD_TOUR_ONGJIN_PROXY_BASE = os.getenv(
+    'WORLD_TOUR_ONGJIN_PROXY_BASE',
+    'https://cctv-proxy-hoon-001.fly.dev/proxy?url=',
+)
 WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT = int(os.getenv('WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT', '24'))
 WORLD_TOUR_WEBCAMHOPPER_LIMIT = int(os.getenv('WORLD_TOUR_WEBCAMHOPPER_LIMIT', '24'))
 WORLD_TOUR_WORLDCAMTV_LIMIT = int(os.getenv('WORLD_TOUR_WORLDCAMTV_LIMIT', '12'))
@@ -219,39 +223,6 @@ YOUTUBE_SEARCH_QUERIES = [
     'traffic city live webcam',
 ]
 YTDLP_BIN = shutil.which(os.getenv('YTDLP_BIN', 'yt-dlp'))
-
-BAD_EMBED_URL = re.compile(
-    r'(?:googletagmanager\.com|google-analytics\.com|doubleclick\.net|google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)',
-    re.I,
-)
-DIRECT_PLAYABLE_URL = re.compile(r'\.(?:m3u8|mp4|webm|ogv)(?:[?#].*)?$', re.I)
-PLAYER_EMBED_URL = re.compile(r'(?:youtube\.com/embed|player|webtv|stream|live|m3u8|mp4)', re.I)
-
-
-def is_valid_embed_url(url):
-    value = str(url or '').strip()
-    if not value or BAD_EMBED_URL.search(value):
-        return False
-    return bool(PLAYER_EMBED_URL.search(value) or DIRECT_PLAYABLE_URL.search(value))
-
-
-def normalize_world_tour_playback_item(item):
-    """Keep every known camera, but separate true in-app playback from source-only entries."""
-    if not isinstance(item, dict):
-        return item
-    embed_url = item.get('embedUrl')
-    if embed_url and not is_valid_embed_url(embed_url):
-        item.pop('embedUrl', None)
-        item['sourceOnly'] = True
-        item['playbackStatus'] = 'source-only' if item.get('sourceUrl') else 'unchecked'
-        item['embedRejectedReason'] = 'invalid_or_tracking_embed'
-    if item.get('playUrl') and not is_valid_embed_url(item.get('playUrl')):
-        item.pop('playUrl', None)
-        item['sourceOnly'] = True
-        item['playbackStatus'] = 'source-only' if item.get('sourceUrl') else 'unchecked'
-        item['embedRejectedReason'] = 'invalid_play_url'
-    return item
-
 YOUTUBE_SEARCH_NEGATIVE = re.compile(
     r'(around the world|top live cams|rolling cam|camera feeds|middle east|smooth jazz|relaxing music|'
     r'timelapse|armchair travel|bus rides|walking|walk |drive |cab view|train moments|family real life|'
@@ -263,6 +234,7 @@ SOURCE_QUALITY_BONUS = {
     'youtube': 7,
     'earthcam': 7,
     'cctvworld': 6,
+    'ongjin': 6,
     'worldcam': 5,
     'tabi': 4,
     'baltic': 3,
@@ -1310,53 +1282,6 @@ def extract_json_object_after_marker(text, marker):
         return None
 
 
-
-def youtube_playability_with_ytdlp(video_id, timeout=22):
-    if not video_id or not YTDLP_BIN:
-        return {'status': 'CHECK_ERROR', 'reason': 'yt-dlp unavailable'}
-    url = f'https://www.youtube.com/watch?v={video_id}'
-    try:
-        completed = subprocess.run(
-            [
-                YTDLP_BIN,
-                '--skip-download',
-                '--no-warnings',
-                '--print',
-                '%(live_status)s\t%(availability)s\t%(title)s',
-                url,
-            ],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (subprocess.TimeoutExpired, OSError) as error:
-        return {'status': 'CHECK_ERROR', 'reason': f'yt-dlp {type(error).__name__}: {error}'}
-    output = (completed.stdout or '').strip()
-    error_text = (completed.stderr or '').strip()
-    combined = f'{output}\n{error_text}'
-    if completed.returncode != 0:
-        if YOUTUBE_UNPLAYABLE_REASON.search(combined) or UNSTABLE_TITLE.search(combined):
-            return {'status': 'UNPLAYABLE', 'reason': error_text[:240] or 'yt-dlp unavailable'}
-        return {'status': 'CHECK_ERROR', 'reason': error_text[:240] or 'yt-dlp failed'}
-    parts = output.split('\t')
-    live_status = parts[0] if parts else ''
-    availability = parts[1] if len(parts) > 1 else ''
-    title = parts[2] if len(parts) > 2 else ''
-    if UNSTABLE_TITLE.search(title):
-        return {'status': 'UNPLAYABLE', 'reason': title, 'title': title}
-    return {
-        'status': 'OK',
-        'reason': 'yt-dlp fallback',
-        'isLive': live_status == 'is_live',
-        'isLiveContent': live_status in {'is_live', 'was_live', 'post_live'},
-        'playableInEmbed': None,
-        'title': title,
-        'availability': availability,
-    }
-
-
 def youtube_playability(video_id):
     """Return current YouTube player playability, not just metadata availability.
 
@@ -1370,10 +1295,6 @@ def youtube_playability(video_id):
     try:
         page = fetch_text(url, timeout=12, cache=False)
     except Exception as error:
-        fallback = youtube_playability_with_ytdlp(video_id)
-        if fallback.get('status') != 'CHECK_ERROR':
-            fallback['reason'] = fallback.get('reason') or f'yt-dlp fallback after {type(error).__name__}'
-            return fallback
         return {'status': 'CHECK_ERROR', 'reason': f'{type(error).__name__}: {error}'}
     player = extract_json_object_after_marker(page, 'ytInitialPlayerResponse = ')
     if not player:
@@ -1397,7 +1318,6 @@ def refresh_source_video_id(item):
     old ID is the main reason stale "verified" videos later show YouTube's
     "live stream recording is not available" overlay.
     """
-    item = normalize_world_tour_playback_item(item)
     source_url = item.get('sourceUrl') or ''
     if not source_url or is_youtube_url(source_url):
         return item
@@ -1416,7 +1336,7 @@ def refresh_source_video_id(item):
         item['sourceOnly'] = False
     elif not item.get('videoId'):
         embed_url = extract_iframe_embed(page)
-        if embed_url and is_valid_embed_url(embed_url):
+        if embed_url and not re.search(r'(google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)', embed_url, re.I):
             item['embedUrl'] = embed_url
             item['playbackStatus'] = 'verified'
             item['sourceOnly'] = False
@@ -1743,6 +1663,145 @@ def collect_cctv_world():
         return [item for item in executor.map(parse, urls) if item]
 
 
+ONGJIN_CCTV_SEEDS = [
+    {
+        'idx': 2,
+        'title': '옹진 진두항-2',
+        'location': '진두항-2',
+        'address': '인천 옹진군 영흥면 영흥로 109-16',
+        'lat': 37.2557,
+        'lng': 126.4838,
+        'fallbackStream': 'http://218.148.169.193:1935/live/2.stream/playlist.m3u8',
+    },
+    {
+        'idx': 5,
+        'title': '옹진 진두항-1',
+        'location': '진두항-1',
+        'address': '인천 옹진군 영흥면 영흥로 109-16',
+        'lat': 37.2557,
+        'lng': 126.4838,
+        'fallbackStream': 'http://218.148.169.193:1935/live/1.stream/playlist.m3u8',
+    },
+    {
+        'idx': 6,
+        'title': '옹진 진두항-3',
+        'location': '진두항-3',
+        'address': '인천 옹진군 영흥면 영흥로 109-16',
+        'lat': 37.2557,
+        'lng': 126.4838,
+        'fallbackStream': 'http://218.148.169.193:1935/live/3.stream/playlist.m3u8',
+    },
+    {
+        'idx': 7,
+        'title': '옹진 신도선착장',
+        'location': '신도선착장',
+        'address': '인천 옹진군 북도면 신도로 5',
+        'lat': 37.5144,
+        'lng': 126.4379,
+        'fallbackStream': 'http://218.148.169.193:1935/live/4.stream/playlist.m3u8',
+    },
+    {
+        'idx': 8,
+        'title': '옹진 장봉선착장',
+        'location': '장봉선착장',
+        'address': '인천 옹진군 북도면 장봉로 42',
+        'lat': 37.533915,
+        'lng': 126.383346,
+        'fallbackStream': 'http://218.148.169.193:1935/live/5.stream/playlist.m3u8',
+        'thumbnailUrl': 'https://www.worldcam.pl/images/webcams/420x236/bukdo-myeon-beach-kameros.jpg',
+    },
+    {
+        'idx': 9,
+        'title': '옹진 선재 어촌계',
+        'location': '선재 어촌계',
+        'address': '인천 옹진군 영흥면 선재로 5',
+        'lat': 37.2329,
+        'lng': 126.5328,
+        'fallbackStream': 'http://218.148.169.193:1935/live/6.stream/playlist.m3u8',
+    },
+    {
+        'idx': 10,
+        'title': '옹진 자월선착장',
+        'location': '자월선착장',
+        'address': '인천 옹진군 자월면 자월동로 38',
+        'lat': 37.2542,
+        'lng': 126.3143,
+        'fallbackStream': 'http://218.148.169.193:1935/live/7.stream/playlist.m3u8',
+    },
+]
+
+
+def proxied_ongjin_stream_url(raw_url):
+    if not raw_url:
+        return ''
+    if not WORLD_TOUR_ONGJIN_PROXY_BASE:
+        return raw_url
+    return WORLD_TOUR_ONGJIN_PROXY_BASE + quote(raw_url, safe='')
+
+
+def collect_ongjin_disaster_cctv():
+    """Collect Ongjin-gun public disaster CCTV HLS streams.
+
+    WorldCam lists several Ongjin cameras as source-site-only, but the
+    provider page itself exposes a JWPlayer HLS URL. The raw streams are HTTP
+    only, so use the existing HTTPS proxy path for GitHub Pages playback.
+    """
+
+    def parse(seed):
+        idx = seed['idx']
+        page_url = f'http://218.148.169.193/content/channelView.hu?cctv_idx={idx}'
+        title = seed['title']
+        address = seed.get('address') or ''
+        location = seed.get('location') or title
+        raw_stream = seed.get('fallbackStream') or ''
+        try:
+            text = fetch_text(page_url, timeout=8, cache=False)
+            stream_match = re.search(r'(https?://218\.148\.169\.193:1935/live/[^"\']+?playlist\.m3u8)', text)
+            if stream_match:
+                raw_stream = html.unescape(stream_match.group(1))
+            address_match = re.search(r'<div\s+class="add"\s*>\s*([^<]+)', text)
+            if address_match:
+                address = clean_subtitle(address_match.group(1), address)
+            location_match = re.search(r'\(([^()<>]+)\)\s*</h1>', text)
+            if location_match:
+                location = clean_title(location_match.group(1))
+                title = f'옹진 {location}'
+        except Exception:
+            pass
+        if not raw_stream:
+            return None
+        return {
+            'id': f'ongjin-disaster-cctv-{idx}',
+            'title': title,
+            'subtitle': f'{address} · 옹진군청 재난 CCTV 원본 HLS',
+            'city': 'Ongjin-gun',
+            'country': 'South Korea',
+            'region': 'Asia',
+            'lat': seed['lat'],
+            'lng': seed['lng'],
+            'channel': '옹진군청 재난 CCTV',
+            'sourceUrl': page_url,
+            'providerUrl': 'http://218.148.169.193/',
+            'thumbnailUrl': seed.get('thumbnailUrl', ''),
+            'tags': ['tourism', 'ongjin', 'disaster-cctv', 'hls', 'public-cctv'],
+            'priority': 94 if idx == 8 else 88,
+            'status': 'is_live',
+            'sourceType': 'ongjin',
+            'streamType': 'hls',
+            'playUrl': proxied_ongjin_stream_url(raw_stream),
+            'originUrl': raw_stream,
+            'originalStreamUrl': raw_stream,
+            'playbackStatus': 'verified',
+            'directPlaybackStatus': 'proxied_hls',
+            'lastCheckedAt': dt.date.today().isoformat(),
+            'sourceOnly': False,
+            'stabilityScore': 88,
+        }
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        return [item for item in executor.map(parse, ONGJIN_CCTV_SEEDS) if item]
+
+
 def collect_tabi():
     items = []
     for seed in TABI_SEEDS:
@@ -2022,7 +2081,7 @@ def collect_worldcam(limit=WORLD_TOUR_WORLDCAM_LIMIT):
             return None
         if NEGATIVE_TITLE.search(title) and not POSITIVE_TITLE.search(title):
             return None
-        return make_source_item(
+        item = make_source_item(
             'worldcam',
             urlparse(url).path.strip('/').split('/')[-1],
             title,
@@ -2037,6 +2096,10 @@ def collect_worldcam(limit=WORLD_TOUR_WORLDCAM_LIMIT):
             tags=['tourism', 'worldcam', 'source-site'],
             channel='WorldCam',
         )
+        if item:
+            item['directPlaybackStatus'] = 'source_site_only'
+            item['sourceOnlyReason'] = 'worldcam_detail_page_does_not_expose_public_iframe_hls_or_mp4'
+        return item
 
     items = []
     country_counts = {}
@@ -4502,23 +4565,32 @@ def enrich_source_only_embeds(items, limit=WORLD_TOUR_SOURCE_ENRICH_LIMIT):
             item['videoId'] = video_id
             item['playbackStatus'] = 'unchecked'
             item['sourceOnly'] = False
+            item['directPlaybackStatus'] = 'promoted_youtube'
+            item.pop('sourceOnlyReason', None)
             promoted += 1
             continue
         embed_url = extract_iframe_embed(page)
-        if embed_url and is_valid_embed_url(embed_url):
+        if embed_url and not re.search(r'(google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)', embed_url, re.I):
             item['embedUrl'] = embed_url
             item['playbackStatus'] = 'verified'
             item['sourceOnly'] = False
+            item['directPlaybackStatus'] = 'promoted_iframe'
+            item.pop('sourceOnlyReason', None)
             promoted += 1
+        else:
+            item.setdefault('directPlaybackStatus', 'source_site_only')
+            item.setdefault('sourceOnlyReason', 'no_public_youtube_iframe_hls_or_mp4_detected')
     return {'checked': checked, 'promoted': promoted}
 
 
 def validate_youtube_item(item):
-    item = normalize_world_tour_playback_item(item)
     item = refresh_source_video_id(item)
     video_id = item.get('videoId')
     if not video_id:
-        item['playbackStatus'] = 'verified' if item.get('embedUrl') else 'source-only' if item.get('sourceUrl') else 'unchecked'
+        has_direct_stream = bool(item.get('embedUrl') or item.get('playUrl'))
+        item['playbackStatus'] = 'verified' if has_direct_stream else 'source-only' if item.get('sourceUrl') else 'unchecked'
+        if has_direct_stream:
+            item['sourceOnly'] = False
         item['lastCheckedAt'] = dt.date.today().isoformat()
         item['stabilityScore'] = max(55, int(float(item.get('priority') or 60)))
         return item
@@ -4527,9 +4599,31 @@ def validate_youtube_item(item):
     item['youtubePlayabilityStatus'] = playability.get('status')
     item['youtubePlayabilityReason'] = playability.get('reason') or ''
     item['lastCheckedAt'] = dt.date.today().isoformat()
+
+    # Search-result based YouTube candidates are useful discovery leads, but
+    # they are not reliable enough to promise in-app playback. Some videos
+    # return OK on the watch page while the iframe shows "owner disabled
+    # playback on other websites". Keep them in the catalog as source-site
+    # entries instead of letting them surface as green in-app cams.
+    if str(item.get('sourceType') or '').lower() == 'youtube-search':
+        item['playbackStatus'] = 'source-only'
+        item['directPlaybackStatus'] = 'source_site_only'
+        item['sourceOnly'] = True
+        item['sourceOnlyReason'] = 'youtube_search_embed_policy_untrusted'
+        item['stabilityScore'] = min(55, int(float(item.get('priority') or 55)))
+        return item
+
     status = str(playability.get('status') or '').upper()
     reason = str(playability.get('reason') or '')
     title = str(playability.get('title') or item.get('title') or '')
+    if playability.get('playableInEmbed') is False:
+        item['playbackStatus'] = 'embed_disabled'
+        item['directPlaybackStatus'] = 'source_site_only'
+        item['sourceOnly'] = True
+        item['sourceOnlyReason'] = 'youtube_owner_disabled_external_embed'
+        item['stabilityScore'] = 5
+        return item
+
     if status == 'OK' and not YOUTUBE_UNPLAYABLE_REASON.search(reason) and not UNSTABLE_TITLE.search(title):
         item['playbackStatus'] = 'verified'
         item['stabilityScore'] = max(75, int(float(item.get('priority') or 60)))
@@ -4539,6 +4633,9 @@ def validate_youtube_item(item):
 
     if status in {'UNPLAYABLE', 'LOGIN_REQUIRED', 'AGE_CHECK_REQUIRED'} or YOUTUBE_UNPLAYABLE_REASON.search(reason):
         item['playbackStatus'] = 'unavailable'
+        item['directPlaybackStatus'] = 'source_site_only'
+        item['sourceOnly'] = True
+        item['sourceOnlyReason'] = 'youtube_unavailable_or_not_embeddable'
         item['stabilityScore'] = 5
         return item
 
@@ -4563,7 +4660,7 @@ def calculate_quality_score(item):
         score -= 4
     elif item.get('playbackStatus') == 'unchecked':
         score -= 12
-    elif item.get('playbackStatus') == 'unavailable':
+    elif item.get('playbackStatus') in {'unavailable', 'embed_disabled'}:
         score -= 80
     if POSITIVE_TITLE.search(combined_title):
         score += 5
@@ -4606,7 +4703,7 @@ def validate_items(items):
     snapshot_only_removed = sum(1 for item in items if is_snapshot_only_item(item))
     if snapshot_only_removed:
         print(f'excluding snapshot-only world tour feeds: {snapshot_only_removed}', flush=True)
-    candidates = [normalize_world_tour_playback_item(item) for item in items if not is_snapshot_only_item(item)]
+    candidates = [item for item in items if not is_snapshot_only_item(item)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
         validated = [item for item in executor.map(validate_youtube_item, candidates) if item]
     return [enrich_item_quality(item) for item in validated if calculate_quality_score(item) >= 52]
@@ -4641,6 +4738,7 @@ def main():
     base = existing_playable_items()
     collector_steps = [
         ('cctv_world', collect_cctv_world),
+        ('ongjin', collect_ongjin_disaster_cctv),
         ('tabi', collect_tabi),
         ('webcamera24', lambda: collect_webcamera24(WORLD_TOUR_WEBCAMERA24_LIMIT)),
         ('earthcam', collect_earthcam),
@@ -4730,6 +4828,8 @@ def main():
     region_counts = Counter(i.get('region', 'Other') for i in items)
     playback_counts = Counter(i.get('playbackStatus', 'unknown') for i in items)
     quality_counts = Counter(i.get('qualityTier', 'unknown') for i in items)
+    direct_status_counts = Counter(i.get('directPlaybackStatus') or ('in_app_playable' if is_in_app_video_item(i) else 'source_site_only') for i in items)
+    source_only_reasons = Counter(i.get('sourceOnlyReason') for i in items if i.get('sourceOnlyReason'))
     payload = {
         'generatedAt': utc_now().isoformat().replace('+00:00', 'Z'),
         'updated_at': dt.date.today().isoformat(),
@@ -4740,6 +4840,8 @@ def main():
             'regionCounts': dict(region_counts),
             'playbackCounts': dict(playback_counts),
             'qualityTiers': dict(quality_counts),
+            'directPlaybackStatusCounts': dict(direct_status_counts),
+            'sourceOnlyReasons': dict(source_only_reasons),
             'youtubeSearchQueries': youtube_search_queries(),
             'youtubeSearchLimit': YOUTUBE_SEARCH_LIMIT,
             'youtubeSearchPerQueryLimit': YOUTUBE_SEARCH_PER_QUERY_LIMIT,

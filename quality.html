@@ -25,7 +25,7 @@
         th { color: var(--muted); font-weight: 700; background: rgba(255,255,255,.03); }
         tr:last-child td { border-bottom: 0; }
         .pill { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,.08); font-weight: 800; font-size: 12px; }
-        .ok { color: var(--green); } .warn { color: var(--yellow); } .bad { color: var(--red); } .info { color: var(--blue); }
+        .ok { color: var(--green); } .warn { color: var(--yellow); } .bad { color: var(--red); } .info { color: var(--blue); } .muted { color: var(--muted); }
         .toolbar { display: flex; gap: 8px; align-items: center; }
         button, a.button { border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--text); border-radius: 999px; padding: 9px 13px; cursor: pointer; text-decoration: none; font-weight: 700; }
         .split { display: grid; grid-template-columns: 1.2fr .8fr; gap: 18px; }
@@ -141,7 +141,7 @@
 
     <section class="card">
         <h2>소스별 품질</h2>
-        <table><thead><tr><th>소스</th><th>직접 성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>원본/경로 제한</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
+        <table><thead><tr><th>소스</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
     </section>
 
     <section class="card">
@@ -157,7 +157,7 @@
 
     <section class="card">
         <h2>지역별 품질</h2>
-        <table><thead><tr><th>지역</th><th>직접 성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>원본/경로 제한</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table>
+        <table><thead><tr><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table>
     </section>
 
     <section class="card">
@@ -166,11 +166,12 @@
     </section>
 </main>
 <script>
-const SUMMARY_URLS = ['data/quality_summary.json', window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary'];
+const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
+const FALLBACK_URL = 'data/quality_summary.json';
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
-const CANARY_URLS = ['data/canary_status.json', `${ORACLE_BASE}/canary-status`];
-const OPS_URLS = ['data/ops_status.json', `${ORACLE_BASE}/ops-status`];
-const CANARY_HISTORY_URLS = ['data/canary_history.json', `${ORACLE_BASE}/canary-history`];
+const CANARY_URLS = [`${ORACLE_BASE}/canary-status`, 'data/canary_status.json'];
+const OPS_URLS = [`${ORACLE_BASE}/ops-status`, 'data/ops_status.json'];
+const CANARY_HISTORY_URLS = [`${ORACLE_BASE}/canary-history`, 'data/canary_history.json'];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
 const STATUS_URL = 'data/status.json';
@@ -181,7 +182,44 @@ const $ = (id) => document.getElementById(id);
 function esc(value) { return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[ch])); }
 function pct(value) { return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'; }
 function ms(value) { return value > 0 ? `${Math.round(value / 100) / 10}s` : '-'; }
-function tone(rate, avg) { if (rate < .65) return 'bad'; if (rate < .82 || avg > 8000) return 'warn'; return 'ok'; }
+const MIN_STRONG_QUALITY_SAMPLES = 5;
+const MIN_RED_QUALITY_SAMPLES = 3;
+function evidenceLevel(item) {
+    const samples = Number(item?.samples || 0);
+    if (samples <= 0) return 'none';
+    if (samples < MIN_RED_QUALITY_SAMPLES) return 'thin';
+    if (samples < MIN_STRONG_QUALITY_SAMPLES) return 'limited';
+    return 'strong';
+}
+function qualityTone(item) {
+    const samples = Number(item?.samples || 0);
+    const rate = Number(item?.successRate ?? item?.success_rate);
+    const avg = Number(item?.avgFirstFrameMs ?? item?.avg_first_frame_ms ?? 0);
+    const failure = Number(item?.failure || 0);
+    if (!samples) return 'muted';
+    if (samples < MIN_RED_QUALITY_SAMPLES) return failure ? 'warn' : 'info';
+    if (rate < .35 && failure >= MIN_RED_QUALITY_SAMPLES) return 'bad';
+    if (rate < .75 || failure > 0 || avg > 8000) return 'warn';
+    return 'ok';
+}
+function tone(rate, avg, samples = MIN_STRONG_QUALITY_SAMPLES, failure = 0) {
+    return qualityTone({ successRate: rate, avgFirstFrameMs: avg, samples, failure });
+}
+function evidenceLabel(item) {
+    const level = evidenceLevel(item);
+    if (level === 'none') return '미점검';
+    if (level === 'thin') return '샘플 부족';
+    if (level === 'limited') return '제한 샘플';
+    return '충분';
+}
+function qualityStatusLabel(item) {
+    const toneName = qualityTone(item);
+    if (toneName === 'bad') return '반복 실패';
+    if (toneName === 'warn') return item.samples < MIN_STRONG_QUALITY_SAMPLES ? '재확인 필요' : '주의';
+    if (toneName === 'info') return '점검 중';
+    if (toneName === 'muted') return '미점검';
+    return '정상';
+}
 function severityClass(severity) { return severity === 'danger' ? 'bad' : (severity === 'warn' ? 'warn' : 'ok'); }
 function setCard(id, value, severity = 'ok') {
     const metric = $(id);
@@ -194,12 +232,6 @@ function ageText(hours) {
     if (!Number.isFinite(value)) return '-';
     if (value < 1) return `${Math.round(value * 60)}분`;
     return `${Math.round(value * 10) / 10}시간`;
-}
-function z3AgeHours(z3) {
-    const hours = Number(z3?.age_hours);
-    if (Number.isFinite(hours)) return hours;
-    const minutes = Number(z3?.age_minutes);
-    return Number.isFinite(minutes) ? minutes / 60 : NaN;
 }
 
 function parseTime(value) {
@@ -244,38 +276,14 @@ function normalize(item) {
     const failure = Number(item.failure || 0);
     const slow = Number(item.slow || 0);
     const fallback = Number(item.fallback || 0);
-    const sourceOnly = Number(item.source_only || item.sourceOnly || 0);
-    const monitorUnverified = Number(item.monitor_unverified || item.monitorUnverified || 0);
-    const directPlayableSamples = Number.isFinite(Number(item.direct_playable_samples))
-        ? Number(item.direct_playable_samples)
-        : Math.max(0, samples - sourceOnly - monitorUnverified);
     const successRate = Number.isFinite(Number(item.success_rate)) ? Number(item.success_rate) : (samples ? success / samples : 0);
-    const directSuccessRate = Number.isFinite(Number(item.direct_success_rate))
-        ? Number(item.direct_success_rate)
-        : (directPlayableSamples ? success / directPlayableSamples : NaN);
-    const sourceOnlyRate = Number.isFinite(Number(item.source_only_rate))
-        ? Number(item.source_only_rate)
-        : (samples ? sourceOnly / samples : 0);
     const avgFirstFrameMs = Number(item.avg_first_frame_ms || 0);
-    return { ...item, samples, success, failure, slow, fallback, sourceOnly, monitorUnverified, directPlayableSamples, successRate, directSuccessRate, sourceOnlyRate, avgFirstFrameMs };
-}
-function displaySuccessRate(item) {
-    return Number.isFinite(item.directSuccessRate) ? item.directSuccessRate : item.successRate;
-}
-function qualityTone(item) {
-    if (item.samples && (item.sourceOnly + item.monitorUnverified) >= item.samples && !item.directPlayableSamples) return 'info';
-    return tone(displaySuccessRate(item), item.avgFirstFrameMs);
-}
-function qualityLabel(item) {
-    if (item.samples && item.sourceOnly >= item.samples && !item.directPlayableSamples) return '원본 전용';
-    if (item.samples && item.monitorUnverified >= item.samples && !item.directPlayableSamples) return '경로 제한';
-    return pct(displaySuccessRate(item));
+    return { ...item, samples, success, failure, slow, fallback, successRate, avgFirstFrameMs };
 }
 function weightedRate(items) {
-    const directItems = items.filter(item => item.directPlayableSamples > 0);
-    const total = directItems.reduce((sum, item) => sum + item.directPlayableSamples, 0);
+    const total = items.reduce((sum, item) => sum + item.samples, 0);
     if (!total) return NaN;
-    return directItems.reduce((sum, item) => sum + item.success, 0) / total;
+    return items.reduce((sum, item) => sum + item.success, 0) / total;
 }
 function weightedLoad(items) {
     const successful = items.reduce((sum, item) => sum + item.success, 0);
@@ -284,7 +292,7 @@ function weightedLoad(items) {
 }
 async function loadSummary() {
     let summary = null;
-    for (const url of SUMMARY_URLS) {
+    for (const url of [SUMMARY_URL, FALLBACK_URL]) {
         try {
             const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
             if (!res.ok) throw new Error(res.status);
@@ -322,15 +330,18 @@ async function loadFirstJson(urls, fallback) {
     return fallback;
 }
 function qualityRow(item, label) {
-    return `<tr><td>${esc(label)}</td><td><span class="pill ${qualityTone(item)}">${qualityLabel(item)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td class="info">${item.sourceOnly + item.monitorUnverified}</td><td>${item.samples}</td></tr>`;
+    const qTone = qualityTone(item);
+    return `<tr><td>${esc(label)}</td><td><span class="pill ${qTone}">${pct(item.successRate)}</span><div class="mini">${esc(qualityStatusLabel(item))} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.samples}</td></tr>`;
 }
 function render(summary, opsData = {}) {
     const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const sources = Object.entries(summary.sources || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const regions = Object.entries(summary.regions || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const sampleCount = cameras.reduce((sum, item) => sum + item.samples, 0);
-    const problemCameras = cameras.filter(item => item.failure > 0 || (item.directPlayableSamples > 0 && displaySuccessRate(item) < .78) || item.avgFirstFrameMs > 8000);
-    const sourceOnlyCameras = cameras.filter(item => item.sourceOnly > 0 && item.failure === 0);
+    const problemCameras = cameras.filter(item => {
+        const qTone = qualityTone(item);
+        return qTone === 'bad' || qTone === 'warn' || item.avgFirstFrameMs > 8000;
+    });
 
     $('camera-count').textContent = cameras.length.toLocaleString('ko-KR');
     $('sample-count').textContent = sampleCount.toLocaleString('ko-KR');
@@ -344,20 +355,20 @@ function render(summary, opsData = {}) {
     renderInventory(opsData.inventory || [], summary);
 
     $('camera-rows').innerHTML = problemCameras
-        .sort((a,b) => displaySuccessRate(a) - displaySuccessRate(b) || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
+        .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
         .slice(0, 35)
-        .map(item => `<tr><td>${esc(item.camera_name || item.id)}</td><td>${esc(item.source || '-')}</td><td>${esc(item.region || '-')}</td><td><span class="pill ${qualityTone(item)}">${qualityLabel(item)}</span></td><td>${ms(item.avgFirstFrameMs)}</td><td class="bad">${item.failure}</td><td>${item.samples}</td><td>${esc(item.recommended_action || item.reason || item.category || '-')}</td></tr>`)
-        .join('') || (sourceOnlyCameras.length ? '<tr><td colspan="8">직접 재생 장애 후보는 없습니다. 원본 전용/점검 경로 제한 소스는 소스별 품질에서 확인하세요.</td></tr>' : '<tr><td colspan="8">우선 점검 후보가 아직 없습니다.</td></tr>');
+        .map(item => `<tr><td>${esc(item.camera_name || item.id)}</td><td>${esc(item.source || '-')}</td><td>${esc(item.region || '-')}</td><td><span class="pill ${qualityTone(item)}">${esc(qualityStatusLabel(item))}</span><div class="mini">${pct(item.successRate)} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td>${item.samples}</td><td>${esc(item.recommended_action || item.reason || item.category || '-')}</td></tr>`)
+        .join('') || '<tr><td colspan="8">우선 점검 후보가 아직 없습니다.</td></tr>';
 
     $('source-rows').innerHTML = sources
-        .sort((a,b) => displaySuccessRate(a) - displaySuccessRate(b) || b.failure - a.failure || b.samples - a.samples)
+        .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
         .map(item => qualityRow(item, item.id))
-        .join('') || '<tr><td colspan="8">소스 집계가 아직 없습니다.</td></tr>';
+        .join('') || '<tr><td colspan="7">소스 집계가 아직 없습니다.</td></tr>';
 
     $('region-rows').innerHTML = regions
-        .sort((a,b) => displaySuccessRate(a) - displaySuccessRate(b) || b.failure - a.failure || b.samples - a.samples)
+        .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
         .map(item => qualityRow(item, item.id))
-        .join('') || '<tr><td colspan="8">지역 집계가 아직 없습니다.</td></tr>';
+        .join('') || '<tr><td colspan="7">지역 집계가 아직 없습니다.</td></tr>';
 }
 
 function renderFreshness(summary, { canary, ops, cache, regionalStatus, z3Cache, workflowStatus }) {
@@ -512,7 +523,20 @@ function renderInventory(items, summary) {
         .sort((a, b) => b[1].total - a[1].total)
         .map(([region, item]) => {
             const topSources = Object.entries(item.sources).sort((a,b) => b[1] - a[1]).slice(0, 3).map(([s,n]) => `${s} ${n}`).join(', ');
-            const status = item.samples ? (item.success / item.samples < .75 ? '<span class="bad">주의</span>' : '<span class="ok">정상</span>') : '<span class="warn">샘플 없음</span>';
+            const inventoryTone = qualityTone({
+                samples: item.samples,
+                successRate: item.samples ? item.success / item.samples : 0,
+                avgFirstFrameMs: item.success ? item.load / item.success : 0,
+                failure: Math.max(0, item.samples - item.success)
+            });
+            const status = item.samples
+                ? `<span class="${inventoryTone}">${esc(qualityStatusLabel({
+                    samples: item.samples,
+                    successRate: item.success / item.samples,
+                    avgFirstFrameMs: item.success ? item.load / item.success : 0,
+                    failure: Math.max(0, item.samples - item.success)
+                }))}</span>`
+                : '<span class="warn">샘플 없음</span>';
             const cov = coverageRegions[region] || {};
             return `<tr><td>${esc(region)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${Number(cov.checked || 0).toLocaleString('ko-KR')}</td><td>${Number(cov.recent_24h || 0).toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${esc(topSources)}</td><td>${status}</td></tr>`;
         })
@@ -527,13 +551,12 @@ function renderOps({ canary, ops, cache, audit }) {
     const serviceText = ops?.service_status === 'SERVICE_IMPACT' || impact.length
         ? '영향 있음'
         : (ops?.service_status === 'DEGRADED' || degraded.length ? '주의' : '정상');
-    const z3Age = z3AgeHours(z3);
-    const z3Severity = z3.severity || (z3Age > 8 ? 'danger' : (z3Age > 4 ? 'warn' : 'ok'));
+    const z3Severity = z3.severity || (Number(z3.age_hours) > 8 ? 'danger' : (Number(z3.age_hours) > 4 ? 'warn' : 'ok'));
     const auditRuns = Array.isArray(audit) ? audit : (Array.isArray(audit?.runs) ? audit.runs : []);
     const recoveries = auditRuns.reduce((sum, run) => sum + Number(run.recovered || run.restored || 0), 0);
 
     setCard('ops-service', serviceText, serviceSeverity);
-    setCard('ops-z3', ageText(z3Age), z3Severity);
+    setCard('ops-z3', ageText(z3.age_hours), z3Severity);
     setCard('ops-token', z3.status || cache?.z3?.status || '-', z3Severity);
     setCard('ops-canary', `${Object.keys(canaryRegions).length || 0}지역`, serviceSeverity);
     setCard('ops-recovery', `${recoveries}건`, recoveries > 0 ? 'ok' : 'warn');

@@ -50,7 +50,21 @@ jobs:
           fi
 
       - name: Guard data preservation
-        run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
+        run: |
+          set +e
+          python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::GITS ingest would remove too many cameras. Restoring previous catalog and keeping service data intact."
+            cp /tmp/cctv_data.before.json cctv_data.json
+            python scripts/write_workflow_status.py \
+              --workflow "GITS Daily Ingest" \
+              --job ingest \
+              --status warning \
+              --impact none \
+              --message "GITS ingest was rejected by preservation guard; previous cctv_data.json preserved"
+          fi
 
       - name: Commit changes
         run: |

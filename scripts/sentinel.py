@@ -29,10 +29,10 @@ EMERGENCY_INVESTIGATE_AFTER_MINUTES = 60
 EMERGENCY_CRITICAL_AFTER_MINUTES = 120
 CAMERA_FAILURE_REGISTRY_LIMIT = 500
 CAMERA_CHECK_REGISTRY_LIMIT = 30000
-DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET = 320
-DEFAULT_SENTINEL_MAX_REGION_CHECKS = 48
+DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET = 960
+DEFAULT_SENTINEL_MAX_REGION_CHECKS = 240
 DEFAULT_SENTINEL_MIN_REGION_CHECKS = 2
-DEFAULT_SENTINEL_MAX_WORKERS = 24
+DEFAULT_SENTINEL_MAX_WORKERS = 32
 DEFAULT_SENTINEL_ORACLE_MAX_WORKERS = 8
 DAEJEON_MP4_OFFSETS = [2, 4, 6, 8, 10, 1]
 DAEJEON_REQUEST_TIMEOUT = (1.0, 1.5)
@@ -82,16 +82,6 @@ SOURCE_REGION_ALIASES = {
 ORACLE_BACKED_REGIONS = {
     'DAEJEON', 'GITS', 'JEJU', 'KBS', 'NTIC',
     'UTIC_DIRECT', 'UTIC_LEGACY', 'UTIC_Z3'
-}
-
-MONITOR_UNVERIFIED_DIRECT_HLS_SOURCES = {'SPATIC', 'ULSAN'}
-MONITOR_UNVERIFIED_DIRECT_HLS_HOSTS = {
-    'trafficcctv.paju.go.kr',
-    'strm1.spatic.go.kr',
-    'strm2.spatic.go.kr',
-    'strm3.spatic.go.kr',
-    'strm4.spatic.go.kr',
-    'webcctv.its.ulsan.kr',
 }
 
 os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
@@ -144,28 +134,6 @@ def get_region_max_workers(region_name):
         return min(max_workers, oracle_workers)
     return max_workers
 
-
-def is_browser_direct_hls_monitor_timeout(cctv, url):
-    source = cctv.get('source', '')
-    parsed = urlparse(str(url or ''))
-    return (
-        parsed.scheme.startswith('http')
-        and parsed.path.lower().endswith('.m3u8')
-        and (source in MONITOR_UNVERIFIED_DIRECT_HLS_SOURCES or parsed.netloc.lower() in MONITOR_UNVERIFIED_DIRECT_HLS_HOSTS)
-    )
-
-
-def mark_monitor_path_unverified(cctv, url, error):
-    set_probe_result(
-        cctv,
-        True,
-        reason='monitor_path_timeout_browser_direct_priority',
-        category='monitor_path_unverified',
-        url=url,
-        detail=error,
-    )
-    log(f"[WARN] {cctv.get('id')} monitor path timed out; browser-direct HLS path is kept eligible")
-    return True
 
 def save_json(filepath, data):
     with open(filepath, 'w', encoding='utf-8') as handle:
@@ -527,8 +495,6 @@ def check_paju_stream(cctv):
         set_probe_result(cctv, False, reason='http_error', category='http_error', status_code=resp.status_code, url=url, content_type=resp.headers.get('Content-Type'))
         log(f"[FAIL] Paju {cctv.get('id')} returned {resp.status_code}")
     except requests.Timeout as error:
-        if is_browser_direct_hls_monitor_timeout(cctv, url):
-            return mark_monitor_path_unverified(cctv, url, error)
         set_probe_result(cctv, False, reason='timeout', category='timeout', url=url, detail=error)
         log(f"[ERR] Paju {cctv.get('id')} timed out: {error}")
     except Exception as error:
@@ -691,8 +657,6 @@ def check_generic_stream(cctv):
         set_probe_result(cctv, False, reason='http_error', category=category, status_code=resp.status_code, url=url, content_type=content_type)
         log(f"[FAIL] {cctv.get('id')} returned {resp.status_code}")
     except requests.Timeout as error:
-        if is_browser_direct_hls_monitor_timeout(cctv, url):
-            return mark_monitor_path_unverified(cctv, url, error)
         set_probe_result(cctv, False, reason='timeout', category=get_source_specific_failure_category(cctv, 'timeout'), url=url, detail=error)
         log(f"[ERR] {cctv.get('id')} timed out: {error}")
     except Exception as error:
@@ -1380,7 +1344,8 @@ def run_sentinel():
             'oracle_max_workers': env_int('CCTV_SENTINEL_ORACLE_MAX_WORKERS', DEFAULT_SENTINEL_ORACLE_MAX_WORKERS, minimum=1, maximum=32),
             'request_timeout_seconds': REQUEST_TIMEOUT,
             'region_budgets': region_budgets,
-            'note': '각 실행마다 최근 점검되지 않은 CCTV를 우선 선택해 전체 카탈로그 커버리지를 누적합니다.'
+            'target': 'GitHub Actions 주 실행은 1~2일 내 전체 카탈로그 1회전을 목표로 하고, 로컬/Oracle 백업 실행은 최소한의 연속 커버리지를 유지합니다.',
+            'note': '각 실행마다 최근 점검되지 않은 CCTV를 우선 선택해 전체 카탈로그 커버리지를 누적합니다. 샘플 부족 항목은 확정 장애가 아니라 재확인 대상으로 분리합니다.'
         }
         save_json(STATUS_FILE, current_status)
         log('--- Sentinel Finished ---')

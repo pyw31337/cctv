@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260604-40795904';
+const APP_BUILD_VERSION = '20260608-standby-failover';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -43,7 +43,6 @@ const WORLD_TOUR_DATA_URL = `data/world_tour_cams.json?v=${APP_BUILD_VERSION}`;
 const WORLD_TOUR_CHEVRON_LEFT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left-icon lucide-chevron-left" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const WORLD_TOUR_CHEVRON_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right-icon lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const WORLD_TOUR_LIST_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>';
-const WORLD_TOUR_SEARCH_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
 const WORLD_TOUR_VIDEO_OFF_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-video-off" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 3l18 18"/><path d="M15 11v-1l4.553 -2.276a1 1 0 0 1 1.447 .894v6.764a1 1 0 0 1 -.675 .946"/><path d="M10 6h3a2 2 0 0 1 2 2v3m0 4v1a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2h1"/></svg>';
 const SEARCH_VIDEO_SHARE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51 15.42 17.49"/><path d="M15.41 6.51 8.59 10.49"/></svg>';
 const QUALITY_SUMMARY_BUCKET_MS = 10 * 60 * 1000;
@@ -72,8 +71,9 @@ const PLAYBACK_STALL_TIMEOUT_MS = 9000;
 const DAEJEON_MP4_STALL_RECOVERY_MS = 14000;
 const STABLE_HLS_STARTUP_TIMEOUT_MS = 22000;
 const STABLE_HLS_STALL_TIMEOUT_MS = 14000;
-const MANUAL_RETRY_PRIMARY_ATTEMPTS = 3;
+const MANUAL_RETRY_PRIMARY_ATTEMPTS = 2;
 const MANUAL_RETRY_FALLBACK_RADIUS_KM = 12;
+const STANDBY_FALLBACK_PROBE_TIMEOUT_MS = 4500;
 const STABILITY_MODE_PRIMARY_TARGET = 4;
 const STABILITY_MODE_EXPANDED_RADIUS_KM = 24;
 const STABILITY_MODE_EMERGENCY_RADIUS_KM = 45;
@@ -164,6 +164,7 @@ const WORLD_TOUR_SOURCE_LABELS = {
     animalcam: 'Animal Cams',
     golfcam: 'Golf Cams',
     cctvworld: 'CCTV World',
+    ongjin: '옹진군 재난 CCTV',
     tabi: 'TabiCam',
     webcamera24: 'WebCamera24',
     'youtube-search': 'YouTube Search',
@@ -175,7 +176,8 @@ const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권
 const TRAFFIC_CONTEXT_PATTERN = /(고속|고속도로|도시고속|자동차전용|국도|지방도|IC|JC|TG|영업소|나들목|분기점|램프|터널|휴게소|졸음쉼터|하이패스|외곽|순환|우회|간선|산업도로|대교|교량|지하차도|고가도로)/i;
 const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오름|산책|관광|해수욕장|방파제|등대|섬|계곡|정자|캠핑|휴양|하천|강변|왕숙천|중랑천|탄천|한강|호수)/;
 const BLOCKED_YOUTUBE_VIDEO_IDS = new Set([
-    'bKcdTWp6akg' // [YouTube] 대전 엑스포 한빛광장: owner-side private video.
+    'bKcdTWp6akg', // [YouTube] 대전 엑스포 한빛광장: owner-side private video.
+    '5uZa3-RMFos' // Sydney Harbour: owner disabled playback on external embeds.
 ]);
 
 // === Source metadata (label + accent color for dot/badge) ===
@@ -412,6 +414,7 @@ const state = {
     cctvById: new Map(),
     nearestCctvs: [],
     cameraPlaybackHealth: new Map(),
+    standbyProbeCache: new Map(),
     regionHealth: {},
     cameraFailures: new Map(),
     healthSnapshot: null,
@@ -559,8 +562,8 @@ async function loadCctvData() {
 async function loadHealthStatus() {
     const cacheBucket = Math.floor(Date.now() / HEALTH_STATUS_BUCKET_MS);
     const urls = [
-        `data/status.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
-        LIVE_HEALTH_STATUS_URL ? `${LIVE_HEALTH_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null
+        LIVE_HEALTH_STATUS_URL ? `${LIVE_HEALTH_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
+        `data/status.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
     ].filter(Boolean);
 
     for (const url of urls) {
@@ -605,8 +608,8 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
 async function loadQualitySummary() {
     const cacheBucket = Math.floor(Date.now() / QUALITY_SUMMARY_BUCKET_MS);
     const urls = [
-        `${QUALITY_SUMMARY_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
-        QUALITY_SUMMARY_URL ? `${QUALITY_SUMMARY_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null
+        QUALITY_SUMMARY_URL ? `${QUALITY_SUMMARY_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
+        `${QUALITY_SUMMARY_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
     ].filter(Boolean);
 
     for (const url of urls) {
@@ -642,8 +645,8 @@ function applyQualitySummary(summary) {
 async function loadCanaryStatus() {
     const cacheBucket = Math.floor(Date.now() / CANARY_STATUS_BUCKET_MS);
     const urls = [
-        `${CANARY_STATUS_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
-        CANARY_STATUS_URL ? `${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null
+        CANARY_STATUS_URL ? `${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
+        `${CANARY_STATUS_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
     ].filter(Boolean);
 
     for (const url of urls) {
@@ -1930,13 +1933,8 @@ function normalizeQualitySummary(summary) {
     const failure = getQualityMetric(summary, 'failure', 'failure', 0);
     const slow = getQualityMetric(summary, 'slow', 'slow', 0);
     const fallback = getQualityMetric(summary, 'fallback', 'fallback', 0);
-    const sourceOnly = getQualityMetric(summary, 'source_only', 'sourceOnly', 0);
-    const monitorUnverified = getQualityMetric(summary, 'monitor_unverified', 'monitorUnverified', 0);
-    const directPlayableSamples = getQualityMetric(summary, 'direct_playable_samples', 'directPlayableSamples', Math.max(0, samples - sourceOnly - monitorUnverified));
     const successRate = getQualityMetric(summary, 'success_rate', 'successRate', samples ? success / samples : 0);
-    const directSuccessRate = getQualityMetric(summary, 'direct_success_rate', 'directSuccessRate', directPlayableSamples ? success / directPlayableSamples : Number.NaN);
-    const sourceOnlyRate = getQualityMetric(summary, 'source_only_rate', 'sourceOnlyRate', samples ? sourceOnly / samples : 0);
-    const failureRate = getQualityMetric(summary, 'failure_rate', 'failureRate', directPlayableSamples ? failure / directPlayableSamples : 0);
+    const failureRate = getQualityMetric(summary, 'failure_rate', 'failureRate', samples ? failure / samples : 0);
     const slowRate = getQualityMetric(summary, 'slow_rate', 'slowRate', samples ? slow / samples : 0);
     const fallbackRate = getQualityMetric(summary, 'fallback_rate', 'fallbackRate', samples ? fallback / samples : 0);
     const avgFirstFrameMs = getQualityMetric(summary, 'avg_first_frame_ms', 'avgFirstFrameMs', 0);
@@ -1945,12 +1943,7 @@ function normalizeQualitySummary(summary) {
 
     return {
         samples,
-        sourceOnly,
-        monitorUnverified,
-        directPlayableSamples,
         successRate,
-        directSuccessRate,
-        sourceOnlyRate,
         failureRate,
         slowRate,
         fallbackRate,
@@ -2006,15 +1999,10 @@ function getQualitySummaryAdjustment(cctv) {
     if (!effective) return 0;
     const { metrics } = effective;
 
-    if ((metrics.sourceOnly > 0 || metrics.monitorUnverified > 0) && metrics.directPlayableSamples === 0) {
-        return effective.scope === 'camera' ? 0.8 : 0.35;
-    }
-
-    const effectiveSuccessRate = Number.isFinite(metrics.directSuccessRate) ? metrics.directSuccessRate : metrics.successRate;
     let adjustment = 0;
-    if (effectiveSuccessRate < 0.5) adjustment += 6;
-    else if (effectiveSuccessRate < 0.72) adjustment += 3.2;
-    else if (effectiveSuccessRate < 0.85) adjustment += 1.2;
+    if (metrics.successRate < 0.5) adjustment += 6;
+    else if (metrics.successRate < 0.72) adjustment += 3.2;
+    else if (metrics.successRate < 0.85) adjustment += 1.2;
 
     if (metrics.failureRate >= 0.45) adjustment += 2;
     if (metrics.slowRate >= 0.4) adjustment += 1.4;
@@ -2023,7 +2011,7 @@ function getQualitySummaryAdjustment(cctv) {
     if (metrics.avgFirstFrameMs > 12000) adjustment += 2.4;
     else if (metrics.avgFirstFrameMs > QUALITY_SLOW_FIRST_FRAME_MS) adjustment += 1.2;
 
-    if (metrics.samples >= 6 && effectiveSuccessRate >= 0.9 && metrics.avgFirstFrameMs > 0 && metrics.avgFirstFrameMs < 3500) {
+    if (metrics.samples >= 6 && metrics.successRate >= 0.9 && metrics.avgFirstFrameMs > 0 && metrics.avgFirstFrameMs < 3500) {
         adjustment -= 1;
     }
 
@@ -2042,22 +2030,8 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
     const downSuccessRate = aggregate ? 0.38 : 0.45;
     const slowRate = aggregate ? 0.5 : 0.4;
     const slowFirstFrameMs = aggregate ? 10000 : QUALITY_SLOW_FIRST_FRAME_MS;
-    const effectiveSuccessRate = Number.isFinite(metrics.directSuccessRate) ? metrics.directSuccessRate : metrics.successRate;
 
-    if ((metrics.sourceOnly > 0 || metrics.monitorUnverified > 0) && metrics.directPlayableSamples === 0) {
-        const monitorOnly = metrics.monitorUnverified > 0 && !metrics.sourceOnly;
-        return {
-            regionKey,
-            status: monitorOnly ? 'MONITOR_UNVERIFIED' : 'SOURCE_ONLY',
-            shortLabel: monitorOnly ? '점검 제한' : '원본 전용',
-            longLabel: monitorOnly ? `${label}은 브라우저 직접 재생 경로와 점검 서버 경로가 달라 장애와 분리해서 봅니다` : `${label}은 원본 플레이어/프레임 전용 소스라 직접 HLS/MP4 장애와 분리해서 봅니다`,
-            tone: 'unknown',
-            penalty: aggregate ? 0.4 : 0.9,
-            lastUpdated: timeText
-        };
-    }
-
-    if (metrics.failureRate >= downFailureRate || effectiveSuccessRate < downSuccessRate) {
+    if (metrics.failureRate >= downFailureRate || metrics.successRate < downSuccessRate) {
         return {
             regionKey,
             status: 'QUALITY_DOWN',
@@ -2081,8 +2055,8 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
         };
     }
 
-    if ((effective.scope === 'camera' && metrics.samples >= 5 && effectiveSuccessRate >= 0.88)
-        || (aggregate && metrics.samples >= 20 && effectiveSuccessRate >= 0.9)) {
+    if ((effective.scope === 'camera' && metrics.samples >= 5 && metrics.successRate >= 0.88)
+        || (aggregate && metrics.samples >= 20 && metrics.successRate >= 0.9)) {
         return {
             regionKey,
             status: 'QUALITY_OK',
@@ -2485,14 +2459,6 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
             tone: 'danger',
             label: health.shortLabel || '연결 불안정',
             title: health.longLabel || '현재 재생 실패 가능성이 높습니다.'
-        };
-    }
-
-    if (health.status === 'SOURCE_ONLY' || health.status === 'MONITOR_UNVERIFIED') {
-        return {
-            tone: 'unknown',
-            label: health.shortLabel || '미확인',
-            title: health.longLabel || '직접 장애와 분리해서 보는 소스입니다.'
         };
     }
 
@@ -3931,7 +3897,64 @@ function updateNearestCctvs() {
         ? preferred.concat(isolated)
         : ranked;
 
-    state.nearestCctvs = applyLocalPlacePriority(ordered, lat, lng).slice(0, NEAREST_RESULT_LIMIT);
+    state.nearestCctvs = dedupeSceneCandidates(
+        applyLocalPlacePriority(ordered, lat, lng),
+        NEAREST_RESULT_LIMIT
+    );
+}
+
+function normalizeCctvSceneName(name) {
+    return String(name || '')
+        .replace(/\[[^\]]+\]/g, '')
+        .replace(/\([^)]*\)/g, '')
+        .replace(/[@#]/g, '')
+        .replace(/\s+/g, '')
+        .replace(/(교차로|사거리|삼거리|네거리)$/g, '')
+        .replace(/([가-힣]{2,})R$/i, '$1')
+        .toLowerCase();
+}
+
+function getCctvSceneKey(cctv) {
+    if (!cctv) return '';
+    const url = String(cctv.directUrl || cctv.url || '').trim();
+    const originalId = String(cctv.original_id || '').trim();
+    const source = String(cctv.source || '').trim();
+    const lat = Number(cctv.lat);
+    const lng = Number(cctv.lng);
+    const normalizedName = normalizeCctvSceneName(cctv.name);
+
+    if (normalizedName.length >= 2 && Number.isFinite(lat) && Number.isFinite(lng)) {
+        // 0.00025 degrees is roughly 20-28m in Korea. This catches duplicated
+        // scene feeds such as "[SPATIC] 온수" and "온수R" without merging nearby
+        // but visually different intersections too aggressively.
+        const latCell = Math.round(lat * 4000);
+        const lngCell = Math.round(lng * 4000);
+        return `scene:${normalizedName}:${latCell}:${lngCell}`;
+    }
+    if (url && /\.(m3u8|mp4)(?:[?#]|$)/i.test(url)) return `url:${url}`;
+    if (source && originalId && !['SPATIC', 'GITS'].includes(source)) return `origin:${source}:${originalId}`;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return `point:${Math.round(lat * 8000)}:${Math.round(lng * 8000)}`;
+    }
+    return cctv.id ? `id:${cctv.id}` : '';
+}
+
+function dedupeSceneCandidates(candidates, limit = NEAREST_RESULT_LIMIT) {
+    const selected = [];
+    const sceneKeys = new Set();
+    const idKeys = new Set();
+
+    for (const cctv of candidates || []) {
+        if (!cctv || !cctv.id || idKeys.has(cctv.id)) continue;
+        const sceneKey = getCctvSceneKey(cctv);
+        if (sceneKey && sceneKeys.has(sceneKey)) continue;
+        selected.push(cctv);
+        idKeys.add(cctv.id);
+        if (sceneKey) sceneKeys.add(sceneKey);
+        if (selected.length >= limit) break;
+    }
+
+    return selected;
 }
 
 function applyLocalPlacePriority(ordered, lat, lng) {
@@ -4006,6 +4029,7 @@ function renderVideoGrid() {
             panel.dataset.slotIndex = index;
             panel.dataset.cctvIndex = index;
             scheduleVideoHealthProbe(panel, cctv, video);
+            prepareManualRetryFallback(panel, cctv);
 
             // Update dropdown trigger with compact status dot instead of status text.
             renderSelectTrigger(panel, cctv, `CCTV ${index + 1}`);
@@ -4043,6 +4067,8 @@ function resetPanelRetryState(panel) {
     if (!panel || !panel.dataset) return;
     setManualRetryCount(panel, 0);
     panel._preparedRetryFallback = null;
+    panel._verifiedRetryFallback = null;
+    panel._verifiedRetryFallbackPromise = null;
     delete panel.dataset.preparedRetryFallbackId;
     delete panel.dataset.retrySourceId;
 }
@@ -4083,8 +4109,10 @@ function getCctvReservationKeys(cctv) {
     const source = cctv.source || '';
     const originalId = cctv.original_id || '';
     const url = cctv.directUrl || cctv.url || '';
+    const sceneKey = getCctvSceneKey(cctv);
 
     if (id) keys.push(`id:${id}`);
+    if (sceneKey) keys.push(sceneKey);
     if (originalId) keys.push(`origin:${source}:${originalId}`);
     if (url) keys.push(`url:${url}`);
 
@@ -4146,8 +4174,101 @@ function scoreManualRetryFallback(candidate, sourceCctv) {
         + backupBonus;
 }
 
-function findManualRetryFallback(sourceCctv, reservedKeys = new Set()) {
-    if (!sourceCctv) return null;
+function getStandbyProbeCache(candidate) {
+    if (!candidate?.id) return null;
+    const cached = state.standbyProbeCache.get(candidate.id);
+    if (!cached) return null;
+    if (Date.now() - cached.checkedAt > PLAYBACK_HEALTH_OK_TTL_MS) {
+        state.standbyProbeCache.delete(candidate.id);
+        return null;
+    }
+    return cached;
+}
+
+function setStandbyProbeCache(candidate, ok, detail = '') {
+    if (!candidate?.id) return;
+    state.standbyProbeCache.set(candidate.id, {
+        ok: Boolean(ok),
+        detail,
+        checkedAt: Date.now()
+    });
+}
+
+function isKnownPlayableStandby(candidate) {
+    const playbackHealth = candidate?.id ? state.cameraPlaybackHealth.get(candidate.id) : null;
+    if (playbackHealth && isStoredPlaybackHealthFresh(playbackHealth) && playbackHealth.status === 'PLAYING') {
+        return true;
+    }
+    const cached = getStandbyProbeCache(candidate);
+    return cached?.ok === true;
+}
+
+function getStandbyProbeUrl(candidate) {
+    if (!candidate) return '';
+    const url = candidate.directUrl || candidate.url || '';
+    const source = candidate.source || '';
+    const kind = getUrlParam(url, 'kind');
+    const originalId = candidate.original_id || getUrlParam(url, 'cctvip');
+
+    if (source === 'GITS' && originalId) {
+        return `${ORACLE_BASE}/gits?cctvip=${encodeURIComponent(originalId)}&_t=${Date.now()}`;
+    }
+    if (source === 'UTIC' && ['EE', 'EEE', 'KB'].includes(kind) && getUrlParam(url, 'cctvip')) {
+        return `${KB_PROXY_BASE}?cctvip=${encodeURIComponent(getUrlParam(url, 'cctvip'))}&_t=${Date.now()}`;
+    }
+    if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('/kb?cctvip=') || url.includes('/jeju?id=')
+        || url.includes('workers.dev') || url.includes('sslip.io') || url.includes('cctv-proxy-hoon-001.fly.dev')) {
+        return url;
+    }
+    return '';
+}
+
+async function probeStandbyCandidate(candidate) {
+    if (!candidate || !isManualRetryFallbackCandidate(candidate, null)) return false;
+    if (isKnownPlayableStandby(candidate)) return true;
+
+    const probeUrl = getStandbyProbeUrl(candidate);
+    if (!probeUrl) return false;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), STANDBY_FALLBACK_PROBE_TIMEOUT_MS);
+    try {
+        const response = await fetch(probeUrl, {
+            cache: 'no-store',
+            redirect: 'follow',
+            signal: controller.signal,
+            headers: probeUrl.includes('.mp4') ? { Range: 'bytes=0-2048' } : undefined
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const contentType = response.headers.get('content-type') || '';
+        const finalUrl = response.url || probeUrl;
+        let ok = response.ok;
+        if (probeUrl.includes('.m3u8') || finalUrl.includes('.m3u8') || contentType.includes('mpegurl')) {
+            const text = await response.text();
+            ok = text.includes('#EXTM3U') || text.includes('#EXTINF');
+        }
+        if (ok) {
+            setStandbyProbeCache(candidate, true, 'probe-ok');
+            setPlaybackHealth(candidate, {
+                status: 'PLAYING',
+                shortLabel: '대체 재생 확인',
+                longLabel: '백그라운드 연결 테스트에서 대체 영상 응답을 확인했습니다',
+                tone: 'ok',
+                penalty: 0
+            });
+            return true;
+        }
+    } catch (error) {
+        setStandbyProbeCache(candidate, false, error?.name || 'probe-failed');
+    } finally {
+        clearTimeout(timer);
+    }
+    return false;
+}
+
+function buildManualRetryFallbackCandidates(sourceCctv, reservedKeys = new Set()) {
+    if (!sourceCctv) return [];
 
     const lat = Number.isFinite(Number(sourceCctv.lat)) ? Number(sourceCctv.lat) : Number(state.center?.lat);
     const lng = Number.isFinite(Number(sourceCctv.lng)) ? Number(sourceCctv.lng) : Number(state.center?.lng);
@@ -4163,18 +4284,62 @@ function findManualRetryFallback(sourceCctv, reservedKeys = new Set()) {
         merged.push(candidate);
     });
 
-    const scored = merged
+    return merged
         .filter(candidate => isManualRetryFallbackCandidate(candidate, sourceCctv))
         .filter(candidate => !hasReservedCctvKey(candidate, reservedKeys))
+        .filter(candidate => getCctvSceneKey(candidate) !== getCctvSceneKey(sourceCctv))
         .map(candidate => ({
             candidate,
             distance: getManualRetryFallbackDistance(sourceCctv, candidate),
             score: scoreManualRetryFallback(candidate, sourceCctv)
         }))
         .sort((a, b) => a.score - b.score || a.distance - b.distance);
+}
 
+function findManualRetryFallback(sourceCctv, reservedKeys = new Set()) {
+    if (!sourceCctv) return null;
+
+    const scored = buildManualRetryFallbackCandidates(sourceCctv, reservedKeys);
+
+    const verified = scored.find(item => isKnownPlayableStandby(item.candidate));
+    if (verified) return verified.candidate;
     const local = scored.find(item => Number.isFinite(item.distance) && item.distance <= MANUAL_RETRY_FALLBACK_RADIUS_KM);
     return (local || scored[0])?.candidate || null;
+}
+
+async function prepareVerifiedManualRetryFallback(panel, sourceCctv) {
+    if (!panel || !sourceCctv) return null;
+    if (panel._verifiedRetryFallback?.sourceId === sourceCctv.id
+        && isManualRetryFallbackCandidate(panel._verifiedRetryFallback.cctv, sourceCctv)) {
+        return panel._verifiedRetryFallback.cctv;
+    }
+    if (panel._verifiedRetryFallbackPromise?.sourceId === sourceCctv.id) {
+        return panel._verifiedRetryFallbackPromise.promise;
+    }
+
+    const reservedKeys = getManualRetryReservedKeys(panel);
+    const candidates = buildManualRetryFallbackCandidates(sourceCctv, reservedKeys).slice(0, 10);
+    const promise = (async () => {
+        for (const item of candidates) {
+            const ok = await probeStandbyCandidate(item.candidate);
+            if (!ok) continue;
+            panel._verifiedRetryFallback = { sourceId: sourceCctv.id, cctv: item.candidate };
+            panel._preparedRetryFallback = { sourceId: sourceCctv.id, cctv: item.candidate };
+            panel.dataset.preparedRetryFallbackId = item.candidate.id;
+            panel.dataset.retrySourceId = sourceCctv.id;
+            return item.candidate;
+        }
+        return null;
+    })();
+
+    panel._verifiedRetryFallbackPromise = { sourceId: sourceCctv.id, promise };
+    try {
+        return await promise;
+    } finally {
+        if (panel._verifiedRetryFallbackPromise?.promise === promise) {
+            panel._verifiedRetryFallbackPromise = null;
+        }
+    }
 }
 
 function prepareManualRetryFallback(panel, sourceCctv) {
@@ -4194,6 +4359,9 @@ function prepareManualRetryFallback(panel, sourceCctv) {
     if (fallback) {
         panel.dataset.preparedRetryFallbackId = fallback.id;
         panel.dataset.retrySourceId = sourceCctv.id;
+        prepareVerifiedManualRetryFallback(panel, sourceCctv).catch(error => {
+            console.warn('[standby] verified fallback probe failed:', error);
+        });
     } else {
         delete panel.dataset.preparedRetryFallbackId;
         delete panel.dataset.retrySourceId;
@@ -4201,9 +4369,16 @@ function prepareManualRetryFallback(panel, sourceCctv) {
     return fallback;
 }
 
-function switchToPreparedRetryFallback(panel, sourceCctv) {
+async function switchToPreparedRetryFallback(panel, sourceCctv, options = {}) {
     if (!panel || !sourceCctv) return false;
-    let fallback = prepareManualRetryFallback(panel, sourceCctv);
+    const requireVerified = options.requireVerified !== false;
+    let fallback = panel._verifiedRetryFallback?.sourceId === sourceCctv.id
+        ? panel._verifiedRetryFallback.cctv
+        : null;
+    if (!fallback) {
+        fallback = await prepareVerifiedManualRetryFallback(panel, sourceCctv);
+    }
+    if (!fallback && !requireVerified) fallback = prepareManualRetryFallback(panel, sourceCctv);
     if (!fallback) return false;
 
     let fallbackIndex = state.nearestCctvs.findIndex(item => item.id === fallback.id);
@@ -4222,7 +4397,7 @@ function switchToPreparedRetryFallback(panel, sourceCctv) {
     recordQualityEvent(sourceCctv, 'fallback', {
         sourceIndex: MANUAL_RETRY_PRIMARY_ATTEMPTS + 1,
         usedFallback: true,
-        reason: 'manual-retry-fallback'
+        reason: isKnownPlayableStandby(fallback) ? 'verified-manual-retry-fallback' : 'manual-retry-fallback'
     });
     attachStreamToPanel(panel, fallback, fallbackIndex);
     return true;
@@ -4396,6 +4571,7 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     panel.dataset.cctvId = cctv.id;
     panel.dataset.cctvIndex = cctvIndex;
     scheduleVideoHealthProbe(panel, cctv, video);
+    prepareManualRetryFallback(panel, cctv);
 
     // Update trigger with compact status dot instead of status text.
     renderSelectTrigger(panel, cctv, `CCTV ${cctvIndex + 1}`);
@@ -5278,17 +5454,27 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
             message: '지금은 연결이 불안정합니다',
             detail: retryDetail,
             retryLabel,
-            retryFn: () => {
+            retryFn: async () => {
                 const activePanel = panel || wrapper.closest('.video-panel');
                 const nextRetryCount = getManualRetryCount(activePanel) + 1;
                 setManualRetryCount(activePanel, nextRetryCount);
                 prepareManualRetryFallback(activePanel, cctv);
 
-                if (nextRetryCount > MANUAL_RETRY_PRIMARY_ATTEMPTS
-                    && switchToPreparedRetryFallback(activePanel, cctv)) {
+                if (nextRetryCount > MANUAL_RETRY_PRIMARY_ATTEMPTS) {
+                    const switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
+                    if (!switched) {
+                        showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
+                    }
                     return;
                 }
                 handleStreamFailover(wrapper, cctv, 0);
+            },
+            onTryAnother: async () => {
+                const activePanel = panel || wrapper.closest('.video-panel');
+                const switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
+                if (!switched) {
+                    showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
+                }
             },
             cctv
         });
@@ -5377,7 +5563,9 @@ function createErrorPlaceholder(options, legacyRetryFn) {
             btn.classList.add('pressed');
             setTimeout(() => {
                 btn.classList.remove('pressed');
-                retryFn();
+                Promise.resolve(retryFn()).catch(err => {
+                    console.warn('[error-placeholder] retry failed:', err);
+                });
             }, 100);
         };
     }
@@ -5389,7 +5577,9 @@ function createErrorPlaceholder(options, legacyRetryFn) {
             setTimeout(() => tryBtn.classList.remove('pressed'), 120);
             try {
                 if (typeof onTryAnother === 'function') {
-                    onTryAnother();
+                    Promise.resolve(onTryAnother()).catch(err => {
+                        console.warn('[error-placeholder] tryAnother async failed:', err);
+                    });
                 } else {
                     const next = findAnotherNearbyCctv(cctv);
                     if (next && typeof openVideoLayer === 'function') {
@@ -6058,42 +6248,17 @@ async function loadWorldTourCams() {
     state.worldTourCams = (payload.items || [])
         .filter(item => item && (item.videoId || item.embedUrl || item.playUrl || item.sourceUrl))
         .filter(item => !(item.snapshotUrl && !item.videoId && !item.embedUrl && !item.playUrl))
-        .map(item => ({
-            ...item,
-            embedUrl: isValidWorldTourEmbedUrl(item.embedUrl) ? item.embedUrl : '',
-            playUrl: isValidWorldTourEmbedUrl(item.playUrl) ? item.playUrl : ''
-        }))
         .sort((a, b) => (
-            (canPlayWorldTourInApp(b) ? 1000 : 0) - (canPlayWorldTourInApp(a) ? 1000 : 0)
-            || Number(b.qualityScore || b.stabilityScore || b.priority || 0)
+            Number(b.qualityScore || b.stabilityScore || b.priority || 0)
             - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
         ) || String(a.title).localeCompare(String(b.title)));
     pruneWorldTourFavorites(state.worldTourCams);
     return state.worldTourCams;
 }
 
-function isValidWorldTourEmbedUrl(url) {
-    const value = String(url || '').trim();
-    if (!value) return false;
-    if (/(?:googletagmanager\.com|google-analytics\.com|doubleclick\.net|google\.com\/maps|openstreetmap|leaflet|facebook\.com\/plugins)/i.test(value)) {
-        return false;
-    }
-    return /(?:youtube\.com\/embed|player|webtv|stream|live|\.(?:m3u8|mp4|webm|ogv)(?:[?#].*)?$)/i.test(value);
-}
-
-function isWorldTourUnavailable(cam) {
-    const playbackStatus = String(cam?.playbackStatus || '').toLowerCase();
-    const youtubeStatus = String(cam?.youtubePlayabilityStatus || '').toUpperCase();
-    const reason = String(cam?.youtubePlayabilityReason || '');
-    return playbackStatus === 'unavailable'
-        || ['UNPLAYABLE', 'LOGIN_REQUIRED', 'AGE_CHECK_REQUIRED'].includes(youtubeStatus)
-        || /(?:live stream recording is not available|실시간 스트림 녹화를 볼 수 없습니다|private video|deleted video|video unavailable|비공개|삭제|사용할 수 없는)/i.test(reason);
-}
-
 function getWorldTourEmbedUrl(cam) {
-    if (!cam || isWorldTourUnavailable(cam)) return null;
-    if (cam.embedUrl && isValidWorldTourEmbedUrl(cam.embedUrl)) return cam.embedUrl;
-    if (cam.playUrl && isValidWorldTourEmbedUrl(cam.playUrl)) return cam.playUrl;
+    if (cam.embedUrl) return cam.embedUrl;
+    if (cam.playUrl) return cam.playUrl;
     if (!cam.videoId) return null;
     return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
 }
@@ -6136,13 +6301,15 @@ function renderWorldTourHashTags(cam) {
 }
 
 function canPlayWorldTourInApp(cam) {
-    // Keep source-only cameras in the directory, but don't present them as
-    // guaranteed in-app video candidates. This prevents broken embeds and
-    // ended YouTube live recordings from looking like playable live feeds.
-    if (!cam || isWorldTourUnavailable(cam)) return false;
-    if (cam.snapshotUrl && !cam.videoId && !cam.embedUrl && !cam.playUrl) return false;
-    if (cam.sourceOnly && !cam.videoId && !isValidWorldTourEmbedUrl(cam.embedUrl) && !isValidWorldTourEmbedUrl(cam.playUrl)) return false;
-    return Boolean(cam.videoId || isValidWorldTourEmbedUrl(cam.embedUrl) || isValidWorldTourEmbedUrl(cam.playUrl));
+    // Snapshot-only feeds are intentionally excluded from the global CCTV list;
+    // in-app playback should mean a real video/embed stream.
+    const playbackStatus = String(cam?.playbackStatus || '').toLowerCase();
+    const directStatus = String(cam?.directPlaybackStatus || '').toLowerCase();
+    if (cam?.videoId && BLOCKED_YOUTUBE_VIDEO_IDS.has(String(cam.videoId))) return false;
+    if (cam?.sourceOnly || directStatus === 'source_site_only') return false;
+    if (['unavailable', 'embed_disabled', 'source-only'].includes(playbackStatus)) return false;
+    if (cam?.videoId && playbackStatus !== 'verified') return false;
+    return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
 }
 
 // Returns a suggested refresh cadence (ms) for snapshot-based cameras.
@@ -6458,17 +6625,16 @@ function renderWorldTourRegionTabs(cams) {
     `;
 }
 
-function renderWorldTourListToggle(cams, variant = 'region') {
+function renderWorldTourListToggle(cams) {
     return `
         <button
             type="button"
-            class="world-tour-list-toggle world-tour-list-toggle-${escapeWorldTourHtml(variant)} ${state.worldTourListOpen ? 'active' : ''}"
+            class="world-tour-list-toggle ${state.worldTourListOpen ? 'active' : ''}"
             data-world-tour-list-toggle
             aria-label="세계 CCTV 리스트 열기"
             title="세계 CCTV 리스트"
         >
-            <span class="world-tour-list-toggle-list-icon">${WORLD_TOUR_LIST_SVG}</span>
-            <span class="world-tour-list-toggle-search-icon">${WORLD_TOUR_SEARCH_SVG}</span>
+            ${WORLD_TOUR_LIST_SVG}
         </button>
     `;
 }
@@ -6477,7 +6643,7 @@ function renderWorldTourRegionControls(cams) {
     return `
         <div class="world-tour-region-bar">
             ${renderWorldTourRegionTabs(cams)}
-            ${renderWorldTourListToggle(cams, 'region')}
+            ${renderWorldTourListToggle(cams)}
         </div>
     `;
 }
@@ -6608,9 +6774,8 @@ function renderWorldTourListItems(items, selectedId) {
                         <span class="world-tour-list-item-title-text">${highlightWorldTourMatch(cam.title, search)}</span>
                         ${externalBadge}
                     </strong>
-                    <span class="world-tour-list-item-location">${highlightWorldTourMatch(cam.city, search)} · ${highlightWorldTourMatch(cam.country, search)}</span>
-                    <em class="world-tour-list-item-source">${highlightWorldTourMatch(regionLabel, search)} · ${highlightWorldTourMatch(sourceLabel, search)}</em>
-                    <span class="world-tour-list-item-compact-meta">${highlightWorldTourMatch(cam.country, search)} / ${highlightWorldTourMatch(regionLabel, search)} · ${highlightWorldTourMatch(sourceLabel, search)}</span>
+                    <span>${highlightWorldTourMatch(cam.city, search)} · ${highlightWorldTourMatch(cam.country, search)}</span>
+                    <em>${highlightWorldTourMatch(regionLabel, search)} · ${highlightWorldTourMatch(sourceLabel, search)}</em>
                     ${subtitleRow}
                 </div>
                 <div class="world-tour-list-item-actions">
@@ -6626,8 +6791,6 @@ function renderWorldTourListItems(items, selectedId) {
 function renderWorldTourListPanel(cams, selected) {
     sanitizeWorldTourListFilters(cams);
     const filteredCams = getWorldTourListFilteredCams(cams);
-    const favoriteCount = getWorldTourFavoriteIds().size;
-    const favoritesActive = state.worldTourListRegion === WORLD_TOUR_FAVORITE_REGION;
     const countryOptions = renderWorldTourListSelectOptions(
         getWorldTourListCountries(cams),
         state.worldTourListCountry,
@@ -6658,14 +6821,6 @@ function renderWorldTourListPanel(cams, selected) {
                         autocomplete="off"
                     >
                 </label>
-                <button
-                    type="button"
-                    class="world-tour-list-mobile-favorites ${favoritesActive ? 'active' : ''}"
-                    data-world-tour-list-favorites
-                    aria-pressed="${favoritesActive}"
-                    aria-label="${favoritesActive ? '전체 영상 목록 보기' : `즐겨찾기 ${favoriteCount}개 보기`}"
-                    title="${favoritesActive ? '전체 영상 목록 보기' : `즐겨찾기 ${favoriteCount}개 보기`}"
-                >${WORLD_TOUR_STAR_SVG}</button>
                 <div class="world-tour-list-filter-group">
                     <div class="world-tour-list-chip-row" aria-label="대륙/즐겨찾기 필터">
                         ${renderWorldTourListRegionChips(cams)}
@@ -6835,9 +6990,8 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
 function renderWorldTourVideoHero(selected) {
     const embedUrl = getWorldTourEmbedUrl(selected);
     const sourceLabel = getWorldTourSourceLabel(selected);
-    const isUnavailable = isWorldTourUnavailable(selected);
     const isDirectVideo = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl);
-    const snapshotUrl = !embedUrl && !isUnavailable ? (selected.snapshotUrl || '') : '';
+    const snapshotUrl = !embedUrl ? (selected.snapshotUrl || '') : '';
 
     let mediaHtml;
     if (embedUrl && isDirectVideo) {
@@ -6862,25 +7016,34 @@ function renderWorldTourVideoHero(selected) {
                 ></iframe>
             </div>`;
     } else if (snapshotUrl) {
+        // In-app snapshot playback for sources without an embeddable player
+        // (HK Traffic, USGS VolcView, Panomax, Roundshot). The image auto-
+        // refreshes via initWorldTourSnapshotRefresh after the DOM mounts.
+        const refreshMs = getWorldTourSnapshotRefreshMs(selected);
         mediaHtml = `
-            <div class="world-tour-video world-tour-external-preview">
-                <div class="world-tour-external-copy">
-                    <span>${escapeWorldTourHtml(sourceLabel)} 스냅샷 소스</span>
-                    <strong>연속 영상이 아닌 정지 스냅샷이라 인앱 영상 후보에서 제외했습니다.</strong>
-                    ${selected.sourceUrl ? `<a href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본에서 보기</a>` : ''}
+            <div class="world-tour-video world-tour-snapshot-hero">
+                <img
+                    class="world-tour-snapshot-img"
+                    src="${escapeWorldTourHtml(snapshotUrl)}"
+                    alt="${escapeWorldTourHtml(selected.title)} 실시간 스냅샷"
+                    data-world-tour-snapshot="${escapeWorldTourHtml(snapshotUrl)}"
+                    data-world-tour-snapshot-refresh="${refreshMs}"
+                    loading="eager"
+                    decoding="async"
+                />
+                <div class="world-tour-snapshot-overlay">
+                    <span class="world-tour-snapshot-badge">${escapeWorldTourHtml(sourceLabel)} 정지 스냅샷</span>
+                    ${refreshMs > 0 ? `<span class="world-tour-snapshot-meta">동영상 스트림 없음 · ${Math.round(refreshMs / 1000)}초마다 새 이미지 확인</span>` : '<span class="world-tour-snapshot-meta">동영상 스트림 없음 · 최신 캡처 이미지</span>'}
                 </div>
             </div>`;
     } else {
-        const statusCopy = isUnavailable
-            ? '최근 점검에서 YouTube/플레이어가 재생 불가로 응답했습니다.'
-            : '이 영상은 원본 사이트에서 재생되는 원본 전용 소스입니다.';
         mediaHtml = `
             <div class="world-tour-video world-tour-external-preview">
                 ${selected.thumbnailUrl ? `<img src="${escapeWorldTourHtml(selected.thumbnailUrl)}" alt="${escapeWorldTourHtml(selected.title)} preview" loading="lazy">` : ''}
                 <div class="world-tour-external-copy">
-                    <span>${escapeWorldTourHtml(sourceLabel)} ${isUnavailable ? '재확인 필요' : '공식 플레이어'}</span>
-                    <strong>${escapeWorldTourHtml(statusCopy)}</strong>
-                    ${selected.sourceUrl ? `<a href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본에서 보기</a>` : ''}
+                    <span>${escapeWorldTourHtml(sourceLabel)} 공식 플레이어</span>
+                    <strong>이 영상은 원본 사이트에서 안정적으로 재생됩니다.</strong>
+                    <a href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본에서 보기</a>
                 </div>
             </div>`;
     }
@@ -7107,63 +7270,6 @@ function initWorldTourVideoPlayback() {
     video.addEventListener('loadedmetadata', playSafely, { once: true });
 }
 
-function initWorldTourMobileMediaPan() {
-    if (!window.matchMedia?.('(max-width: 600px)').matches) return;
-
-    document.querySelectorAll('.world-tour-video').forEach(container => {
-        if (container.dataset.mobilePanBound === 'true') return;
-        const media = container.querySelector('iframe, .world-tour-direct-video');
-        if (!media) return;
-
-        const rect = container.getBoundingClientRect();
-        const mediaWidth = Math.max(rect.width, rect.height * (16 / 9));
-        const maxOffset = Math.max(0, (mediaWidth - rect.width) / 2);
-        if (maxOffset < 4) return;
-
-        container.dataset.mobilePanBound = 'true';
-        container.classList.add('is-mobile-pannable');
-        media.classList.add('world-tour-pannable-media');
-        media.style.width = `${mediaWidth}px`;
-        media.style.height = `${rect.height}px`;
-
-        let offsetX = 0;
-        let startX = 0;
-        let startOffsetX = 0;
-        let dragging = false;
-
-        const applyOffset = () => {
-            media.style.transform = `translate3d(calc(-50% + ${offsetX}px), 0, 0)`;
-        };
-        applyOffset();
-
-        const overlay = document.createElement('div');
-        overlay.className = 'world-tour-media-pan-overlay';
-        overlay.setAttribute('aria-label', '영상을 좌우로 드래그하여 보기');
-        container.appendChild(overlay);
-
-        overlay.addEventListener('pointerdown', event => {
-            dragging = true;
-            startX = event.clientX;
-            startOffsetX = offsetX;
-            overlay.setPointerCapture?.(event.pointerId);
-            overlay.classList.add('is-dragging');
-        });
-        overlay.addEventListener('pointermove', event => {
-            if (!dragging) return;
-            offsetX = Math.max(-maxOffset, Math.min(maxOffset, startOffsetX + event.clientX - startX));
-            applyOffset();
-        });
-        const finish = event => {
-            if (!dragging) return;
-            dragging = false;
-            overlay.releasePointerCapture?.(event.pointerId);
-            overlay.classList.remove('is-dragging');
-        };
-        overlay.addEventListener('pointerup', finish);
-        overlay.addEventListener('pointercancel', finish);
-    });
-}
-
 function bindWorldTourListPanel(root, cams, selected) {
     const overlay = root.querySelector('[data-world-tour-list-overlay]');
     const panel = root.querySelector('.world-tour-list-panel');
@@ -7257,18 +7363,6 @@ function bindWorldTourListPanel(root, cams, selected) {
         if (closeButton) {
             state.worldTourListOpen = false;
             rerenderWithList(state.selectedWorldTourId, { focusSelected: true });
-            return;
-        }
-
-        const mobileFavoritesButton = event.target.closest('[data-world-tour-list-favorites]');
-        if (mobileFavoritesButton) {
-            state.worldTourListRegion = state.worldTourListRegion === WORLD_TOUR_FAVORITE_REGION
-                ? 'All'
-                : WORLD_TOUR_FAVORITE_REGION;
-            state.worldTourListCountry = 'All';
-            state.worldTourListSource = 'All';
-            state.worldTourListSearch = '';
-            rerenderWithList();
             return;
         }
 
@@ -7478,12 +7572,11 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                     ? renderWorldTourMapHero(selected, visibleCams)
                     : renderWorldTourVideoHero(selected)}
                 ${renderWorldTourBottomMenu(cams, visibleCams, selected)}
-                ${state.worldTourListOpen ? '' : renderWorldTourListToggle(cams, 'floating')}
                 ${state.worldTourListOpen ? renderWorldTourListPanel(cams, selected) : ''}
             </div>
         `;
 
-        list.querySelectorAll('[data-world-tour-list-toggle]').forEach(toggle => toggle.addEventListener('click', () => {
+        list.querySelector('[data-world-tour-list-toggle]')?.addEventListener('click', () => {
             state.worldTourListOpen = true;
             state.worldTourListRegion = state.worldTourRegion || 'All';
             const cardRail = list.querySelector('.world-tour-card-rail');
@@ -7495,7 +7588,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 focusSelected: true,
                 listScrollToSelected: true
             });
-        }));
+        });
 
         bindWorldTourListPanel(list, cams, selected);
 
@@ -7636,7 +7729,6 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             requestAnimationFrame(() => {
                 initWorldTourVideoPlayback();
                 initWorldTourSnapshotRefresh();
-                initWorldTourMobileMediaPan();
             });
         }
     } catch (error) {

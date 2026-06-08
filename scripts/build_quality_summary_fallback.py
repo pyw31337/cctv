@@ -27,6 +27,15 @@ SOURCE_ONLY_SOURCES = {"GANGWON", "GIGAEYES", "KNPS", "CCTVWORLD"}
 MONITOR_UNVERIFIED_SOURCES = {"SPATIC", "ULSAN"}
 MONITOR_UNVERIFIED_HOSTS = {"trafficcctv.paju.go.kr", "strm1.spatic.go.kr", "strm2.spatic.go.kr", "strm3.spatic.go.kr", "strm4.spatic.go.kr", "webcctv.its.ulsan.kr"}
 
+CANARY_REGION_ALIASES = {
+    "대전": "DAEJEON",
+    "제주": "JEJU",
+    "진도": "진도",
+    "구리": "구리",
+    "남양주": "남양주",
+    "독도": "독도",
+}
+
 
 def load_json(path: Path, fallback: Any) -> Any:
     try:
@@ -122,6 +131,15 @@ def source_region_from_camera(cam: dict[str, Any]) -> str:
     if "제주" in name or "서귀포" in name or source == "NOWJEJU":
         return "JEJU"
     return source
+
+
+def canonical_quality_region(label: Any, cam: dict[str, Any] | None = None) -> str:
+    text = str(label or "").strip()
+    if text in CANARY_REGION_ALIASES:
+        return CANARY_REGION_ALIASES[text]
+    if text:
+        return text
+    return source_region_from_camera(cam or {})
 
 
 def row_from_status_sample(
@@ -313,9 +331,10 @@ def main() -> int:
                 # dashboard baseline; canary remains visible in canary_status.json.
                 continue
             row = row_from_result(result, region_label)
+            row["region"] = canonical_quality_region(region_label, catalog_index.get(camera_id))
             cameras[camera_id] = row
             add_rollup(source_buckets[row["source"]], row)
-            add_rollup(region_buckets[region_label], row)
+            add_rollup(region_buckets[row["region"]], row)
 
     generated_at = latest_stamp(canary.get("generated_at"), status.get("last_updated"), ops.get("generated_at"))
     payload = {
