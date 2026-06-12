@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260608-44f0d86f';
+const APP_BUILD_VERSION = '20260612-36pxui';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6255,7 +6255,7 @@ async function loadWorldTourCams() {
 }
 
 function getWorldTourEmbedUrl(cam) {
-    if (cam.embedUrl) return cam.embedUrl;
+    if (cam.embedUrl && !isWorldTourEmbedBlocked(cam, cam.embedUrl)) return cam.embedUrl;
     if (cam.playUrl) return cam.playUrl;
     if (!cam.videoId) return null;
     return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
@@ -6278,6 +6278,17 @@ function getWorldTourRegionLabel(region) {
 function getWorldTourSourceLabel(cam) {
     const sourceType = String(cam?.sourceType || (cam?.videoId ? 'youtube' : 'external')).toLowerCase();
     return WORLD_TOUR_SOURCE_LABELS[sourceType] || cam?.channel || 'External';
+}
+
+function isWorldTourEmbedBlocked(cam, url) {
+    const sourceType = String(cam?.sourceType || '').toLowerCase();
+    const embedUrl = String(url || '');
+    // Live Beaches often wraps third-party live channels. The channel-level
+    // YouTube live embed can flip to "owner disabled external playback" while
+    // the source page still works, so keep it as source-site-only instead of
+    // showing a dead iframe in our player.
+    if (sourceType === 'livebeaches' && /youtube\.com\/embed\/live_stream/i.test(embedUrl)) return true;
+    return false;
 }
 
 function formatWorldTourHashTag(value, compact = false) {
@@ -6306,6 +6317,7 @@ function canPlayWorldTourInApp(cam) {
     if (cam?.videoId && BLOCKED_YOUTUBE_VIDEO_IDS.has(String(cam.videoId))) return false;
     if (cam?.sourceOnly || directStatus === 'source_site_only') return false;
     if (['unavailable', 'embed_disabled', 'source-only'].includes(playbackStatus)) return false;
+    if (cam?.embedUrl && isWorldTourEmbedBlocked(cam, cam.embedUrl)) return false;
     if (cam?.videoId && playbackStatus !== 'verified') return false;
     return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
 }
@@ -7252,6 +7264,89 @@ function enableHorizontalDragScroll(scroller, onScroll) {
     }, { passive: false });
 }
 
+function enableWorldTourVideoPan(root = document) {
+    root.querySelectorAll?.('.world-tour-video').forEach(container => {
+        if (container.dataset.worldTourPanBound === '1') return;
+        container.dataset.worldTourPanBound = '1';
+
+        let pointerId = null;
+        let startX = 0;
+        let startY = 0;
+        let startPan = 0;
+        let panX = Number(container.dataset.worldTourPanX || 0);
+        let maxPan = 0;
+        let didPan = false;
+        const dragThreshold = 5;
+
+        const applyPan = nextPan => {
+            panX = Math.max(-maxPan, Math.min(maxPan, nextPan));
+            container.dataset.worldTourPanX = String(panX);
+            container.style.setProperty('--world-tour-pan-x', `${panX}px`);
+            const position = maxPan > 0
+                ? Math.max(0, Math.min(100, 50 - (panX / maxPan) * 50))
+                : 50;
+            container.style.setProperty('--world-tour-object-position', `${position}% center`);
+        };
+
+        const refreshMetrics = () => {
+            const rect = container.getBoundingClientRect();
+            container.style.setProperty('--world-tour-frame-height', `${Math.max(0, rect.height)}px`);
+            // Most global embeds are 16:9. When the viewport is portrait-ish,
+            // cover layout crops left/right; keep that hidden width draggable.
+            maxPan = Math.max(0, ((rect.height * 16 / 9) - rect.width) / 2);
+            container.classList.toggle('is-pannable', maxPan > 8);
+            applyPan(panX);
+        };
+
+        const finishPan = event => {
+            if (pointerId === null || (event?.pointerId != null && event.pointerId !== pointerId)) return;
+            container.classList.remove('is-panning');
+            try {
+                container.releasePointerCapture?.(pointerId);
+            } catch (error) {
+                // Pointer capture may already be released by the browser.
+            }
+            pointerId = null;
+            didPan = false;
+        };
+
+        container.addEventListener('pointerdown', event => {
+            if (event.button !== 0 && event.pointerType !== 'touch') return;
+            refreshMetrics();
+            if (maxPan <= 8) return;
+            pointerId = event.pointerId;
+            startX = event.clientX;
+            startY = event.clientY;
+            startPan = panX;
+            didPan = false;
+            try {
+                container.setPointerCapture?.(pointerId);
+            } catch (error) {
+                // Non-fatal: dragging still works while the pointer remains in bounds.
+            }
+        });
+
+        container.addEventListener('pointermove', event => {
+            if (pointerId === null || event.pointerId !== pointerId) return;
+            const deltaX = event.clientX - startX;
+            const deltaY = event.clientY - startY;
+            if (!didPan && Math.abs(deltaX) > dragThreshold && Math.abs(deltaX) >= Math.abs(deltaY)) {
+                didPan = true;
+                container.classList.add('is-panning');
+            }
+            if (!didPan) return;
+            event.preventDefault();
+            applyPan(startPan + deltaX);
+        });
+
+        container.addEventListener('pointerup', finishPan);
+        container.addEventListener('pointercancel', finishPan);
+        container.addEventListener('lostpointercapture', finishPan);
+        window.addEventListener('resize', refreshMetrics, { passive: true });
+        requestAnimationFrame(refreshMetrics);
+    });
+}
+
 function cleanupWorldTourVideoPlayers(root = document) {
     root.querySelectorAll?.('.world-tour-direct-video').forEach(video => {
         if (video.hls) {
@@ -7796,6 +7891,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             requestAnimationFrame(() => initWorldTourMap(selected, visibleCams));
         } else {
             requestAnimationFrame(() => {
+                enableWorldTourVideoPan(list);
                 initWorldTourVideoPlayback();
                 initWorldTourSnapshotRefresh();
             });
