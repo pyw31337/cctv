@@ -1248,6 +1248,48 @@ def extract_youtube_id(text):
     return None
 
 
+BLOCKED_EMBED_URL_RE = re.compile(
+    r'(googletagmanager\.com|google-analytics\.com|doubleclick\.net|googlesyndication\.com|'
+    r'google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins|stay22\.com|adservice|'
+    r'adsystem|analytics|tagmanager)',
+    re.I,
+)
+
+
+def is_youtube_live_stream_channel_embed(url):
+    parsed = urlparse(str(url or ''))
+    host = parsed.netloc.lower()
+    if not (host.endswith('youtube.com') or host.endswith('youtube-nocookie.com')):
+        return False
+    return parsed.path.strip('/').lower() == 'embed/live_stream'
+
+
+def is_valid_embed_url(url):
+    value = html.unescape(str(url or '')).strip()
+    if not value.startswith(('http://', 'https://')):
+        return False
+    if BLOCKED_EMBED_URL_RE.search(value):
+        return False
+    # Channel-level YouTube live embeds are not stable enough to promise in-app
+    # playback: they often resolve to an ended/disabled live recording while the
+    # provider page still works. Keep those source-site-only unless we discover
+    # a concrete 11-character videoId.
+    if is_youtube_live_stream_channel_embed(value):
+        return False
+    return True
+
+
+def extract_iframe_embeds(text):
+    embeds = []
+    for raw in re.findall(r'<iframe[^>]+src=["\']([^"\']+)["\']', text or '', re.I):
+        embed_url = html.unescape(raw).strip()
+        if embed_url.startswith('//'):
+            embed_url = 'https:' + embed_url
+        if embed_url.startswith(('http://', 'https://')):
+            embeds.append(embed_url)
+    return embeds
+
+
 def is_youtube_url(url):
     host = urlparse(str(url or '')).netloc.lower()
     return host.endswith('youtube.com') or host.endswith('youtu.be') or host.endswith('youtube-nocookie.com')
@@ -1326,6 +1368,18 @@ def refresh_source_video_id(item):
     except Exception as error:
         item['sourceRefreshError'] = f'{type(error).__name__}: {error}'
         return item
+    source_type = str(item.get('sourceType') or '').lower()
+    hls_url = extract_preferred_hls_url(page, source_type)
+    if hls_url:
+        if item.get('playUrl') != hls_url:
+            item['previousPlayUrl'] = item.get('playUrl')
+        item['playUrl'] = hls_url
+        item['sourceRefreshedAt'] = utc_now().isoformat()
+        item['playbackStatus'] = 'verified'
+        item['directPlaybackStatus'] = 'direct_hls'
+        item['sourceOnly'] = False
+        item.pop('sourceOnlyReason', None)
+        return item
     fresh_id = extract_youtube_id(page)
     if fresh_id and fresh_id != item.get('videoId'):
         if item.get('videoId'):
@@ -1336,11 +1390,17 @@ def refresh_source_video_id(item):
         item['sourceOnly'] = False
     elif not item.get('videoId'):
         embed_url = extract_iframe_embed(page)
-        if embed_url and not re.search(r'(google\.com/maps|openstreetmap|leaflet|facebook\.com/plugins)', embed_url, re.I):
+        if embed_url and is_valid_embed_url(embed_url):
             item['embedUrl'] = embed_url
             item['playbackStatus'] = 'verified'
             item['sourceOnly'] = False
             item['sourceRefreshedAt'] = utc_now().isoformat()
+        elif source_type == 'livebeaches' and is_youtube_live_stream_channel_embed(item.get('embedUrl')):
+            item.pop('embedUrl', None)
+            item['playbackStatus'] = 'source-only'
+            item['directPlaybackStatus'] = 'source_site_only'
+            item['sourceOnly'] = True
+            item['sourceOnlyReason'] = 'youtube_channel_live_embed_unstable'
     return item
 
 
@@ -2592,10 +2652,25 @@ def collect_hdontap(limit=WORLD_TOUR_HDONTAP_LIMIT):
         )
         if not item:
             continue
-        if video.get('embedUrl'):
-            item['embedUrl'] = html.unescape(video['embedUrl'])
+        hls_url = extract_preferred_hls_url(text, 'hdontap')
+        if hls_url:
+            item['playUrl'] = hls_url
+            item['status'] = 'is_live'
+            item['playbackStatus'] = 'verified'
+            item['directPlaybackStatus'] = 'direct_hls'
+            item['sourceOnly'] = False
+            item.pop('sourceOnlyReason', None)
+        video_id = extract_youtube_id(text)
+        if video_id:
+            item['videoId'] = video_id
             item['status'] = 'is_live'
             item['sourceOnly'] = False
+        if video.get('embedUrl'):
+            embed_url = html.unescape(video['embedUrl'])
+            if is_valid_embed_url(embed_url):
+                item['embedUrl'] = embed_url
+                item['status'] = 'is_live'
+                item['sourceOnly'] = False
         country_counts[item['country']] = country_counts.get(item['country'], 0) + 1
         items.append(item)
         if len(items) >= limit:
@@ -4528,15 +4603,32 @@ def collect_youtube_search(limit=YOUTUBE_SEARCH_LIMIT):
 
 
 def extract_iframe_embed(text):
-    match = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', text or '', re.I)
-    if not match:
-        return None
-    embed_url = html.unescape(match.group(1)).strip()
-    if embed_url.startswith('//'):
-        embed_url = 'https:' + embed_url
-    if embed_url.startswith(('http://', 'https://')):
-        return embed_url
+    for embed_url in extract_iframe_embeds(text):
+        if is_valid_embed_url(embed_url):
+            return embed_url
     return None
+
+
+def extract_hls_urls(text):
+    urls = []
+    for raw in re.findall(r'https?://[^"\'<>\s]+?\.m3u8(?:\?[^"\'<>\s]*)?', text or '', re.I):
+        value = html.unescape(raw).replace('\\u0026', '&').replace('\\/', '/').strip()
+        value = value.rstrip('.,);')
+        if value not in urls:
+            urls.append(value)
+    return urls
+
+
+def extract_preferred_hls_url(text, source_type=''):
+    urls = extract_hls_urls(text)
+    if not urls:
+        return None
+    source_type = str(source_type or '').lower()
+    if source_type == 'hdontap':
+        for url in urls:
+            if 'live.hdontap.com/' in url:
+                return url
+    return urls[0]
 
 
 def enrich_source_only_embeds(items, limit=WORLD_TOUR_SOURCE_ENRICH_LIMIT):
@@ -4641,6 +4733,12 @@ def validate_youtube_item(item):
 
     # Network/rate-limit/check-parser failures should not permanently remove a
     # camera, but they must not be treated as green/verified either.
+    if item.get('embedUrl') and is_valid_embed_url(item.get('embedUrl')) and str(item.get('sourceType') or '').lower() in {'hdontap', 'livebeaches'}:
+        item['playbackStatus'] = 'verified'
+        item['directPlaybackStatus'] = item.get('directPlaybackStatus') or 'trusted_provider_embed'
+        item['sourceOnly'] = False
+        item['stabilityScore'] = max(70, int(float(item.get('priority') or 60)))
+        return item
     item['playbackStatus'] = 'unchecked'
     item['stabilityScore'] = min(65, int(float(item.get('priority') or 60)))
     return item

@@ -22,15 +22,57 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import build_world_tour_cams as world  # noqa: E402
 
 
+def normalize_world_tour_playback_item(item: dict) -> dict:
+    normalized = dict(item or {})
+    if normalized.get('embedUrl') and not world.is_valid_embed_url(normalized.get('embedUrl')):
+        blocked_embed = normalized.pop('embedUrl', None)
+        normalized['blockedEmbedUrl'] = blocked_embed
+        normalized['directPlaybackStatus'] = 'source_site_only'
+        normalized['sourceOnly'] = True
+        normalized['sourceOnlyReason'] = 'invalid_or_unstable_embed_url'
+        normalized['playbackStatus'] = 'source-only'
+    return normalized
+
+
+def probe_direct_stream(url: str) -> tuple[bool, str]:
+    value = str(url or '').strip()
+    if not value:
+        return False, 'missing_url'
+    if value.lower().split('?', 1)[0].endswith('.m3u8'):
+        try:
+            text = world.fetch_text(value, timeout=12, cache=False)
+        except Exception as error:
+            return False, f'{type(error).__name__}: {error}'
+        if '#EXTM3U' in text:
+            return True, 'hls_manifest_ok'
+        return False, 'not_hls_manifest'
+    return True, 'direct_url_present'
+
+
 def audit_item(item: dict) -> dict | None:
-    item = world.normalize_world_tour_playback_item(item)
+    item = normalize_world_tour_playback_item(item)
     if world.is_snapshot_only_item(item):
         return None
+
+    if item.get('sourceUrl'):
+        item = world.refresh_source_video_id(item)
+
     if item.get('videoId'):
         item = world.validate_youtube_item(item)
     else:
         item['lastCheckedAt'] = dt.date.today().isoformat()
-        if world.is_valid_embed_url(item.get('embedUrl')) or world.is_valid_embed_url(item.get('playUrl')):
+        if item.get('playUrl'):
+            ok, reason = probe_direct_stream(item.get('playUrl'))
+            item['directProbeStatus'] = reason
+            item['playbackStatus'] = 'verified' if ok else 'source-only'
+            item['sourceOnly'] = not ok
+            if ok:
+                item['directPlaybackStatus'] = 'direct_hls' if '.m3u8' in str(item.get('playUrl')).lower() else 'direct_video'
+                item.pop('sourceOnlyReason', None)
+            else:
+                item['directPlaybackStatus'] = 'source_site_only'
+                item['sourceOnlyReason'] = 'direct_stream_probe_failed'
+        elif world.is_valid_embed_url(item.get('embedUrl')):
             item['playbackStatus'] = 'verified'
             item['sourceOnly'] = False
         elif item.get('sourceUrl'):
@@ -47,7 +89,6 @@ def run(path: Path, max_workers: int = 10) -> dict:
     items = payload.get('items', [])
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         audited = [item for item in executor.map(audit_item, items) if item]
-    audited = [item for item in audited if item.get('playbackStatus') != 'unavailable']
     audited.sort(
         key=lambda item: (
             0 if world.is_in_app_video_item(item) and not item.get('sourceOnly') else 1,
@@ -60,10 +101,37 @@ def run(path: Path, max_workers: int = 10) -> dict:
     meta['itemCount'] = len(audited)
     meta['lastPlayabilityAuditAt'] = dt.datetime.now(dt.timezone.utc).isoformat()
     meta['playabilityAuditPolicy'] = (
-        'Snapshot-only feeds and unavailable YouTube lives are excluded; source-only feeds are retained but not treated as in-app playable.'
+        'Snapshot-only feeds are excluded; unavailable/embed-disabled/source-only feeds are retained but not treated as in-app playable.'
     )
     meta['playbackStatusCounts'] = dict(Counter(item.get('playbackStatus') or 'unknown' for item in audited))
     meta['sourceOnlyCount'] = sum(1 for item in audited if item.get('sourceOnly'))
+    meta['sourceTypeHealth'] = {
+        source: {
+            'total': total,
+            'verified': verified,
+            'sourceOnly': source_only,
+            'unchecked': unchecked,
+            'unavailable': unavailable,
+            'embedDisabled': embed_disabled,
+        }
+        for source, total, verified, source_only, unchecked, unavailable, embed_disabled in (
+            (
+                source,
+                len(source_items),
+                sum(1 for item in source_items if item.get('playbackStatus') == 'verified' and not item.get('sourceOnly')),
+                sum(1 for item in source_items if item.get('sourceOnly')),
+                sum(1 for item in source_items if item.get('playbackStatus') == 'unchecked'),
+                sum(1 for item in source_items if item.get('playbackStatus') == 'unavailable'),
+                sum(1 for item in source_items if item.get('playbackStatus') == 'embed_disabled'),
+            )
+            for source, source_items in sorted(
+                {
+                    key: [item for item in audited if (item.get('sourceType') or 'unknown') == key]
+                    for key in sorted({item.get('sourceType') or 'unknown' for item in audited})
+                }.items()
+            )
+        )
+    }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return {
         'items': len(audited),

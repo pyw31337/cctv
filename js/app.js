@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260612-86eae384';
+const APP_BUILD_VERSION = '20260612-worldhealth';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6318,7 +6318,7 @@ function canPlayWorldTourInApp(cam) {
     if (cam?.sourceOnly || directStatus === 'source_site_only') return false;
     if (['unavailable', 'embed_disabled', 'source-only'].includes(playbackStatus)) return false;
     if (cam?.embedUrl && isWorldTourEmbedBlocked(cam, cam.embedUrl)) return false;
-    if (cam?.videoId && playbackStatus !== 'verified') return false;
+    if (cam?.videoId && !cam?.embedUrl && !cam?.playUrl && playbackStatus !== 'verified') return false;
     return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
 }
 
