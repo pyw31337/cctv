@@ -22,6 +22,41 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import build_world_tour_cams as world  # noqa: E402
 
 
+def parse_date(value: object) -> dt.datetime:
+    text = str(value or '').strip()
+    if not text:
+        return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    try:
+        if len(text) == 10:
+            return dt.datetime.fromisoformat(text).replace(tzinfo=dt.timezone.utc)
+        parsed = dt.datetime.fromisoformat(text.replace('Z', '+00:00'))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+
+
+def audit_priority(item: dict) -> tuple:
+    """Oldest and highest-risk items are audited first when using --max-items."""
+    status = str(item.get('playbackStatus') or 'unchecked').lower()
+    source_only = bool(item.get('sourceOnly'))
+    source_type = str(item.get('sourceType') or '')
+    risky_source = source_type in {'livebeaches', 'hdontap', 'worldcam', 'youtube-search', 'webcamera24'}
+    status_rank = {
+        'unchecked': 0,
+        'unavailable': 1,
+        'embed_disabled': 1,
+        'source-only': 2,
+        'verified': 3,
+    }.get(status, 1)
+    return (
+        parse_date(item.get('lastCheckedAt')),
+        status_rank,
+        0 if risky_source else 1,
+        0 if source_only else 1,
+        str(item.get('id') or item.get('title') or ''),
+    )
+
+
 def normalize_world_tour_playback_item(item: dict) -> dict:
     normalized = dict(item or {})
     if normalized.get('embedUrl') and not world.is_valid_embed_url(normalized.get('embedUrl')):
@@ -84,11 +119,23 @@ def audit_item(item: dict) -> dict | None:
     return world.enrich_item_quality(item)
 
 
-def run(path: Path, max_workers: int = 10) -> dict:
+def select_audit_items(items: list[dict], max_items: int | None = None) -> tuple[list[dict], set[str]]:
+    if not max_items or max_items <= 0 or max_items >= len(items):
+        selected = list(items)
+    else:
+        selected = sorted(items, key=audit_priority)[:max_items]
+    selected_ids = {str(item.get('id') or '') for item in selected}
+    return selected, selected_ids
+
+
+def run(path: Path, max_workers: int = 10, max_items: int | None = None) -> dict:
     payload = json.loads(path.read_text(encoding='utf-8'))
     items = payload.get('items', [])
+    selected_items, selected_ids = select_audit_items(items, max_items)
+    preserved_items = [item for item in items if str(item.get('id') or '') not in selected_ids]
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        audited = [item for item in executor.map(audit_item, items) if item]
+        audited_selected = [item for item in executor.map(audit_item, selected_items) if item]
+    audited = audited_selected + preserved_items
     audited.sort(
         key=lambda item: (
             0 if world.is_in_app_video_item(item) and not item.get('sourceOnly') else 1,
@@ -101,8 +148,14 @@ def run(path: Path, max_workers: int = 10) -> dict:
     meta['itemCount'] = len(audited)
     meta['lastPlayabilityAuditAt'] = dt.datetime.now(dt.timezone.utc).isoformat()
     meta['playabilityAuditPolicy'] = (
-        'Snapshot-only feeds are excluded; unavailable/embed-disabled/source-only feeds are retained but not treated as in-app playable.'
+        'Snapshot-only feeds are excluded; unavailable/embed-disabled/source-only feeds are retained but not treated as in-app playable. '
+        'When max-items is used, stale and high-risk source items are rotated first so every retained item eventually receives a fresh check.'
     )
+    meta['playabilityAuditMode'] = 'full' if len(audited_selected) >= len(items) else 'rotating'
+    meta['playabilityAuditedThisRun'] = len(audited_selected)
+    meta['playabilityRetainedWithoutAuditThisRun'] = len(preserved_items)
+    meta['oldestCheckedAt'] = min((str(item.get('lastCheckedAt') or '') for item in audited if item.get('lastCheckedAt')), default=None)
+    meta['uncheckedCount'] = sum(1 for item in audited if item.get('playbackStatus') == 'unchecked')
     meta['playbackStatusCounts'] = dict(Counter(item.get('playbackStatus') or 'unknown' for item in audited))
     meta['sourceOnlyCount'] = sum(1 for item in audited if item.get('sourceOnly'))
     meta['sourceTypeHealth'] = {
@@ -113,8 +166,12 @@ def run(path: Path, max_workers: int = 10) -> dict:
             'unchecked': unchecked,
             'unavailable': unavailable,
             'embedDisabled': embed_disabled,
+            'directHls': direct_hls,
+            'trustedEmbed': trusted_embed,
+            'externalOnly': source_only + unavailable + embed_disabled,
+            'verifiedRate': round(verified / total, 4) if total else 0,
         }
-        for source, total, verified, source_only, unchecked, unavailable, embed_disabled in (
+        for source, total, verified, source_only, unchecked, unavailable, embed_disabled, direct_hls, trusted_embed in (
             (
                 source,
                 len(source_items),
@@ -123,6 +180,8 @@ def run(path: Path, max_workers: int = 10) -> dict:
                 sum(1 for item in source_items if item.get('playbackStatus') == 'unchecked'),
                 sum(1 for item in source_items if item.get('playbackStatus') == 'unavailable'),
                 sum(1 for item in source_items if item.get('playbackStatus') == 'embed_disabled'),
+                sum(1 for item in source_items if item.get('playUrl') or item.get('directPlaybackStatus') in {'direct_hls', 'proxied_hls'}),
+                sum(1 for item in source_items if item.get('embedUrl') or item.get('directPlaybackStatus') in {'trusted_provider_embed', 'in_app_playable'}),
             )
             for source, source_items in sorted(
                 {
@@ -135,6 +194,7 @@ def run(path: Path, max_workers: int = 10) -> dict:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return {
         'items': len(audited),
+        'auditedThisRun': len(audited_selected),
         'status': meta['playbackStatusCounts'],
         'sourceOnly': meta['sourceOnlyCount'],
     }
@@ -144,8 +204,9 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, default=DEFAULT_PATH)
     parser.add_argument('--workers', type=int, default=10)
+    parser.add_argument('--max-items', type=int, default=0, help='Audit only the stalest N retained items. 0 means full audit.')
     args = parser.parse_args(argv)
-    result = run(args.input, args.workers)
+    result = run(args.input, args.workers, args.max_items)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

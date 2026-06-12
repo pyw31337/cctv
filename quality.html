@@ -145,6 +145,20 @@
     </section>
 
     <section class="card">
+        <h2>글로벌 영상 소스별 품질</h2>
+        <div class="mini">글로벌 영상은 목록을 유지하되, 직통 HLS/신뢰 임베드/원본 전용을 분리해 기본 재생 후보의 신뢰도를 높입니다.</div>
+        <div class="grid inventory" style="margin-top:12px">
+            <div class="card"><div class="metric" id="world-total">-</div><div class="label">글로벌 보유</div></div>
+            <div class="card"><div class="metric" id="world-verified">-</div><div class="label">인앱 재생 검증</div></div>
+            <div class="card"><div class="metric" id="world-direct">-</div><div class="label">직통 HLS/프록시</div></div>
+            <div class="card"><div class="metric" id="world-source-only">-</div><div class="label">원본 사이트 필요</div></div>
+            <div class="card"><div class="metric" id="world-unchecked">-</div><div class="label">미점검</div></div>
+            <div class="card"><div class="metric" id="world-audit-age">-</div><div class="label">마지막 글로벌 점검</div></div>
+        </div>
+        <div class="wide-table"><table><thead><tr><th>출처</th><th>보유</th><th>검증</th><th>검증률</th><th>직통 HLS</th><th>신뢰 임베드</th><th>원본/차단</th><th>미점검</th></tr></thead><tbody id="world-source-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
         <h2>전체 소스 현황</h2>
         <div class="mini">보유 목록은 삭제하지 않고 유지하며, 품질 샘플과 카나리 결과는 노출 우선순위 판단에만 사용합니다.</div>
         <div class="wide-table"><table><thead><tr><th>소스</th><th>보유</th><th>점검 샘플</th><th>성공률</th><th>평균 로딩</th><th>프록시형</th><th>직접형</th><th>백업 보유</th></tr></thead><tbody id="inventory-source-rows"></tbody></table></div>
@@ -178,6 +192,7 @@ const STATUS_URL = 'data/status.json';
 const Z3_CACHE_URL = 'data/z3_cache.json';
 const INVENTORY_URL = 'cctv_data.json';
 const WORKFLOW_STATUS_URL = 'data/workflow_status.json';
+const WORLD_TOUR_URL = 'data/world_tour_cams.json';
 const $ = (id) => document.getElementById(id);
 function esc(value) { return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[ch])); }
 function pct(value) { return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'; }
@@ -300,7 +315,7 @@ async function loadSummary() {
             break;
         } catch {}
     }
-    const [canary, ops, history, cache, audit, regionalStatus, z3Cache, workflowStatus] = await Promise.all([
+    const [canary, ops, history, cache, audit, regionalStatus, z3Cache, workflowStatus, worldTour] = await Promise.all([
         loadFirstJson(CANARY_URLS, null),
         loadFirstJson(OPS_URLS, null),
         loadFirstJson(CANARY_HISTORY_URLS, []),
@@ -308,10 +323,11 @@ async function loadSummary() {
         loadLocalJson(UTIC_AUDIT_URL, null),
         loadLocalJson(STATUS_URL, null),
         loadLocalJson(Z3_CACHE_URL, null),
-        loadLocalJson(WORKFLOW_STATUS_URL, null)
+        loadLocalJson(WORKFLOW_STATUS_URL, null),
+        loadLocalJson(WORLD_TOUR_URL, null)
     ]);
     const inventory = await loadLocalJson(INVENTORY_URL, []);
-    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, history, cache, audit, regionalStatus, z3Cache, inventory, workflowStatus });
+    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, history, cache, audit, regionalStatus, z3Cache, inventory, workflowStatus, worldTour });
 }
 async function loadLocalJson(url, fallback) {
     try {
@@ -353,6 +369,7 @@ function render(summary, opsData = {}) {
     renderFreshness(summary, opsData);
     renderWorkflowEvents(opsData.workflowStatus);
     renderInventory(opsData.inventory || [], summary);
+    renderWorldTourQuality(opsData.worldTour);
 
     $('camera-rows').innerHTML = problemCameras
         .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
@@ -369,6 +386,45 @@ function render(summary, opsData = {}) {
         .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
         .map(item => qualityRow(item, item.id))
         .join('') || '<tr><td colspan="7">지역 집계가 아직 없습니다.</td></tr>';
+}
+
+function renderWorldTourQuality(worldTour) {
+    const items = Array.isArray(worldTour?.items) ? worldTour.items : [];
+    const meta = worldTour?.collectionMeta || {};
+    const statusCounts = meta.playbackStatusCounts || {};
+    const sourceHealth = meta.sourceTypeHealth || {};
+    const directCount = items.filter(item => item.playUrl || ['direct_hls', 'proxied_hls'].includes(item.directPlaybackStatus)).length;
+    const verifiedCount = Number(statusCounts.verified ?? items.filter(item => item.playbackStatus === 'verified' && !item.sourceOnly).length);
+    const sourceOnlyCount = Number(meta.sourceOnlyCount ?? items.filter(item => item.sourceOnly).length);
+    const uncheckedCount = Number(meta.uncheckedCount ?? statusCounts.unchecked ?? items.filter(item => item.playbackStatus === 'unchecked').length);
+    const auditMinutes = ageMinutesFrom(meta.lastPlayabilityAuditAt || worldTour?.updated_at || worldTour?.generatedAt);
+    $('world-total').textContent = items.length.toLocaleString('ko-KR');
+    $('world-verified').textContent = verifiedCount.toLocaleString('ko-KR');
+    $('world-direct').textContent = directCount.toLocaleString('ko-KR');
+    $('world-source-only').textContent = sourceOnlyCount.toLocaleString('ko-KR');
+    $('world-unchecked').textContent = uncheckedCount.toLocaleString('ko-KR');
+    $('world-audit-age').textContent = formatAgeMinutes(auditMinutes);
+    const rows = Object.entries(sourceHealth)
+        .sort((a, b) => Number(b[1].total || 0) - Number(a[1].total || 0))
+        .map(([source, item]) => {
+            const total = Number(item.total || 0);
+            const verified = Number(item.verified || 0);
+            const rate = total ? verified / total : 0;
+            const toneClass = total && rate >= .7 ? 'ok' : total && rate >= .25 ? 'warn' : 'bad';
+            const external = Number(item.externalOnly ?? 0);
+            return `<tr>
+                <td>${esc(source)}</td>
+                <td>${total.toLocaleString('ko-KR')}</td>
+                <td>${verified.toLocaleString('ko-KR')}</td>
+                <td><span class="pill ${toneClass}">${pct(rate)}</span></td>
+                <td class="ok">${Number(item.directHls || 0).toLocaleString('ko-KR')}</td>
+                <td class="info">${Number(item.trustedEmbed || 0).toLocaleString('ko-KR')}</td>
+                <td class="${external ? 'warn' : 'muted'}">${external.toLocaleString('ko-KR')}</td>
+                <td class="${Number(item.unchecked || 0) ? 'warn' : 'muted'}">${Number(item.unchecked || 0).toLocaleString('ko-KR')}</td>
+            </tr>`;
+        })
+        .join('');
+    $('world-source-rows').innerHTML = rows || '<tr><td colspan="8">글로벌 영상 품질 메타가 아직 없습니다.</td></tr>';
 }
 
 function renderFreshness(summary, { canary, ops, cache, regionalStatus, z3Cache, workflowStatus }) {

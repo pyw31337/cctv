@@ -2157,8 +2157,25 @@ def collect_worldcam(limit=WORLD_TOUR_WORLDCAM_LIMIT):
             channel='WorldCam',
         )
         if item:
-            item['directPlaybackStatus'] = 'source_site_only'
-            item['sourceOnlyReason'] = 'worldcam_detail_page_does_not_expose_public_iframe_hls_or_mp4'
+            hls_url = extract_preferred_hls_url(text, 'worldcam')
+            embed_url = extract_iframe_embed(text)
+            if hls_url:
+                item['playUrl'] = hls_url
+                item['status'] = 'is_live'
+                item['playbackStatus'] = 'verified'
+                item['directPlaybackStatus'] = 'direct_hls'
+                item['sourceOnly'] = False
+                item.pop('sourceOnlyReason', None)
+            elif embed_url and is_valid_embed_url(embed_url):
+                item['embedUrl'] = embed_url
+                item['status'] = 'is_live'
+                item['playbackStatus'] = 'verified'
+                item['directPlaybackStatus'] = 'trusted_provider_embed'
+                item['sourceOnly'] = False
+                item.pop('sourceOnlyReason', None)
+            else:
+                item['directPlaybackStatus'] = 'source_site_only'
+                item['sourceOnlyReason'] = 'worldcam_detail_page_does_not_expose_public_iframe_hls_or_mp4'
         return item
 
     items = []
@@ -2533,6 +2550,30 @@ def collect_livebeaches(limit=WORLD_TOUR_LIVEBEACHES_LIMIT):
         if not item:
             continue
         if item['id'] in seeded_ids:
+            continue
+        hls_url = extract_preferred_hls_url(text, 'livebeaches')
+        if hls_url:
+            item['playUrl'] = hls_url
+            item['status'] = 'is_live'
+            item['playbackStatus'] = 'verified'
+            item['directPlaybackStatus'] = 'direct_hls'
+            item['sourceOnly'] = False
+            item.pop('sourceOnlyReason', None)
+            items.append(item)
+            if len(items) >= limit:
+                break
+            continue
+        embed_url = extract_iframe_embed(text)
+        if embed_url and is_valid_embed_url(embed_url):
+            item['embedUrl'] = embed_url
+            item['status'] = 'is_live'
+            item['playbackStatus'] = 'verified'
+            item['directPlaybackStatus'] = 'trusted_provider_embed'
+            item['sourceOnly'] = False
+            item.pop('sourceOnlyReason', None)
+            items.append(item)
+            if len(items) >= limit:
+                break
             continue
         video_id = extract_youtube_id(text)
         if video_id:
