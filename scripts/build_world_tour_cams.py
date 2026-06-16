@@ -160,6 +160,16 @@ YOUTUBE_UNPLAYABLE_REASON = re.compile(
     r'deleted video|video unavailable|비공개|삭제|사용할 수 없는)',
     re.I
 )
+
+# Some official source pages expose stable public YouTube live embeds, but the
+# daily source fetch can still fail transiently because provider pages block or
+# throttle CI traffic. Keep a tiny allow-list for well-known official sources so
+# a temporary source-page fetch failure does not leave a playable YouTube feed as
+# "source site only" forever. Entries are still validated through YouTube's
+# current playability response before being marked verified.
+SOURCE_VIDEO_ID_FALLBACKS = {
+    'spacecam-iss-earth-views': 'FuuC4dpSQ1M',
+}
 YOUTUBE_SEARCH_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_LIMIT', '420'))
 YOUTUBE_SEARCH_PER_QUERY_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_PER_QUERY_LIMIT', '48'))
 WORLD_TOUR_EARTHCAM_LIMIT = int(os.getenv('WORLD_TOUR_EARTHCAM_LIMIT', '90'))
@@ -1363,10 +1373,19 @@ def refresh_source_video_id(item):
     source_url = item.get('sourceUrl') or ''
     if not source_url or is_youtube_url(source_url):
         return item
+    item_id = str(item.get('id') or '')
+    fallback_video_id = SOURCE_VIDEO_ID_FALLBACKS.get(item_id)
     try:
         page = fetch_text(source_url, timeout=12, cache=False)
     except Exception as error:
         item['sourceRefreshError'] = f'{type(error).__name__}: {error}'
+        if fallback_video_id and not item.get('videoId'):
+            item['videoId'] = fallback_video_id
+            item['playbackStatus'] = 'unchecked'
+            item['sourceOnly'] = False
+            item['directPlaybackStatus'] = 'official_youtube_fallback'
+            item['sourceRefreshedAt'] = utc_now().isoformat()
+            item.pop('sourceOnlyReason', None)
         return item
     source_type = str(item.get('sourceType') or '').lower()
     hls_url = extract_preferred_hls_url(page, source_type)
@@ -1388,7 +1407,17 @@ def refresh_source_video_id(item):
         item['sourceRefreshedAt'] = utc_now().isoformat()
         item['playbackStatus'] = 'unchecked'
         item['sourceOnly'] = False
+        item['directPlaybackStatus'] = 'promoted_youtube'
+        item.pop('sourceOnlyReason', None)
     elif not item.get('videoId'):
+        if fallback_video_id:
+            item['videoId'] = fallback_video_id
+            item['sourceRefreshedAt'] = utc_now().isoformat()
+            item['playbackStatus'] = 'unchecked'
+            item['sourceOnly'] = False
+            item['directPlaybackStatus'] = 'official_youtube_fallback'
+            item.pop('sourceOnlyReason', None)
+            return item
         embed_url = extract_iframe_embed(page)
         if embed_url and is_valid_embed_url(embed_url):
             item['embedUrl'] = embed_url
@@ -4733,19 +4762,6 @@ def validate_youtube_item(item):
     item['youtubePlayabilityReason'] = playability.get('reason') or ''
     item['lastCheckedAt'] = dt.date.today().isoformat()
 
-    # Search-result based YouTube candidates are useful discovery leads, but
-    # they are not reliable enough to promise in-app playback. Some videos
-    # return OK on the watch page while the iframe shows "owner disabled
-    # playback on other websites". Keep them in the catalog as source-site
-    # entries instead of letting them surface as green in-app cams.
-    if str(item.get('sourceType') or '').lower() == 'youtube-search':
-        item['playbackStatus'] = 'source-only'
-        item['directPlaybackStatus'] = 'source_site_only'
-        item['sourceOnly'] = True
-        item['sourceOnlyReason'] = 'youtube_search_embed_policy_untrusted'
-        item['stabilityScore'] = min(55, int(float(item.get('priority') or 55)))
-        return item
-
     status = str(playability.get('status') or '').upper()
     reason = str(playability.get('reason') or '')
     title = str(playability.get('title') or item.get('title') or '')
@@ -4759,6 +4775,9 @@ def validate_youtube_item(item):
 
     if status == 'OK' and not YOUTUBE_UNPLAYABLE_REASON.search(reason) and not UNSTABLE_TITLE.search(title):
         item['playbackStatus'] = 'verified'
+        item['directPlaybackStatus'] = item.get('directPlaybackStatus') or 'youtube_embed_verified'
+        item['sourceOnly'] = False
+        item.pop('sourceOnlyReason', None)
         item['stabilityScore'] = max(75, int(float(item.get('priority') or 60)))
         if playability.get('isLive'):
             item['status'] = 'is_live'

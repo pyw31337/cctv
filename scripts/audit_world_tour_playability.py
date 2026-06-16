@@ -40,7 +40,7 @@ def audit_priority(item: dict) -> tuple:
     status = str(item.get('playbackStatus') or 'unchecked').lower()
     source_only = bool(item.get('sourceOnly'))
     source_type = str(item.get('sourceType') or '')
-    risky_source = source_type in {'livebeaches', 'hdontap', 'worldcam', 'youtube-search', 'webcamera24'}
+    risky_source = source_type in {'livebeaches', 'hdontap', 'worldcam', 'youtube-search', 'webcamera24', 'spacecam'}
     status_rank = {
         'unchecked': 0,
         'unavailable': 1,

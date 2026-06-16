@@ -1,0 +1,80 @@
+name: World Tour Playability Audit
+
+on:
+  schedule:
+    # Rotating global playback audit every 6 hours, staggered away from CCTV/Z3
+    # and culture-flow jobs. The full world-tour refresh still runs daily.
+    - cron: '17 1,7,13,19 * * *'
+  workflow_dispatch:
+    inputs:
+      max_items:
+        description: 'Number of global cameras to audit this run. 0 means full audit.'
+        required: false
+        default: '520'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cctv-repo-writes
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yt-dlp
+
+      - name: Refresh rotating global playability
+        env:
+          MAX_ITEMS: ${{ inputs.max_items || '520' }}
+          WORLD_TOUR_HTTP_CACHE_TTL_HOURS: '3'
+          WORLD_TOUR_STALE_CACHE_HOURS: '24'
+        run: |
+          set -euo pipefail
+          python scripts/audit_world_tour_playability.py --workers 10 --max-items "$MAX_ITEMS"
+
+      - name: Validate data
+        run: python -m json.tool data/world_tour_cams.json >/tmp/world_tour_cams.pretty.json
+
+      - name: Write audit summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          path = Path('data/world_tour_cams.json')
+          print('## World Tour Playability Audit')
+          if not path.exists():
+              print('No data/world_tour_cams.json found.')
+              raise SystemExit(0)
+          data = json.loads(path.read_text())
+          meta = data.get('collectionMeta', {})
+          counts = meta.get('playbackStatusCounts', {})
+          print(f"- Items: `{meta.get('itemCount', '-')}`")
+          print(f"- Audited this run: `{meta.get('playabilityAuditedThisRun', '-')}`")
+          print(f"- Source-only count: `{meta.get('sourceOnlyCount', '-')}`")
+          print(f"- Verified: `{counts.get('verified', 0)}` / Source-only: `{counts.get('source-only', 0)}` / Unavailable: `{counts.get('unavailable', 0)}` / Embed disabled: `{counts.get('embed_disabled', 0)}`")
+          print('')
+          print('Policy: keep catalog entries, but re-check stale/high-risk source-only and YouTube entries first; public YouTube/HLS embeds are promoted when currently playable.')
+          PY
+
+      - name: Commit and push changes
+        run: |
+          if git diff --quiet -- data/world_tour_cams.json; then
+            echo "No world tour playability changes."
+          else
+            scripts/commit_and_push_changes.sh "AUTO: Refresh world tour playability [skip ci]" data/world_tour_cams.json
+          fi
