@@ -73,7 +73,7 @@ const DAEJEON_MP4_STALL_RECOVERY_MS = 14000;
 const STABLE_HLS_STARTUP_TIMEOUT_MS = 22000;
 const STABLE_HLS_STALL_TIMEOUT_MS = 14000;
 const MANUAL_RETRY_PRIMARY_ATTEMPTS = 2;
-const MANUAL_RETRY_FALLBACK_RADIUS_KM = 12;
+const MANUAL_RETRY_FALLBACK_RADIUS_KM = 18;
 const STANDBY_FALLBACK_PROBE_TIMEOUT_MS = 4500;
 const STABILITY_MODE_PRIMARY_TARGET = 4;
 const STABILITY_MODE_EXPANDED_RADIUS_KM = 24;
@@ -3900,15 +3900,104 @@ function updateNearestCctvs() {
         ? preferred.concat(isolated)
         : ranked;
 
-    state.nearestCctvs = dedupeSceneCandidates(
-        applyLocalPlacePriority(ordered, lat, lng),
-        NEAREST_RESULT_LIMIT
-    );
+    const canaryAware = applyCoreCanarySuccessPriority(ordered, lat, lng);
+    const localAware = applyLocalPlacePriority(canaryAware, lat, lng);
+
+    state.nearestCctvs = dedupeSceneCandidates(localAware, NEAREST_RESULT_LIMIT);
+}
+
+function getCurrentSearchContextKeyword() {
+    const values = [state.keyword];
+    try {
+        values.push(new URLSearchParams(window.location.search).get('name'));
+    } catch (_) {}
+    const searchInput = $('#search-input');
+    if (searchInput?.value) values.push(searchInput.value);
+
+    return values
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, '')
+        .toLowerCase();
+}
+
+function getActiveCoreCanaryRegion(lat = state.center?.lat, lng = state.center?.lng) {
+    if (!state.canaryRegions || state.canaryStatusStale) return null;
+
+    const keyword = getCurrentSearchContextKeyword();
+    const checks = [
+        { key: 'jindo', terms: ['진도'], lat: 34.456845, lng: 126.242558, radius: 35 },
+        { key: 'jeju', terms: ['제주', '서귀포', '올레'], lat: 33.3617, lng: 126.5292, radius: 55 },
+        { key: 'daejeon', terms: ['대전', '갑천', '엑스포', '한밭'], lat: 36.3504, lng: 127.3845, radius: 35 },
+        { key: 'guri', terms: ['구리', '수택', '제이헤어', '왕숙', '돌다리'], lat: 37.5943, lng: 127.1296, radius: 12 },
+        { key: 'namyangju', terms: ['남양주', '화도', '마석', '크라운모텔', '평내', '호평'], lat: 37.6574, lng: 127.2650, radius: 28 },
+        { key: 'dokdo', terms: ['독도', '울릉'], lat: 37.23936, lng: 131.8686, radius: 120 }
+    ];
+
+    return checks.find(item => {
+        if (!state.canaryRegions[item.key]) return false;
+        if (item.terms.some(term => keyword.includes(term))) return true;
+        if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return false;
+        return getDistance(Number(lat), Number(lng), item.lat, item.lng) <= item.radius;
+    }) || null;
+}
+
+function getCanarySuccessfulCamerasForRegion(regionKey, lat = state.center?.lat, lng = state.center?.lng) {
+    const region = regionKey ? state.canaryRegions?.[regionKey] : null;
+    if (!region) return [];
+
+    const passedIds = Array.isArray(region.passed_ids) ? region.passed_ids : [];
+    return passedIds
+        .map(id => findCctvById(id))
+        .filter(Boolean)
+        .filter(cctv => !isUnsupportedBrowserStream(cctv))
+        .map(cctv => decorateNearestCandidate(cctv, lat, lng))
+        .sort((a, b) => {
+            const aCanary = getCanaryCameraRecord(a);
+            const bCanary = getCanaryCameraRecord(b);
+            const aMs = Number(aCanary?.elapsed_ms || 999999);
+            const bMs = Number(bCanary?.elapsed_ms || 999999);
+            return (a.distance - b.distance) || (aMs - bMs) || String(a.id).localeCompare(String(b.id));
+        });
+}
+
+function applyCoreCanarySuccessPriority(ordered, lat, lng) {
+    const region = getActiveCoreCanaryRegion(lat, lng);
+    if (!region) return ordered;
+
+    const successes = getCanarySuccessfulCamerasForRegion(region.key, lat, lng);
+    if (!successes.length) return ordered;
+
+    // For canary regions, the user's intent is usually "show me something that
+    // definitely plays nearby". We therefore seed the first slots with recent
+    // canary successes, while keeping every catalog item available later.
+    const protectedSlots = state.sortMode === 'stability' ? 4 : 2;
+    const promoted = [];
+    const reserved = new Set();
+    for (const cctv of successes) {
+        if (promoted.length >= protectedSlots) break;
+        if (hasReservedCctvKey(cctv, reserved)) continue;
+        promoted.push(cctv);
+        addCctvReservationKeys(reserved, cctv);
+    }
+
+    if (!promoted.length) return ordered;
+    const promotedIds = new Set(promoted.map(cctv => cctv.id));
+    const promotedSceneKeys = new Set(promoted.map(getCctvSceneKey).filter(Boolean));
+    const rest = (ordered || []).filter(cctv => {
+        if (!cctv || promotedIds.has(cctv.id)) return false;
+        const sceneKey = getCctvSceneKey(cctv);
+        return !(sceneKey && promotedSceneKeys.has(sceneKey));
+    });
+    return promoted.concat(rest);
 }
 
 function normalizeCctvSceneName(name) {
     return String(name || '')
         .replace(/\[[^\]]+\]/g, '')
+        // Numeric suffixes like "(1)" / "(2)" often represent different
+        // directions of the same intersection, so keep them for de-duping.
+        .replace(/\((\d+)\)/g, '방향$1')
         .replace(/\([^)]*\)/g, '')
         .replace(/[@#]/g, '')
         .replace(/\s+/g, '')
@@ -3975,7 +4064,7 @@ function applyLocalPlacePriority(ordered, lat, lng) {
 }
 
 function isCrownMotelSearchContext(lat, lng) {
-    const keyword = String(state.keyword || '').replace(/\s+/g, '').toLowerCase();
+    const keyword = getCurrentSearchContextKeyword();
     const crownKeyword = keyword.includes('크라운모텔') || keyword.includes('화도읍') || keyword.includes('마석');
     const nearCrownMotel = Number.isFinite(lat)
         && Number.isFinite(lng)
@@ -4326,7 +4415,8 @@ async function prepareVerifiedManualRetryFallback(panel, sourceCctv) {
     }
 
     const reservedKeys = getManualRetryReservedKeys(panel);
-    const candidates = buildManualRetryFallbackCandidates(sourceCctv, reservedKeys).slice(0, 10);
+    const probeLimit = state.sortMode === 'stability' ? 20 : 14;
+    const candidates = buildManualRetryFallbackCandidates(sourceCctv, reservedKeys).slice(0, probeLimit);
     const promise = (async () => {
         for (const item of candidates) {
             const ok = await probeStandbyCandidate(item.candidate);
