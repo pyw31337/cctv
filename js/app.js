@@ -491,7 +491,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initial State
     updateNearestCctvs();
     renderServiceStatusBanner();
-    renderVideoGrid();
+    const isInitialWorldTour = !!state.initialWorldTourId || new URLSearchParams(window.location.search).get('mode') === 'world';
+    if (!isInitialWorldTour) {
+        renderVideoGrid();
+    }
     switchMode(state.mode);
     if (!state.initialWorldTourId) {
         syncUrlState();
@@ -519,7 +522,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!loaded) return;
         updateNearestCctvs();
         renderServiceStatusBanner();
-        renderVideoGrid();
+        if (!document.body.classList.contains('world-tour-active')) {
+            renderVideoGrid();
+        }
         renderMapMarkers();
     });
 
@@ -3980,6 +3985,11 @@ function isCrownMotelSearchContext(lat, lng) {
 
 // (Mobile 1+3 layout removed by user request — keep simple 2×2 / 1×4 grid.)
 function renderVideoGrid() {
+    if (isWorldTourModeActiveOrPending()) {
+        cleanupDomesticVideoGrid();
+        return;
+    }
+
     const grid = $('#video-grid');
     const strayStrip = grid.querySelector(':scope > .video-thumb-strip');
     if (strayStrip) {
@@ -5624,6 +5634,28 @@ function cleanupVideo(container) {
     container.innerHTML = '';
 }
 
+function isWorldTourModeActiveOrPending() {
+    const params = new URLSearchParams(window.location.search);
+    return document.body.classList.contains('world-tour-active')
+        || $('#weather-layer')?.classList.contains('world-tour-layer')
+        || !!state.initialWorldTourId
+        || params.get('mode') === 'world';
+}
+
+function cleanupDomesticVideoGrid() {
+    const grid = $('#video-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.video-content-wrapper').forEach(wrapper => cleanupVideo(wrapper));
+    grid.querySelectorAll('.video-panel').forEach(panel => {
+        panel.classList.remove('panel-suspended');
+        resetPanelRetryState(panel);
+        removePanelHealthBadge(panel);
+        delete panel.dataset.cctvId;
+        delete panel.dataset.slotIndex;
+        delete panel.dataset.cctvIndex;
+    });
+}
+
 // === Map ===
 function initMap() {
     if (state.mapInitialized) return;
@@ -6180,6 +6212,7 @@ function closeWeather(options = {}) {
     if (list) list.innerHTML = '';
 
     if (wasWorldTour && restoreDomesticMap) {
+        state.initialWorldTourId = null;
         switchMode('map');
     }
 }
@@ -6197,6 +6230,7 @@ function openWeatherPanel() {
 async function openWorldTourPanel(options = {}) {
     const layer = $('#weather-layer');
     const content = layer?.querySelector('.weather-content');
+    cleanupDomesticVideoGrid();
     layer?.classList.add('world-tour-layer');
     content?.classList.add('world-tour-content');
     document.body.classList.add('world-tour-active');
