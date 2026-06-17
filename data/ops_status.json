@@ -1,5 +1,5 @@
 {
-  "_served_at": "2026-06-17T01:11:49Z",
+  "_served_at": "2026-06-17T01:41:59Z",
   "_served_by": "oracle-proxy",
   "auto_recovery": {
     "last_audited_at": "2026-05-25T23:01:08Z",
@@ -11,12 +11,12 @@
       "actual_cache_age_hours": 0.35,
       "age_hours": 0.35,
       "entries": 11130,
-      "fetched": "2026-06-17T00:41:39Z",
+      "fetched": "2026-06-17T01:11:48Z",
       "missing_cctvips": 331,
       "missing_ratio": 0.0302,
       "severity": "ok",
       "status": "OK",
-      "status_file_age_hours": 0.31
+      "status_file_age_hours": 0.3
     }
   },
   "canary": {
@@ -42,7 +42,7 @@
           "E07021"
         ],
         "checked": 8,
-        "dominant_failure": "network_error",
+        "dominant_failure": "not_found",
         "failed": 8,
         "failed_ids": [
           "KBS_9970",
@@ -56,15 +56,15 @@
         ],
         "failure_categories": {
           "auth_or_token": 1,
-          "network_error": 4,
-          "not_found": 3
+          "network_error": 3,
+          "not_found": 4
         },
         "key": "daejeon",
         "label": "대전",
         "min_ok": 2,
         "passed": 0,
         "passed_ids": [],
-        "recommended_action": "대전은 소스 혼합 장애 가능성이 큽니다. UTIC, KBS, GITS를 분리 점검하고 정상 후보를 우선 노출하세요.",
+        "recommended_action": "대전 UTIC 공급 응답 지연/404가 우세합니다. Oracle /utic 재해석과 Z3 최신 캐시를 재확인하고, 성공 이력이 있는 KBS/하천/인접 교통 후보를 우선 추천하세요.",
         "recovery_plan": {
           "actions": [
             "catalog_preserve",
@@ -84,7 +84,7 @@
             "KBS": 1,
             "UTIC": 7
           },
-          "primary_failure": "network_error",
+          "primary_failure": "not_found",
           "status": "IMPACT"
         },
         "results": [
@@ -92,7 +92,7 @@
             "category": "auth_or_token",
             "content_type": null,
             "distance_km": 2.627,
-            "elapsed_ms": 119,
+            "elapsed_ms": 132,
             "http_status": 403,
             "id": "KBS_9970",
             "meta": {
@@ -115,7 +115,7 @@
             "content_type": null,
             "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
             "distance_km": 1.691,
-            "elapsed_ms": 6098,
+            "elapsed_ms": 6128,
             "http_status": null,
             "id": "E07019",
             "meta": {
@@ -137,7 +137,7 @@
             "content_type": null,
             "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
             "distance_km": 1.839,
-            "elapsed_ms": 6158,
+            "elapsed_ms": 6096,
             "http_status": null,
             "id": "E620039",
             "meta": {
@@ -158,7 +158,7 @@
             "category": "not_found",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 0.211,
-            "elapsed_ms": 475,
+            "elapsed_ms": 740,
             "http_status": 404,
             "id": "E07048",
             "meta": {
@@ -179,7 +179,7 @@
             "category": "not_found",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 2.293,
-            "elapsed_ms": 347,
+            "elapsed_ms": 371,
             "http_status": 404,
             "id": "E07052",
             "meta": {
@@ -197,12 +197,11 @@
             "status": "manual_check"
           },
           {
-            "category": "network_error",
-            "content_type": null,
-            "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
+            "category": "not_found",
+            "content_type": "text/html; charset=utf-8",
             "distance_km": 2.412,
-            "elapsed_ms": 6088,
-            "http_status": null,
+            "elapsed_ms": 336,
+            "http_status": 404,
             "id": "E07004",
             "meta": {
               "resolver": "oracle_utic",
@@ -211,7 +210,7 @@
             "name": "갑천대교네거리",
             "ok": false,
             "probe_url": "https://158.179.194.163.sslip.io/utic/…",
-            "reason": "request_error",
+            "reason": "HTTP 404",
             "region_key": "daejeon",
             "region_label": "대전",
             "resolver": "oracle_utic",
@@ -223,7 +222,7 @@
             "content_type": null,
             "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
             "distance_km": 2.516,
-            "elapsed_ms": 6090,
+            "elapsed_ms": 6067,
             "http_status": null,
             "id": "E620047",
             "meta": {
@@ -244,7 +243,7 @@
             "category": "not_found",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 2.605,
-            "elapsed_ms": 236,
+            "elapsed_ms": 354,
             "http_status": 404,
             "id": "E07021",
             "meta": {
@@ -311,7 +310,7 @@
             "category": "auth_or_token",
             "content_type": null,
             "distance_km": 0.0,
-            "elapsed_ms": 116,
+            "elapsed_ms": 121,
             "http_status": 403,
             "id": "KBS_9957",
             "meta": {
@@ -333,7 +332,7 @@
             "category": "auth_or_token",
             "content_type": null,
             "distance_km": 89.045,
-            "elapsed_ms": 80,
+            "elapsed_ms": 122,
             "http_status": 403,
             "id": "KBS_9987",
             "meta": {
@@ -357,7 +356,7 @@
         "success_rate": 0.0
       },
       "guri": {
-        "avg_ok_ms": 497,
+        "avg_ok_ms": 606,
         "candidate_ids": [
           "GITS_7356",
           "KBS_9974",
@@ -413,7 +412,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.703,
-            "elapsed_ms": 505,
+            "elapsed_ms": 586,
             "http_status": 200,
             "id": "GITS_7356",
             "meta": {
@@ -435,7 +434,7 @@
             "category": "auth_or_token",
             "content_type": null,
             "distance_km": 1.903,
-            "elapsed_ms": 114,
+            "elapsed_ms": 120,
             "http_status": 403,
             "id": "KBS_9974",
             "meta": {
@@ -457,7 +456,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 1.278,
-            "elapsed_ms": 483,
+            "elapsed_ms": 490,
             "http_status": 200,
             "id": "GITS_9510",
             "meta": {
@@ -479,7 +478,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 1.747,
-            "elapsed_ms": 513,
+            "elapsed_ms": 516,
             "http_status": 200,
             "id": "GITS_3680",
             "meta": {
@@ -501,7 +500,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 1.816,
-            "elapsed_ms": 489,
+            "elapsed_ms": 538,
             "http_status": 200,
             "id": "GITS_9535",
             "meta": {
@@ -523,7 +522,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 1.959,
-            "elapsed_ms": 494,
+            "elapsed_ms": 511,
             "http_status": 200,
             "id": "GITS_3684",
             "meta": {
@@ -545,7 +544,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 1.98,
-            "elapsed_ms": 502,
+            "elapsed_ms": 508,
             "http_status": 200,
             "id": "GITS_290",
             "meta": {
@@ -567,7 +566,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 2.108,
-            "elapsed_ms": 492,
+            "elapsed_ms": 1093,
             "http_status": 200,
             "id": "GITS_2363",
             "meta": {
@@ -591,7 +590,7 @@
         "success_rate": 0.875
       },
       "jeju": {
-        "avg_ok_ms": 325,
+        "avg_ok_ms": 385,
         "candidate_ids": [
           "NOWJEJU_10",
           "NOWJEJU_12",
@@ -648,7 +647,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.381,
-            "elapsed_ms": 339,
+            "elapsed_ms": 400,
             "http_status": 200,
             "id": "NOWJEJU_10",
             "meta": {
@@ -669,7 +668,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 1.744,
-            "elapsed_ms": 312,
+            "elapsed_ms": 599,
             "http_status": 200,
             "id": "NOWJEJU_12",
             "meta": {
@@ -711,7 +710,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 4.555,
-            "elapsed_ms": 384,
+            "elapsed_ms": 308,
             "http_status": 200,
             "id": "NOWJEJU_13",
             "meta": {
@@ -732,7 +731,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 6.21,
-            "elapsed_ms": 305,
+            "elapsed_ms": 332,
             "http_status": 200,
             "id": "NOWJEJU_14",
             "meta": {
@@ -753,7 +752,7 @@
             "category": "not_found",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 5.142,
-            "elapsed_ms": 195,
+            "elapsed_ms": 239,
             "http_status": 404,
             "id": "L380154",
             "meta": {
@@ -774,7 +773,7 @@
             "category": "not_found",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 6.199,
-            "elapsed_ms": 249,
+            "elapsed_ms": 220,
             "http_status": 404,
             "id": "L380002",
             "meta": {
@@ -795,7 +794,7 @@
             "category": "not_found",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 8.851,
-            "elapsed_ms": 259,
+            "elapsed_ms": 290,
             "http_status": 404,
             "id": "L380119",
             "meta": {
@@ -818,7 +817,7 @@
         "success_rate": 0.625
       },
       "jindo": {
-        "avg_ok_ms": 85,
+        "avg_ok_ms": 79,
         "candidate_ids": [
           "E901106",
           "E901107",
@@ -862,14 +861,14 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 3.004,
-            "elapsed_ms": 133,
+            "elapsed_ms": 129,
             "http_status": 200,
             "id": "E901106",
             "meta": {
               "cctvip": "73605",
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.3392390663888889
+              "z3_cache_age_hours": 0.34409945666666664
             },
             "name": "[국도18호선]진도터미널인근",
             "ok": true,
@@ -885,14 +884,14 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 3.617,
-            "elapsed_ms": 70,
+            "elapsed_ms": 68,
             "http_status": 200,
             "id": "E901107",
             "meta": {
               "cctvip": "73606",
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.33927431555555554
+              "z3_cache_age_hours": 0.3441336177777778
             },
             "name": "[국도18호선]진도향토문화회관",
             "ok": true,
@@ -908,14 +907,14 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 4.447,
-            "elapsed_ms": 78,
+            "elapsed_ms": 70,
             "http_status": 200,
             "id": "E901103",
             "meta": {
               "cctvip": "73582",
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.3392938672222222
+              "z3_cache_age_hours": 0.34415263166666665
             },
             "name": "[국도18호선]진도고교앞교차로",
             "ok": true,
@@ -931,14 +930,14 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 2.816,
-            "elapsed_ms": 67,
+            "elapsed_ms": 70,
             "http_status": 200,
             "id": "E901108",
             "meta": {
               "cctvip": "73604",
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.3393157638888889
+              "z3_cache_age_hours": 0.3441722538888889
             },
             "name": "[국도18호선]포산삼거리",
             "ok": true,
@@ -954,14 +953,14 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 5.366,
-            "elapsed_ms": 86,
+            "elapsed_ms": 69,
             "http_status": 200,
             "id": "E901102",
             "meta": {
               "cctvip": "73583",
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.33933468611111106
+              "z3_cache_age_hours": 0.3441919494444445
             },
             "name": "[국도18호선]정거럼재삼거리인근",
             "ok": true,
@@ -977,14 +976,14 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 6.071,
-            "elapsed_ms": 75,
+            "elapsed_ms": 70,
             "http_status": 200,
             "id": "E901101",
             "meta": {
               "cctvip": "73607",
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.3393588605555556
+              "z3_cache_age_hours": 0.3442112852777778
             },
             "name": "[국도18호선]월가리마을회관인근",
             "ok": true,
@@ -1002,7 +1001,7 @@
         "success_rate": 1.0
       },
       "namyangju": {
-        "avg_ok_ms": 381,
+        "avg_ok_ms": 318,
         "candidate_ids": [
           "L180224",
           "E904576",
@@ -1050,7 +1049,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.349,
-            "elapsed_ms": 138,
+            "elapsed_ms": 401,
             "http_status": 200,
             "id": "L180224",
             "meta": {
@@ -1071,14 +1070,14 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.703,
-            "elapsed_ms": 36,
+            "elapsed_ms": 50,
             "http_status": 200,
             "id": "E904576",
             "meta": {
               "cctvip": "79079",
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.3484347463888889
+              "z3_cache_age_hours": 0.35233640166666663
             },
             "name": "[국도46호선]남양주마치~호평교",
             "ok": true,
@@ -1094,7 +1093,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 1.859,
-            "elapsed_ms": 283,
+            "elapsed_ms": 277,
             "http_status": 200,
             "id": "L180225",
             "meta": {
@@ -1115,7 +1114,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 2.2,
-            "elapsed_ms": 115,
+            "elapsed_ms": 274,
             "http_status": 200,
             "id": "L180209",
             "meta": {
@@ -1136,7 +1135,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 2.262,
-            "elapsed_ms": 539,
+            "elapsed_ms": 995,
             "http_status": 200,
             "id": "GITS_74451",
             "meta": {
@@ -1158,7 +1157,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 2.275,
-            "elapsed_ms": 279,
+            "elapsed_ms": 272,
             "http_status": 200,
             "id": "L180222",
             "meta": {
@@ -1179,7 +1178,7 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 2.275,
-            "elapsed_ms": 115,
+            "elapsed_ms": 240,
             "http_status": 200,
             "id": "L180221",
             "meta": {
@@ -1200,14 +1199,14 @@
             "category": "ok_hls",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 1.592,
-            "elapsed_ms": 1543,
+            "elapsed_ms": 35,
             "http_status": 200,
             "id": "E900590",
             "meta": {
               "cctvip": "5403",
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.3488175233333333
+              "z3_cache_age_hours": 0.3529253722222222
             },
             "name": "[국도46호선]남양주마석터널관리소앞",
             "ok": true,
@@ -1229,7 +1228,7 @@
     "severity": "danger",
     "status": "SERVICE_IMPACT"
   },
-  "generated_at": "2026-06-17T01:02:36Z",
+  "generated_at": "2026-06-17T01:32:58Z",
   "policy": {
     "catalog_preservation": "카메라는 삭제하지 않고 품질/카나리/실사용 데이터로 후순위 처리합니다.",
     "green_confidence": "녹색은 카메라 단위 실사용 성공 또는 카나리/품질 데이터가 충분할 때만 강하게 표시합니다.",
@@ -1237,24 +1236,24 @@
   },
   "quality_summary": {
     "camera_count": 40,
-    "generated_at": "2026-06-17T00:47:53Z",
+    "generated_at": "2026-06-17T01:17:40Z",
     "region_count": 6,
     "source_count": 4
   },
   "regional_health": {
     "camera_failures": 500,
-    "last_updated": "2026-06-17T01:01:58Z",
+    "last_updated": "2026-06-17T01:32:25Z",
     "regions_total": 31
   },
   "service_status": "SERVICE_IMPACT",
   "severity": "danger",
   "time": {
-    "generated_at": "2026-06-17T01:02:36Z",
-    "normalized_at": "2026-06-17T01:11:49Z",
+    "generated_at": "2026-06-17T01:32:58Z",
+    "normalized_at": "2026-06-17T01:41:59Z",
     "schema": "cctv-quality-time-v1",
-    "served_at": "2026-06-17T01:11:49Z",
+    "served_at": "2026-06-17T01:41:59Z",
     "source": "local-z3-refresh",
-    "source_age_minutes_at_normalization": 9.22,
-    "source_updated_at": "2026-06-17T01:02:36Z"
+    "source_age_minutes_at_normalization": 9.03,
+    "source_updated_at": "2026-06-17T01:32:58Z"
   }
 }
