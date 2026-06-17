@@ -452,20 +452,27 @@ def select_candidates(
 
 
 def summarize_region(region: dict, candidates: list[dict], results: list[dict]) -> dict:
-    checked = len(results)
-    passed = sum(1 for item in results if item.get("ok"))
+    probed_checked = len(results)
+    passed_results = [item for item in results if item.get("ok")]
+    failed_results = [item for item in results if not item.get("ok")]
+    passed = len(passed_results)
     min_ok = int(region.get("min_ok", 1))
-    failures = checked - passed
-    categories = Counter(str(item.get("category") or "unknown") for item in results if not item.get("ok"))
-    avg_ok_ms_values = [int(item.get("elapsed_ms") or 0) for item in results if item.get("ok") and item.get("elapsed_ms")]
+    probed_failures = probed_checked - passed
+    quarantined_categories = Counter(str(item.get("category") or "unknown") for item in failed_results)
+    has_active_pool = passed >= min_ok and passed > 0
+    active_results = passed_results if has_active_pool else results
+    checked = len(active_results)
+    failures = 0 if has_active_pool else probed_failures
+    categories = Counter() if has_active_pool else quarantined_categories
+    avg_ok_ms_values = [int(item.get("elapsed_ms") or 0) for item in passed_results if item.get("elapsed_ms")]
     avg_ok_ms = round(sum(avg_ok_ms_values) / len(avg_ok_ms_values)) if avg_ok_ms_values else None
 
-    if checked == 0:
+    if probed_checked == 0:
         status = "NO_CANDIDATES"
         severity = "danger"
-    elif passed >= min_ok:
-        status = "OK" if failures == 0 else "DEGRADED"
-        severity = "ok" if failures == 0 else "warn"
+    elif has_active_pool:
+        status = "OK"
+        severity = "ok"
     else:
         status = "IMPACT"
         severity = "danger"
@@ -478,7 +485,10 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
     action = region_recovery_action(region, status, categories, results)
     recovery = region_recovery_plan(region, status, categories, results)
     if status == "OK":
-        action = action or "정상 후보가 확보되었습니다."
+        action = action or (
+            "정상 후보 풀이 확보되었습니다. 실패 후보는 자동 격리하고 정상 후보를 우선 노출합니다."
+            if failed_results else "정상 후보가 확보되었습니다."
+        )
     elif status == "DEGRADED":
         action = action or "일부 후보가 실패했습니다. 정상 후보를 우선 노출하고 실패 후보는 후순위 유지하세요."
     elif status == "IMPACT":
@@ -492,19 +502,28 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
         "status": status,
         "severity": severity,
         "checked": checked,
-        "passed": passed,
+        "passed": checked if has_active_pool else passed,
         "failed": failures,
         "min_ok": min_ok,
-        "success_rate": round(passed / checked, 3) if checked else 0,
+        "success_rate": 1.0 if has_active_pool else (round(passed / checked, 3) if checked else 0),
+        "observed_checked": probed_checked,
+        "observed_passed": passed,
+        "observed_failed": probed_failures,
+        "observed_success_rate": round(passed / probed_checked, 3) if probed_checked else 0,
         "avg_ok_ms": avg_ok_ms,
-        "candidate_ids": [cam.get("id") for cam in candidates],
+        "candidate_ids": [item.get("id") for item in active_results],
+        "probed_candidate_ids": [cam.get("id") for cam in candidates],
         "passed_ids": [item.get("id") for item in results if item.get("ok")],
-        "failed_ids": [item.get("id") for item in results if not item.get("ok")],
+        "failed_ids": [] if has_active_pool else [item.get("id") for item in failed_results],
+        "quarantined_failed_ids": [item.get("id") for item in failed_results],
         "failure_categories": dict(categories.most_common()),
+        "quarantined_failure_categories": dict(quarantined_categories.most_common()),
         "dominant_failure": dominant,
+        "quarantined_dominant_failure": quarantined_categories.most_common(1)[0][0] if quarantined_categories else None,
         "recommended_action": action,
         "recovery_plan": recovery,
-        "results": results,
+        "results": active_results,
+        "quarantined_results": failed_results,
     }
 
 

@@ -1596,12 +1596,66 @@ def yt_dlp_json(args, timeout=45):
         return None
 
 
+STILL_IMAGE_URL_RE = re.compile(r'\.(?:jpe?g|png|webp|gif)(?:[?#]|$)', re.I)
+STILL_IMAGE_ONLY_SOURCE_TYPES = {'hktraffic', 'usgsvolcano'}
+
+
+def is_still_image_url(url):
+    return bool(STILL_IMAGE_URL_RE.search(str(url or '').strip()))
+
+
 def is_in_app_video_item(item):
-    return bool(item.get('videoId') or item.get('embedUrl') or item.get('playUrl'))
+    return bool(item.get('videoId')) or any(
+        item.get(key) and not is_still_image_url(item.get(key))
+        for key in ('embedUrl', 'playUrl')
+    )
 
 
 def is_snapshot_only_item(item):
-    return bool(item.get('snapshotUrl')) and not is_in_app_video_item(item)
+    source_type = str(item.get('sourceType') or '').lower()
+    has_still_image_media = any(
+        is_still_image_url(item.get(key))
+        for key in ('sourceUrl', 'snapshotUrl', 'embedUrl', 'playUrl')
+    )
+    return (
+        has_still_image_media or source_type in STILL_IMAGE_ONLY_SOURCE_TYPES
+    ) and not is_in_app_video_item(item)
+
+
+def is_user_facing_world_tour_item(item):
+    return (
+        item.get('playbackStatus') == 'verified'
+        and not item.get('sourceOnly')
+        and is_in_app_video_item(item)
+    )
+
+
+def world_tour_source_type_health(items):
+    sources = sorted({item.get('sourceType') or 'unknown' for item in items})
+    health = {}
+    for source in sources:
+        source_items = [item for item in items if (item.get('sourceType') or 'unknown') == source]
+        total = len(source_items)
+        verified = sum(1 for item in source_items if item.get('playbackStatus') == 'verified' and not item.get('sourceOnly'))
+        source_only = sum(1 for item in source_items if item.get('sourceOnly'))
+        unchecked = sum(1 for item in source_items if item.get('playbackStatus') == 'unchecked')
+        unavailable = sum(1 for item in source_items if item.get('playbackStatus') == 'unavailable')
+        embed_disabled = sum(1 for item in source_items if item.get('playbackStatus') == 'embed_disabled')
+        direct_hls = sum(1 for item in source_items if item.get('playUrl') or item.get('directPlaybackStatus') in {'direct_hls', 'proxied_hls'})
+        trusted_embed = sum(1 for item in source_items if item.get('embedUrl') or item.get('directPlaybackStatus') in {'trusted_provider_embed', 'in_app_playable'})
+        health[source] = {
+            'total': total,
+            'verified': verified,
+            'sourceOnly': source_only,
+            'unchecked': unchecked,
+            'unavailable': unavailable,
+            'embedDisabled': embed_disabled,
+            'directHls': direct_hls,
+            'trustedEmbed': trusted_embed,
+            'externalOnly': source_only + unavailable + embed_disabled,
+            'verifiedRate': round(verified / total, 4) if total else 0,
+        }
+    return health
 
 
 def existing_playable_items():
@@ -1624,7 +1678,7 @@ def existing_playable_items():
                 item['lng'] = location['lng']
         if is_snapshot_only_item(item):
             continue
-        if item.get('videoId') or item.get('embedUrl') or item.get('sourceUrl'):
+        if is_user_facing_world_tour_item(item):
             item.setdefault('sourceType', 'youtube' if item.get('videoId') else 'external')
             items.append(item)
     save_geocode_cache(cache)
@@ -4841,11 +4895,16 @@ def enrich_item_quality(item):
 def validate_items(items):
     snapshot_only_removed = sum(1 for item in items if is_snapshot_only_item(item))
     if snapshot_only_removed:
-        print(f'excluding snapshot-only world tour feeds: {snapshot_only_removed}', flush=True)
+        print(f'excluding still-image-only world tour feeds: {snapshot_only_removed}', flush=True)
     candidates = [item for item in items if not is_snapshot_only_item(item)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
         validated = [item for item in executor.map(validate_youtube_item, candidates) if item]
-    return [enrich_item_quality(item) for item in validated if calculate_quality_score(item) >= 52]
+    scored = [enrich_item_quality(item) for item in validated if calculate_quality_score(item) >= 52]
+    app_playable = [item for item in scored if is_user_facing_world_tour_item(item)]
+    removed = len(scored) - len(app_playable)
+    if removed:
+        print(f'excluding non-app-playable world tour feeds: {removed}', flush=True)
+    return app_playable
 
 
 def dedupe_items(items):
@@ -4969,17 +5028,23 @@ def main():
     quality_counts = Counter(i.get('qualityTier', 'unknown') for i in items)
     direct_status_counts = Counter(i.get('directPlaybackStatus') or ('in_app_playable' if is_in_app_video_item(i) else 'source_site_only') for i in items)
     source_only_reasons = Counter(i.get('sourceOnlyReason') for i in items if i.get('sourceOnlyReason'))
+    source_type_health = world_tour_source_type_health(items)
     payload = {
         'generatedAt': utc_now().isoformat().replace('+00:00', 'Z'),
         'updated_at': dt.date.today().isoformat(),
-        'description': 'Curated public world tourist live/webcam directory. In-app playable YouTube/embed streams are prioritized; snapshot-only feeds are excluded because they are not continuous video.',
+        'description': 'Curated public world tourist live/webcam directory. Only verified in-app playable video feeds are retained in the user-facing list.',
         'collectionMeta': {
             'itemCount': len(items),
             'sourceCounts': dict(source_counts),
             'regionCounts': dict(region_counts),
             'playbackCounts': dict(playback_counts),
+            'playbackStatusCounts': dict(playback_counts),
             'qualityTiers': dict(quality_counts),
             'directPlaybackStatusCounts': dict(direct_status_counts),
+            'sourceOnlyCount': sum(1 for item in items if item.get('sourceOnly')),
+            'uncheckedCount': sum(1 for item in items if item.get('playbackStatus') == 'unchecked'),
+            'verifiedRate': 1 if items else 0,
+            'sourceTypeHealth': source_type_health,
             'sourceOnlyReasons': dict(source_only_reasons),
             'youtubeSearchQueries': youtube_search_queries(),
             'youtubeSearchLimit': YOUTUBE_SEARCH_LIMIT,
@@ -5023,8 +5088,8 @@ def main():
             'ptztvLimit': WORLD_TOUR_PTZTV_LIMIT,
             'railcamLimit': WORLD_TOUR_RAILCAM_LIMIT,
             'publicTrafficLimit': WORLD_TOUR_PUBLIC_TRAFFIC_LIMIT,
-            'qualityPolicy': 'verified playback, source trust, positive tourist context, and coordinate availability are scored before ranking.',
-            'sourcePolicy': 'Only public official/source-site or embeddable tourist webcams are retained; snapshot-only feeds, raw exposed IP camera scanners, and private RTSP feeds are excluded.',
+            'qualityPolicy': 'Only feeds with verified app playback are retained for the user-facing global list and source verification table.',
+            'sourcePolicy': 'Public source-site records are kept only when they resolve to verified YouTube, iframe, HLS, or direct video playback inside the app.',
             'snapshotPolicy': 'Static or periodically refreshed image-only feeds are removed from the user-facing global CCTV list.',
             'openWebcamDbStatus': 'API-key gated via OPENWEBCAMDB_API_KEY; default disabled until terms and attribution are configured.',
             'insecamStatus': 'Excluded: unsecured private surveillance camera directory, not suitable for this curated public tourist dataset.',

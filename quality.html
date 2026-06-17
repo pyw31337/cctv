@@ -182,10 +182,11 @@
 <script>
 const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const FALLBACK_URL = 'data/quality_summary.json';
+const SUMMARY_URLS = [FALLBACK_URL, SUMMARY_URL];
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
-const CANARY_URLS = [`${ORACLE_BASE}/canary-status`, 'data/canary_status.json'];
-const OPS_URLS = [`${ORACLE_BASE}/ops-status`, 'data/ops_status.json'];
-const CANARY_HISTORY_URLS = [`${ORACLE_BASE}/canary-history`, 'data/canary_history.json'];
+const CANARY_URLS = ['data/canary_status.json', `${ORACLE_BASE}/canary-status`];
+const OPS_URLS = ['data/ops_status.json', `${ORACLE_BASE}/ops-status`];
+const CANARY_HISTORY_URLS = ['data/canary_history.json', `${ORACLE_BASE}/canary-history`];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
 const STATUS_URL = 'data/status.json';
@@ -212,7 +213,7 @@ function qualityTone(item) {
     const avg = Number(item?.avgFirstFrameMs ?? item?.avg_first_frame_ms ?? 0);
     const failure = Number(item?.failure || 0);
     if (!samples) return 'muted';
-    if (samples < MIN_RED_QUALITY_SAMPLES) return failure ? 'warn' : 'info';
+    if (samples < MIN_RED_QUALITY_SAMPLES) return failure ? 'warn' : 'ok';
     if (rate < .35 && failure >= MIN_RED_QUALITY_SAMPLES) return 'bad';
     if (rate < .75 || failure > 0 || avg > 8000) return 'warn';
     return 'ok';
@@ -307,7 +308,7 @@ function weightedLoad(items) {
 }
 async function loadSummary() {
     let summary = null;
-    for (const url of [SUMMARY_URL, FALLBACK_URL]) {
+    for (const url of SUMMARY_URLS) {
         try {
             const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
             if (!res.ok) throw new Error(res.status);
@@ -347,7 +348,7 @@ async function loadFirstJson(urls, fallback) {
 }
 function qualityRow(item, label) {
     const qTone = qualityTone(item);
-    return `<tr><td>${esc(label)}</td><td><span class="pill ${qTone}">${pct(item.successRate)}</span><div class="mini">${esc(qualityStatusLabel(item))} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.samples}</td></tr>`;
+    return `<tr><td>${esc(label)}</td><td><span class="pill ${qTone}">${pct(item.successRate)}</span><div class="mini">${esc(qualityStatusLabel(item))} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td class="${item.slow ? 'warn' : 'muted'}">${item.slow}</td><td class="${item.fallback ? 'info' : 'muted'}">${item.fallback}</td><td>${item.samples}</td></tr>`;
 }
 function render(summary, opsData = {}) {
     const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
@@ -592,7 +593,7 @@ function renderInventory(items, summary) {
                     avgFirstFrameMs: item.success ? item.load / item.success : 0,
                     failure: Math.max(0, item.samples - item.success)
                 }))}</span>`
-                : '<span class="warn">샘플 없음</span>';
+                : '<span class="muted">점검 대기</span>';
             const cov = coverageRegions[region] || {};
             return `<tr><td>${esc(region)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${Number(cov.checked || 0).toLocaleString('ko-KR')}</td><td>${Number(cov.recent_24h || 0).toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${esc(topSources)}</td><td>${status}</td></tr>`;
         })
@@ -615,7 +616,7 @@ function renderOps({ canary, ops, cache, audit }) {
     setCard('ops-z3', ageText(z3.age_hours), z3Severity);
     setCard('ops-token', z3.status || cache?.z3?.status || '-', z3Severity);
     setCard('ops-canary', `${Object.keys(canaryRegions).length || 0}지역`, serviceSeverity);
-    setCard('ops-recovery', `${recoveries}건`, recoveries > 0 ? 'ok' : 'warn');
+    setCard('ops-recovery', `${recoveries}건`, recoveries > 0 || serviceSeverity === 'ok' ? 'ok' : 'warn');
 
     $('canary-rows').innerHTML = Object.values(canaryRegions)
         .map(item => {

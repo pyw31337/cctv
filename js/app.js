@@ -27,7 +27,6 @@ const APP_BUILD_VERSION = '20260612-64d98099';
 // throwing a ReferenceError. Once the listener throws, Kakao's internal
 // tile-rendering pipeline never gets to redraw → blank map with only the
 // kakaomap watermark visible.
-const SERVICE_BANNER_VISIBLE_MS = 5000;
 const PLAYBACK_HEALTH_STORAGE_KEY = 'cctv_playback_health_v1';
 const PLAYBACK_HEALTH_SCHEMA_VERSION = 2;
 const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
@@ -75,6 +74,7 @@ const STABLE_HLS_STALL_TIMEOUT_MS = 14000;
 const MANUAL_RETRY_PRIMARY_ATTEMPTS = 2;
 const MANUAL_RETRY_FALLBACK_RADIUS_KM = 12;
 const STANDBY_FALLBACK_PROBE_TIMEOUT_MS = 4500;
+const HRFCO_POPUP_RESOLVE_TIMEOUT_MS = 3500;
 const STABILITY_MODE_PRIMARY_TARGET = 4;
 const STABILITY_MODE_EXPANDED_RADIUS_KM = 24;
 const STABILITY_MODE_EMERGENCY_RADIUS_KM = 45;
@@ -171,6 +171,7 @@ const WORLD_TOUR_SOURCE_LABELS = {
     youtube: 'YouTube',
     external: 'External'
 };
+const WORLD_TOUR_STILL_IMAGE_SOURCE_TYPES = new Set(['hktraffic', 'usgsvolcano']);
 const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|동부출장소|행정복지|주민센터|세무서|법원|경찰서|소방서|보건소|사거리|삼거리|네거리|교차로|로터리|터미널|역|아파트|시장|학교|초교|초등|중학교|고교|병원|마트|상가|대로변|단지내|시내|중앙|읍내)/;
 const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권제|국도|IC|JC|TG|영업소|터널|램프|휴게소|졸음쉼터|분기점|진입로|외부|하이패스)/i;
 const TRAFFIC_CONTEXT_PATTERN = /(고속|고속도로|도시고속|자동차전용|국도|지방도|IC|JC|TG|영업소|나들목|분기점|램프|터널|휴게소|졸음쉼터|하이패스|외곽|순환|우회|간선|산업도로|대교|교량|지하차도|고가도로)/i;
@@ -454,9 +455,6 @@ const state = {
     initialWorldTourId: null,
     initialWorldTourViewMode: 'video',
     activeCctvId: null,
-    serviceBannerTimer: null,
-    serviceBannerCountdownTimer: null,
-    serviceBannerDismissedKey: null,
     sortMode: DEFAULT_QUALITY_SORT_MODE
 };
 
@@ -491,7 +489,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initial State
     updateNearestCctvs();
     renderServiceStatusBanner();
-    renderVideoGrid();
+    const isInitialWorldTour = !!state.initialWorldTourId || new URLSearchParams(window.location.search).get('mode') === 'world';
+    if (!isInitialWorldTour) {
+        renderVideoGrid();
+    }
     switchMode(state.mode);
     if (!state.initialWorldTourId) {
         syncUrlState();
@@ -519,7 +520,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!loaded) return;
         updateNearestCctvs();
         renderServiceStatusBanner();
-        renderVideoGrid();
+        if (!document.body.classList.contains('world-tour-active')) {
+            renderVideoGrid();
+        }
         renderMapMarkers();
     });
 
@@ -2598,6 +2601,95 @@ function isFrameOnlyPlaybackCandidate(cctv) {
         || url.includes('hrfco.go.kr');
 }
 
+function safeDecodeUrlText(value) {
+    const text = String(value || '');
+    try {
+        return decodeURIComponent(text);
+    } catch (error) {
+        return text;
+    }
+}
+
+function isHrfcoPopupUrl(url) {
+    const text = String(url || '');
+    const decodedText = safeDecodeUrlText(text);
+    return /hrfco\.go\.kr\/sumun\/cctvPopup\.do/i.test(text)
+        || /hrfco\.go\.kr\/sumun\/cctvPopup\.do/i.test(decodedText);
+}
+
+function getHrfcoPopupRequestUrl(url) {
+    const text = String(url || '');
+    const candidates = [text, safeDecodeUrlText(text)];
+
+    for (const candidate of candidates) {
+        try {
+            const parsed = new URL(candidate);
+            const embeddedUrl = parsed.searchParams.get('url');
+            if (embeddedUrl && isHrfcoPopupUrl(embeddedUrl)) return embeddedUrl;
+        } catch (error) {
+            // Ignore relative or malformed values and use the original URL below.
+        }
+    }
+
+    return text;
+}
+
+function normalizeHrfcoStreamUrl(url) {
+    return String(url || '')
+        .replace(/\\\//g, '/')
+        .replace(/&amp;/g, '&')
+        .trim();
+}
+
+function isHrfcoMaintenanceHtml(html) {
+    const text = String(html || '').replace(/<[^>]*>/g, ' ');
+    return /해당\s*지점의\s*CCTV\s*(?:는|이)?\s*점검\s*중/i.test(text)
+        || /CCTV\s*(?:는|이)?\s*점검\s*중/i.test(text);
+}
+
+function extractHrfcoStreamUrl(html) {
+    const text = String(html || '');
+    const vars = {};
+    const variablePattern = /\b(?:var\s+)?(hurl|hrul|lurl)\s*=\s*["']([^"']*)["']/gi;
+    let match;
+
+    while ((match = variablePattern.exec(text)) !== null) {
+        vars[match[1].toLowerCase()] = normalizeHrfcoStreamUrl(match[2]);
+    }
+
+    const explicit = [vars.lurl, vars.hrul, vars.hurl].find(value => value && /\.m3u8(?:[?#]|$)/i.test(value));
+    if (explicit) return explicit;
+
+    const anyHls = text.match(/https?:\/\/[^"'<>\\\s]+\.m3u8(?:\?[^"'<>\\\s]*)?/i);
+    return anyHls ? normalizeHrfcoStreamUrl(anyHls[0]) : '';
+}
+
+async function resolveHrfcoPopupStreamUrl(popupUrl) {
+    if (!isHrfcoPopupUrl(popupUrl)) return popupUrl;
+    const requestUrl = getHrfcoPopupRequestUrl(popupUrl);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HRFCO_POPUP_RESOLVE_TIMEOUT_MS);
+
+    try {
+        const response = await fetch(`${proxyWithOracle(requestUrl)}&_t=${Date.now()}`, {
+            cache: 'no-store',
+            redirect: 'follow',
+            signal: controller.signal
+        });
+        if (!response.ok && response.status !== 403) throw new Error(`hrfco-popup-http-${response.status}`);
+
+        const html = await response.text();
+        if (isHrfcoMaintenanceHtml(html)) throw new Error('hrfco-popup-maintenance');
+        const streamUrl = extractHrfcoStreamUrl(html);
+        if (!streamUrl) throw new Error('hrfco-popup-empty-stream');
+
+        return `${proxyWithOracle(streamUrl)}&_t=${Date.now()}`;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 function shouldIsolateProblemCamera(cctv) {
     const health = cctv?._health || getCameraHealthMeta(cctv);
     if (!health) return false;
@@ -3004,132 +3096,17 @@ function isStaleHealthTimestamp(timestamp, maxAgeMs = HEALTH_STALE_MS) {
 }
 
 function renderServiceStatusBanner() {
-    const banner = $('#service-status-banner');
-    if (!banner) return;
-
-    clearServiceStatusBannerTimers();
-
-    if (!state.healthSnapshot || !state.healthSnapshot.regions) {
-        hideServiceStatusBanner(true);
-        return;
-    }
-
-    const currentRegionKeys = [...new Set(
-        state.nearestCctvs.slice(0, 4).map(cctv => inferRegionKey(cctv)).filter(Boolean)
-    )];
-    if (currentRegionKeys.length === 0) {
-        hideServiceStatusBanner(true);
-        return;
-    }
-
-    const visibleHealth = state.nearestCctvs.slice(0, 4)
-        .map(cctv => {
-            const health = getCameraHealthMeta(cctv);
-            const displayHealth = getCameraDisplayHealthMeta(cctv, health);
-            return {
-                cctv,
-                health,
-                displayHealth,
-                regionKey: health.regionKey || inferRegionKey(cctv)
-            };
-        });
-    const downRegions = visibleHealth.filter(item => item.displayHealth.tone === 'danger');
-    const degradedRegions = visibleHealth.filter(item => item.displayHealth.tone === 'warn');
-    const newestAffectedTimestamp = [...downRegions, ...degradedRegions]
-        .map(item => item.displayHealth.lastUpdated || item.health.lastUpdated)
-        .find(Boolean);
-    const lastUpdatedText = formatRelativeTime(newestAffectedTimestamp || state.healthSnapshot.last_updated);
-
-    let tone = null;
-    let title = '';
-    let body = '';
-
-    if (state.healthSnapshotStale) {
-        tone = 'warn';
-        title = '점검 정보 지연';
-        body = `${currentRegionKeys.map(getRegionLabel).join(', ')} 점검 정보가 지연되어 화면별 실제 재생 상태를 우선 반영합니다.`;
-    } else if (downRegions.length > 0) {
-        tone = 'danger';
-        title = '현재 지역 장애';
-        body = `${[...new Set(downRegions.slice(0, 3).map(item => getRegionLabel(item.regionKey)))].join(', ')} 연결이 불안정합니다. 대체 소스를 우선 추천합니다.`;
-    } else if (degradedRegions.length > 0) {
-        tone = 'warn';
-        title = '현재 지역 점검 중';
-        body = `${[...new Set(degradedRegions.slice(0, 3).map(item => getRegionLabel(item.regionKey)))].join(', ')} 품질이 일시적으로 흔들릴 수 있습니다.`;
-    }
-
-    if (!tone) {
-        hideServiceStatusBanner(true);
-        return;
-    }
-
-    const bannerKey = `${tone}:${title}:${body}:${lastUpdatedText}`;
-    if (state.serviceBannerDismissedKey === bannerKey) {
-        hideServiceStatusBanner(true);
-        return;
-    }
-
-    banner.className = `service-status-banner tone-${tone}`;
-    banner.innerHTML = `
-        <button type="button" class="service-status-close" aria-label="상태 메시지 닫기">×</button>
-        <div class="service-status-content">
-            <div class="service-status-title">${title}</div>
-            <div class="service-status-body">${body}</div>
-            <div class="service-status-meta">
-                <span class="service-status-time">${lastUpdatedText}</span>
-                <span class="service-status-countdown" aria-label="5초 후 자동으로 닫힘">5s</span>
-            </div>
-        </div>
-    `;
-    const closeButton = banner.querySelector('.service-status-close');
-    if (closeButton) {
-        closeButton.addEventListener('click', () => {
-            state.serviceBannerDismissedKey = bannerKey;
-            hideServiceStatusBanner();
-        }, { once: true });
-    }
-
-    startServiceStatusBannerCountdown(banner);
-    state.serviceBannerTimer = setTimeout(() => {
-        hideServiceStatusBanner();
-    }, SERVICE_BANNER_VISIBLE_MS);
+    removeLegacyServiceStatusBanner();
 }
 
-function clearServiceStatusBannerTimers() {
-    if (state.serviceBannerTimer) {
-        clearTimeout(state.serviceBannerTimer);
-        state.serviceBannerTimer = null;
-    }
-
-    if (state.serviceBannerCountdownTimer) {
-        clearInterval(state.serviceBannerCountdownTimer);
-        state.serviceBannerCountdownTimer = null;
-    }
+function removeLegacyServiceStatusBanner() {
+    document.querySelectorAll('#service-status-banner, .service-status-banner').forEach(banner => {
+        banner.remove();
+    });
 }
 
-function startServiceStatusBannerCountdown(banner) {
-    const countdown = banner.querySelector('.service-status-countdown');
-    if (!countdown) return;
-
-    const startedAt = Date.now();
-    const updateCountdown = () => {
-        const elapsed = Date.now() - startedAt;
-        const remainingSeconds = Math.max(0, Math.ceil((SERVICE_BANNER_VISIBLE_MS - elapsed) / 1000));
-        countdown.textContent = `${remainingSeconds}s`;
-        countdown.setAttribute('aria-label', `${remainingSeconds}초 후 상태 메시지 자동 닫힘`);
-    };
-
-    updateCountdown();
-    state.serviceBannerCountdownTimer = setInterval(updateCountdown, 250);
-}
-
-function hideServiceStatusBanner(clearContent = false) {
-    const banner = $('#service-status-banner');
-    if (!banner) return;
-
-    clearServiceStatusBannerTimers();
-    banner.classList.add('hidden');
-    if (clearContent) banner.innerHTML = '';
+function hideServiceStatusBanner() {
+    removeLegacyServiceStatusBanner();
 }
 
 function showStreamLoadingIndicator(wrapper, title, detail) {
@@ -3980,6 +3957,11 @@ function isCrownMotelSearchContext(lat, lng) {
 
 // (Mobile 1+3 layout removed by user request — keep simple 2×2 / 1×4 grid.)
 function renderVideoGrid() {
+    if (isWorldTourModeActiveOrPending()) {
+        cleanupDomesticVideoGrid();
+        return;
+    }
+
     const grid = $('#video-grid');
     const strayStrip = grid.querySelector(':scope > .video-thumb-strip');
     if (strayStrip) {
@@ -4069,6 +4051,7 @@ function resetPanelRetryState(panel) {
     panel._verifiedRetryFallbackPromise = null;
     delete panel.dataset.preparedRetryFallbackId;
     delete panel.dataset.retrySourceId;
+    delete panel.dataset.autoFallbackSourceId;
 }
 
 function getManualRetryFallbackDistance(sourceCctv, candidate) {
@@ -4379,6 +4362,16 @@ async function switchToPreparedRetryFallback(panel, sourceCctv, options = {}) {
     if (!fallback && !requireVerified) fallback = prepareManualRetryFallback(panel, sourceCctv);
     if (!fallback) return false;
 
+    if (hasReservedCctvKey(fallback, getManualRetryReservedKeys(panel))) {
+        if (panel._verifiedRetryFallback?.cctv?.id === fallback.id) panel._verifiedRetryFallback = null;
+        if (panel._preparedRetryFallback?.cctv?.id === fallback.id) panel._preparedRetryFallback = null;
+        delete panel.dataset.preparedRetryFallbackId;
+        fallback = requireVerified
+            ? await prepareVerifiedManualRetryFallback(panel, sourceCctv)
+            : prepareManualRetryFallback(panel, sourceCctv);
+        if (!fallback || hasReservedCctvKey(fallback, getManualRetryReservedKeys(panel))) return false;
+    }
+
     let fallbackIndex = state.nearestCctvs.findIndex(item => item.id === fallback.id);
     if (fallbackIndex === -1) {
         const distance = Number.isFinite(Number(fallback.distance))
@@ -4674,10 +4667,18 @@ function createVideoElement(cctv, sourceIndex = 0) {
     }
 
     const is43 = cctv.aspectRatio === '4:3';
+    const playbackCctv = getActiveStreamCctv(cctv, sourceIndex) || cctv;
 
     // Helper to trigger failover
-    const triggerFailover = (wrapper) => {
-        console.log(`[Failover] Stream failed for ${cctv.name} (Index ${sourceIndex}). Trying next...`);
+    const triggerFailover = (wrapper, reason = 'stream-failed') => {
+        console.log(`[Failover] Stream failed for ${playbackCctv?.name || cctv.name} (Index ${sourceIndex}). Trying next...`);
+        setPlaybackHealth(playbackCctv, {
+            status: 'PLAYBACK_ERROR',
+            shortLabel: '재생 불안정',
+            longLabel: `${playbackCctv?.name || 'CCTV'} 영상 실패 감지 (${reason})`,
+            tone: 'danger',
+            penalty: 6
+        });
         handleStreamFailover(wrapper, cctv, sourceIndex + 1);
     };
 
@@ -4777,7 +4778,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             refreshTimer = setTimeout(tryNextDaejeonUrl, 700);
         };
         tryNextDaejeonUrl();
-        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
+        armVideoPlaybackWatchdog(video, playbackCctv, reason => triggerFailover(video.parentElement, reason), {
             ignoreTransientErrors: true,
             startupTimeoutMs: STABLE_HLS_STARTUP_TIMEOUT_MS,
             stallTimeoutMs: DAEJEON_MP4_STALL_RECOVERY_MS,
@@ -4868,7 +4869,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             video.src = jejuUrl;
             video.onerror = () => triggerFailover(video.parentElement);
         }
-        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
+        armVideoPlaybackWatchdog(video, playbackCctv, reason => triggerFailover(video.parentElement, reason), {
             startupTimeoutMs: JEJU_PLAYBACK_STARTUP_TIMEOUT_MS,
             stallTimeoutMs: PLAYBACK_STALL_TIMEOUT_MS
         });
@@ -4915,7 +4916,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             video.src = kbUrl;
             video.onerror = () => triggerFailover(video.parentElement);
         }
-        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
+        armVideoPlaybackWatchdog(video, playbackCctv, reason => triggerFailover(video.parentElement, reason));
         return video;
     }
 
@@ -4924,6 +4925,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
     const isUtic = url.includes('utic.go.kr')
         || url.includes('openDataCctvStream')
         || (selectedKind === 'Z3' && url.includes('/utic?'));
+    const isHrfcoPopup = isHrfcoPopupUrl(url) || isHrfcoPopupUrl(originalPlaybackUrl);
     const isItsEmbed = url.includes('its.gn.go.kr/popup') || url.includes('gangneung_player.html') || url.includes('hrfco.go.kr');
     const isSecureStream = url.includes('cctvsec.ktict.co.kr');
     const isProxy = url.includes('cctv-proxy-hoon-001.fly.dev')
@@ -4965,8 +4967,8 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         const gitsId = selectedOriginalId || cctv.original_id;
         const gitsUrl = `${ORACLE_BASE}/gits?cctvip=${encodeURIComponent(gitsId)}&_t=${Date.now()}`;
-        const failGits = () => {
-            if (video.parentElement) triggerFailover(video.parentElement);
+        const failGits = (reason = 'gits-resolver-failed') => {
+            if (video.parentElement) triggerFailover(video.parentElement, reason);
         };
 
         if (window.Hls && Hls.isSupported()) {
@@ -4985,7 +4987,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             hls.on(Hls.Events.ERROR, function (event, data) {
                 if (data && data.fatal) {
                     hls.destroy();
-                    failGits();
+                    failGits(data.type || 'gits-hls-fatal');
                 }
             });
             hls.attachMedia(video);
@@ -4995,7 +4997,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             video.src = gitsUrl;
             video.onerror = failGits;
         }
-        armVideoPlaybackWatchdog(video, cctv, failGits);
+        armVideoPlaybackWatchdog(video, playbackCctv, failGits);
 
         return video;
     }
@@ -5012,7 +5014,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.setAttribute('playsinline', '');
 
         video.onerror = () => triggerFailover(video.parentElement);
-        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
+        armVideoPlaybackWatchdog(video, playbackCctv, reason => triggerFailover(video.parentElement, reason));
         return video;
     }
 
@@ -5139,6 +5141,74 @@ function createVideoElement(cctv, sourceIndex = 0) {
             }
         })();
 
+        return video;
+    }
+
+    // HRFCO popup pages sometimes load a normal HTML player with an empty HLS URL
+    // while the visible page says the CCTV is under maintenance. Resolve the popup
+    // first so empty lurl/hrul values can fail over instead of trapping the panel.
+    if (isHrfcoPopup) {
+        const video = document.createElement('video');
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;';
+        if (is43) video.dataset.aspectRatio = '4:3';
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+
+        let hrfcoFailoverTriggered = false;
+        const failHrfco = (reason) => {
+            if (hrfcoFailoverTriggered) return;
+            hrfcoFailoverTriggered = true;
+            console.warn(`[HRFCO] ${cctv?.name || 'CCTV'} popup stream unavailable: ${reason}`);
+            if (video.hls) {
+                video.hls.destroy();
+                video.hls = null;
+            }
+            triggerFailover(video.parentElement, reason || 'hrfco-popup-unavailable');
+        };
+
+        const loadResolvedStream = (streamUrl) => {
+            if (!video.parentElement || hrfcoFailoverTriggered) return;
+            if (window.Hls && Hls.isSupported()) {
+                const hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    capLevelToPlayerSize: true,
+                    manifestLoadingTimeOut: 10000,
+                    manifestLoadingMaxRetry: 1,
+                    levelLoadingMaxRetry: 1,
+                    fragLoadingMaxRetry: 2,
+                    fragLoadingTimeOut: 12000
+                });
+                hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                    video.play().catch(() => {});
+                });
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data && data.fatal) failHrfco(data.type || 'hls-fatal');
+                });
+                hls.attachMedia(video);
+                hls.loadSource(streamUrl);
+                video.hls = hls;
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = streamUrl;
+                video.onerror = () => failHrfco('native-hls-error');
+                video.play().catch(() => {});
+            } else {
+                failHrfco('hls-not-supported');
+            }
+        };
+
+        resolveHrfcoPopupStreamUrl(url)
+            .then(loadResolvedStream)
+            .catch(error => {
+                failHrfco(error?.message || error?.name || 'popup-resolve-failed');
+            });
+
+        armVideoPlaybackWatchdog(video, playbackCctv, reason => failHrfco(reason), {
+            startupTimeoutMs: PLAYBACK_STARTUP_TIMEOUT_MS,
+            stallTimeoutMs: PLAYBACK_STALL_TIMEOUT_MS
+        });
         return video;
     }
 
@@ -5270,7 +5340,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
         }
 
         video.hls = hls;
-        armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement), {
+        armVideoPlaybackWatchdog(video, playbackCctv, reason => triggerFailover(video.parentElement, reason), {
             startupTimeoutMs: hlsStartupTimeoutMs,
             stallTimeoutMs: hlsStallTimeoutMs
         });
@@ -5287,15 +5357,17 @@ function createVideoElement(cctv, sourceIndex = 0) {
     video.playsInline = true;
 
     video.onerror = () => triggerFailover(video.parentElement);
-    armVideoPlaybackWatchdog(video, cctv, () => triggerFailover(video.parentElement));
+    armVideoPlaybackWatchdog(video, playbackCctv, reason => triggerFailover(video.parentElement, reason));
 
     return video;
 }
 
 function ensureDynamicBackups(cctv) {
     if (!cctv || cctv._dynamicFallbacksAdded) return;
-    const backupSource = isJejuUticProxyable(cctv) ? 'JEJU' : cctv.source;
-    if (!['JEJU', 'NOWJEJU', 'TRENDWORLD'].includes(backupSource)) return;
+    const sourceUrl = cctv.directUrl || cctv.url || '';
+    const isHrfcoFallbackSource = cctv.source === 'HRFCO' || isHrfcoPopupUrl(sourceUrl);
+    const backupSource = isJejuUticProxyable(cctv) ? 'JEJU' : (isHrfcoFallbackSource ? 'HRFCO' : cctv.source);
+    if (!['JEJU', 'NOWJEJU', 'TRENDWORLD', 'HRFCO'].includes(backupSource)) return;
     if (!Number.isFinite(Number(cctv.lat)) || !Number.isFinite(Number(cctv.lng))) return;
 
     const backupUrls = Array.isArray(cctv.backup_urls)
@@ -5304,13 +5376,16 @@ function ensureDynamicBackups(cctv) {
     const knownUrls = new Set([cctv.directUrl, cctv.url, ...backupUrls.map(item => item && item.url)].filter(Boolean));
     const jejuStatus = state.regionHealth.JEJU?.status || '';
     const jejuIsUnstable = ['DEGRADED', 'DOWN'].includes(jejuStatus);
-    const preferredSources = backupSource === 'JEJU' && jejuIsUnstable
-        ? ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'GITS']
-        : ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS'];
+    const preferredSources = backupSource === 'HRFCO'
+        ? ['GITS', 'SPATIC', 'TOPIS', 'KBS', 'NTIC', 'JEJU', 'NOWJEJU', 'TRENDWORLD']
+        : (backupSource === 'JEJU' && jejuIsUnstable
+            ? ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'GITS']
+            : ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS']);
 
     const nearbyBackupCandidates = state.cctvData
         .filter(item => item && item.id !== cctv.id && preferredSources.includes(item.source))
         .filter(item => !isUnsupportedBrowserStream(item))
+        .filter(item => backupSource !== 'HRFCO' || isManualRetryFallbackCandidate(item, cctv))
         .map(item => ({
             item,
             distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng)
@@ -5448,35 +5523,62 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
                 ? `${preparedFallback.name || '대체 CCTV'} 영상으로 전환합니다.`
                 : `${MANUAL_RETRY_PRIMARY_ATTEMPTS}회 재시도 후에도 안되면 ${preparedFallback.name || '대체 CCTV'} 영상으로 바로 전환합니다.`)
             : '잠시 후 다시 시도하거나, 문제가 계속되면 바로 제보할 수 있습니다.';
-        const errPh = createErrorPlaceholder({
-            message: '지금은 연결이 불안정합니다',
-            detail: retryDetail,
-            retryLabel,
-            retryFn: async () => {
-                const activePanel = panel || wrapper.closest('.video-panel');
-                const nextRetryCount = getManualRetryCount(activePanel) + 1;
-                setManualRetryCount(activePanel, nextRetryCount);
-                prepareManualRetryFallback(activePanel, cctv);
+        const appendFinalError = () => {
+            cleanupVideo(wrapper);
+            const errPh = createErrorPlaceholder({
+                message: '지금은 연결이 불안정합니다',
+                detail: retryDetail,
+                retryLabel,
+                retryFn: async () => {
+                    const activePanel = panel || wrapper.closest('.video-panel');
+                    const nextRetryCount = getManualRetryCount(activePanel) + 1;
+                    setManualRetryCount(activePanel, nextRetryCount);
+                    prepareManualRetryFallback(activePanel, cctv);
 
-                if (nextRetryCount > MANUAL_RETRY_PRIMARY_ATTEMPTS) {
+                    if (nextRetryCount > MANUAL_RETRY_PRIMARY_ATTEMPTS) {
+                        const switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
+                        if (!switched) {
+                            showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
+                        }
+                        return;
+                    }
+                    handleStreamFailover(wrapper, cctv, 0);
+                },
+                onTryAnother: async () => {
+                    const activePanel = panel || wrapper.closest('.video-panel');
                     const switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
                     if (!switched) {
                         showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
                     }
-                    return;
-                }
-                handleStreamFailover(wrapper, cctv, 0);
-            },
-            onTryAnother: async () => {
-                const activePanel = panel || wrapper.closest('.video-panel');
-                const switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
-                if (!switched) {
-                    showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
-                }
-            },
-            cctv
-        });
-        wrapper.appendChild(errPh);
+                },
+                cctv
+            });
+            wrapper.appendChild(errPh);
+        };
+
+        if (panel && preparedFallback && panel.dataset.autoFallbackSourceId !== cctv.id) {
+            panel.dataset.autoFallbackSourceId = cctv.id;
+            const autoDetail = `${preparedFallback.name || '대체 CCTV'} 송출 가능 여부를 확인한 뒤 자동으로 전환합니다.`;
+            showStreamLoadingIndicator(wrapper, '대체 영상 확인 중', autoDetail);
+            switchToPreparedRetryFallback(panel, cctv, { requireVerified: true })
+                .then(switched => {
+                    if (switched) return;
+                    if (!wrapper.isConnected) return;
+                    const currentPanelCctv = getPanelCctv(panel);
+                    if (currentPanelCctv && currentPanelCctv.id !== cctv.id) return;
+                    appendFinalError();
+                })
+                .catch(error => {
+                    console.warn('[Failover] automatic nearby fallback failed:', error);
+                    if (!wrapper.isConnected) return;
+                    const currentPanelCctv = getPanelCctv(panel);
+                    if (currentPanelCctv && currentPanelCctv.id !== cctv.id) return;
+                    appendFinalError();
+                });
+            return;
+        }
+
+        appendFinalError();
     }
 }
 
@@ -5622,6 +5724,28 @@ function cleanupVideo(container) {
     }
 
     container.innerHTML = '';
+}
+
+function isWorldTourModeActiveOrPending() {
+    const params = new URLSearchParams(window.location.search);
+    return document.body.classList.contains('world-tour-active')
+        || $('#weather-layer')?.classList.contains('world-tour-layer')
+        || !!state.initialWorldTourId
+        || params.get('mode') === 'world';
+}
+
+function cleanupDomesticVideoGrid() {
+    const grid = $('#video-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.video-content-wrapper').forEach(wrapper => cleanupVideo(wrapper));
+    grid.querySelectorAll('.video-panel').forEach(panel => {
+        panel.classList.remove('panel-suspended');
+        resetPanelRetryState(panel);
+        removePanelHealthBadge(panel);
+        delete panel.dataset.cctvId;
+        delete panel.dataset.slotIndex;
+        delete panel.dataset.cctvIndex;
+    });
 }
 
 // === Map ===
@@ -6180,6 +6304,7 @@ function closeWeather(options = {}) {
     if (list) list.innerHTML = '';
 
     if (wasWorldTour && restoreDomesticMap) {
+        state.initialWorldTourId = null;
         switchMode('map');
     }
 }
@@ -6197,6 +6322,7 @@ function openWeatherPanel() {
 async function openWorldTourPanel(options = {}) {
     const layer = $('#weather-layer');
     const content = layer?.querySelector('.weather-content');
+    cleanupDomesticVideoGrid();
     layer?.classList.add('world-tour-layer');
     content?.classList.add('world-tour-content');
     document.body.classList.add('world-tour-active');
@@ -6245,7 +6371,7 @@ async function loadWorldTourCams() {
     const payload = await response.json();
     state.worldTourCams = (payload.items || [])
         .filter(item => item && (item.videoId || item.embedUrl || item.playUrl || item.sourceUrl))
-        .filter(item => !(item.snapshotUrl && !item.videoId && !item.embedUrl && !item.playUrl))
+        .filter(item => !isWorldTourImageOnlySource(item))
         .sort((a, b) => (
             Number(b.qualityScore || b.stabilityScore || b.priority || 0)
             - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
@@ -6255,8 +6381,8 @@ async function loadWorldTourCams() {
 }
 
 function getWorldTourEmbedUrl(cam) {
-    if (cam.embedUrl && !isWorldTourEmbedBlocked(cam, cam.embedUrl)) return cam.embedUrl;
-    if (cam.playUrl) return cam.playUrl;
+    if (cam.embedUrl && !isWorldTourStillImageUrl(cam.embedUrl) && !isWorldTourEmbedBlocked(cam, cam.embedUrl)) return cam.embedUrl;
+    if (cam.playUrl && !isWorldTourStillImageUrl(cam.playUrl)) return cam.playUrl;
     if (!cam.videoId) return null;
     return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
 }
@@ -6291,6 +6417,21 @@ function isWorldTourEmbedBlocked(cam, url) {
     return false;
 }
 
+function isWorldTourStillImageUrl(url) {
+    return /\.(?:jpe?g|png|webp|gif)(?:[?#]|$)/i.test(String(url || '').trim());
+}
+
+function isWorldTourImageOnlySource(cam) {
+    if (!cam) return false;
+    const sourceType = String(cam.sourceType || '').toLowerCase();
+    const hasPlayableVideoField = Boolean(cam.videoId)
+        || ['embedUrl', 'playUrl'].some(key => cam[key] && !isWorldTourStillImageUrl(cam[key]));
+    const hasStillOnlyMedia = ['sourceUrl', 'snapshotUrl', 'embedUrl', 'playUrl']
+        .some(key => isWorldTourStillImageUrl(cam[key]));
+    return !hasPlayableVideoField
+        && (hasStillOnlyMedia || WORLD_TOUR_STILL_IMAGE_SOURCE_TYPES.has(sourceType));
+}
+
 function formatWorldTourHashTag(value, compact = false) {
     const text = String(value || '').trim();
     if (!text) return '';
@@ -6310,11 +6451,12 @@ function renderWorldTourHashTags(cam) {
 }
 
 function canPlayWorldTourInApp(cam) {
-    // Snapshot-only feeds are intentionally excluded from the global CCTV list;
+    // Image-only feeds are intentionally excluded from the global CCTV list;
     // in-app playback should mean a real video/embed stream.
     const playbackStatus = String(cam?.playbackStatus || '').toLowerCase();
     const directStatus = String(cam?.directPlaybackStatus || '').toLowerCase();
     if (cam?.videoId && BLOCKED_YOUTUBE_VIDEO_IDS.has(String(cam.videoId))) return false;
+    if (isWorldTourImageOnlySource(cam)) return false;
     if (cam?.sourceOnly || directStatus === 'source_site_only') return false;
     if (['unavailable', 'embed_disabled', 'source-only'].includes(playbackStatus)) return false;
     if (cam?.embedUrl && isWorldTourEmbedBlocked(cam, cam.embedUrl)) return false;
@@ -6383,6 +6525,14 @@ function getWorldTourListCountries(cams) {
         acc[country] = (acc[country] || 0) + 1;
         return acc;
     }, {});
+    const selectedCountry = state.worldTourListCountry || 'All';
+    if (
+        selectedCountry !== 'All'
+        && counts[selectedCountry] == null
+        && baseCams.some(cam => (cam.country || 'Unknown') === selectedCountry)
+    ) {
+        counts[selectedCountry] = 0;
+    }
     // Sort alphabetically (A → Z, case-insensitive) so the dropdown is
     // easy to scan regardless of which tab the user opened the list on.
     return Object.entries(counts).sort((a, b) =>
@@ -6390,19 +6540,30 @@ function getWorldTourListCountries(cams) {
     );
 }
 
-function getWorldTourCountryEntries(cams, region = state.worldTourRegion || 'All') {
+function getWorldTourCountryEntries(cams, region = state.worldTourRegion || 'All', options = {}) {
     const favorites = getWorldTourFavoriteIds();
-    const baseCams = cams.filter(cam => {
-        if (state.worldTourListExcludeExternal && !canPlayWorldTourInApp(cam)) return false;
+    const scopedCams = cams.filter(cam => {
         if (region === WORLD_TOUR_FAVORITE_REGION) return favorites.has(String(cam.id));
         if (region === 'All') return true;
         return cam.region === region;
     });
+    const baseCams = state.worldTourListExcludeExternal
+        ? scopedCams.filter(canPlayWorldTourInApp)
+        : scopedCams;
     const counts = baseCams.reduce((acc, cam) => {
         const country = cam.country || 'Unknown';
         acc[country] = (acc[country] || 0) + 1;
         return acc;
     }, {});
+    const selectedCountry = state.worldTourListCountry || 'All';
+    if (
+        options.preserveSelected !== false
+        && selectedCountry !== 'All'
+        && counts[selectedCountry] == null
+        && scopedCams.some(cam => (cam.country || 'Unknown') === selectedCountry)
+    ) {
+        counts[selectedCountry] = 0;
+    }
     return Object.entries(counts).sort((a, b) =>
         a[0].localeCompare(b[0], undefined, { sensitivity: 'base' })
     );
@@ -6446,7 +6607,7 @@ function sanitizeWorldTourListFilters(cams) {
     const region = isWorldTourRegionAvailable(state.worldTourListRegion) ? state.worldTourListRegion : 'All';
     state.worldTourListRegion = region;
 
-    const countries = new Set(getWorldTourCountryEntries(cams, 'All').map(([country]) => country));
+    const countries = new Set(cams.map(cam => cam.country || 'Unknown'));
     if (state.worldTourListCountry !== 'All' && !countries.has(state.worldTourListCountry)) {
         state.worldTourListCountry = 'All';
     }
@@ -6673,13 +6834,10 @@ function renderWorldTourListToggle(cams) {
 }
 
 function renderWorldTourCountrySelect(cams) {
-    const entries = getWorldTourCountryEntries(cams, state.worldTourRegion || 'All');
+    const entries = getWorldTourCountryEntries(cams, state.worldTourRegion || 'All', { preserveSelected: true });
     const selectedCountry = entries.some(([country]) => country === state.worldTourListCountry)
         ? state.worldTourListCountry
         : 'All';
-    if (selectedCountry !== state.worldTourListCountry) {
-        state.worldTourListCountry = 'All';
-    }
     return `
         <select
             class="world-tour-country-select"
@@ -6759,13 +6917,14 @@ function renderWorldTourListRegionChips(cams) {
 }
 
 function renderWorldTourListSelectOptions(entries, selectedValue, allLabel) {
-    const options = [`<option value="All">${escapeWorldTourHtml(allLabel)}</option>`];
+    const selected = selectedValue || 'All';
+    const options = [`<option value="All"${selected === 'All' ? ' selected' : ''}>${escapeWorldTourHtml(allLabel)}</option>`];
     entries.forEach(entry => {
         const value = Array.isArray(entry) ? entry[0] : entry.sourceType;
         const label = Array.isArray(entry) ? entry[0] : entry.label;
         const count = Array.isArray(entry) ? entry[1] : entry.count;
         options.push(`
-            <option value="${escapeWorldTourHtml(value)}" ${selectedValue === value ? 'selected' : ''}>
+            <option value="${escapeWorldTourHtml(value)}" ${selected === value ? 'selected' : ''}>
                 ${escapeWorldTourHtml(label)} (${count})
             </option>
         `);
@@ -6891,11 +7050,11 @@ function renderWorldTourListPanel(cams, selected) {
                             class="world-tour-list-external-toggle ${externalOnly ? 'active' : ''}"
                             data-world-tour-list-external-toggle
                             aria-pressed="${externalOnly}"
-                            aria-label="${externalOnly ? '원본사이트 영상 포함' : '원본사이트 영상 제외'}"
-                            title="${externalOnly ? '원본사이트 영상 제외중 — 클릭하면 포함' : '원본사이트로만 재생되는 영상을 제외'}"
+                            aria-label="${externalOnly ? '전체 영상 보기' : '앱에서 바로 재생 가능한 영상만 보기'}"
+                            title="${externalOnly ? '원본사이트 전용 영상 숨김 — 클릭하면 전체 보기' : '원본사이트 전용 영상을 숨기고 앱 재생 가능한 영상만 보기'}"
                         >
                             ${WORLD_TOUR_VIDEO_OFF_SVG}
-                            <span>원본만${externalOnly ? ' 숨김' : ' 보기'}</span>
+                            <span>${externalOnly ? '전체 보기' : '앱 재생만'}</span>
                         </button>
                     </div>
                 </div>
@@ -7489,13 +7648,21 @@ function bindWorldTourListPanel(root, cams, selected) {
     panel.querySelector('[data-world-tour-list-country]')?.addEventListener('change', event => {
         state.worldTourListCountry = event.target.value;
         state.worldTourRegion = state.worldTourListRegion || state.worldTourRegion || 'All';
-        rerenderWithList();
+        rerenderWithList(state.selectedWorldTourId, {
+            preserveListFilters: true,
+            focusSelected: true,
+            listScrollToSelected: true
+        });
     });
 
     panel.querySelector('[data-world-tour-list-external-toggle]')?.addEventListener('click', event => {
         event.preventDefault();
         state.worldTourListExcludeExternal = !state.worldTourListExcludeExternal;
-        rerenderWithList();
+        rerenderWithList(state.selectedWorldTourId, {
+            preserveListFilters: true,
+            focusSelected: true,
+            listScrollToSelected: true
+        });
     });
 
     const listChipRow = panel.querySelector('.world-tour-list-chip-row');
@@ -7681,8 +7848,9 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             state.worldTourViewMode = options.viewMode;
         }
 
+        const preserveListFilters = options.preserveListFilters === true;
         let visibleCams = getWorldTourVisibleCams(cams);
-        if (!visibleCams.length && state.worldTourRegion !== WORLD_TOUR_FAVORITE_REGION) {
+        if (!visibleCams.length && state.worldTourRegion !== WORLD_TOUR_FAVORITE_REGION && !preserveListFilters) {
             state.worldTourRegion = 'All';
             state.worldTourListCountry = 'All';
             visibleCams = state.worldTourListExcludeExternal
@@ -7696,7 +7864,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
 
         let selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
         const selectedFromAll = cams.find(cam => cam.id === selectedId);
-        if (!selectedFromVisible && selectedFromAll) {
+        if (!selectedFromVisible && selectedFromAll && !preserveListFilters) {
             // If the user picked an item from the right-side list/search that
             // is outside the current bottom rail filter, move the rail to the
             // selected camera's region so the active button remains visible.
@@ -7705,7 +7873,11 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             visibleCams = getWorldTourVisibleCams(cams);
             selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
         }
-        const selected = selectedFromVisible || selectedFromAll || visibleCams[0] || cams[0];
+        const selected = selectedFromVisible
+            || (preserveListFilters ? visibleCams[0] : selectedFromAll)
+            || visibleCams[0]
+            || selectedFromAll
+            || cams[0];
         state.selectedWorldTourId = selected.id;
         syncWorldTourUrlState(selected, { viewMode: state.worldTourViewMode });
         destroyWorldTourMap();
@@ -7831,6 +8003,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 viewMode: state.worldTourViewMode,
                 cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
                 regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+                preserveListFilters: true,
                 focusSelected: true,
                 listScrollToSelected: true
             });
@@ -8021,7 +8194,6 @@ async function initWorldTourMap(selected, visibleCams) {
                     offset: [0, -6],
                     className: 'world-tour-leaflet-popup'
                 })
-                .on('mouseover', () => marker.openPopup())
                 .on('click', () => marker.openPopup());
 
             worldTourLeafletMarkers.push(marker);
@@ -8030,7 +8202,6 @@ async function initWorldTourMap(selected, visibleCams) {
                 worldTourLeafletMap.setView([lat, lng], Math.max(worldTourLeafletMap.getZoom(), state.worldTourRegion === 'All' ? 4 : 5), {
                     animate: false
                 });
-                setTimeout(() => marker.openPopup(), 120);
             }
         });
 

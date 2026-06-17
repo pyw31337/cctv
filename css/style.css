@@ -72,102 +72,11 @@ body {
     overflow: hidden;
 }
 
+#service-status-banner,
 .service-status-banner {
-    position: fixed;
-    top: max(12px, env(safe-area-inset-top));
-    left: 50%;
-    width: min(calc(100% - 24px), 620px);
-    padding: 12px 14px;
-    border-radius: 16px;
-    backdrop-filter: blur(18px);
-    box-shadow: 0 16px 40px rgba(2, 6, 23, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    z-index: 1004;
-    pointer-events: auto;
-    transform: translateX(-50%);
-    transition: opacity var(--transition), visibility var(--transition), transform var(--transition);
-}
-
-.service-status-banner.hidden {
-    opacity: 0;
-    visibility: hidden;
-    transform: translate(-50%, -12px);
-}
-
-.service-status-banner.tone-ok {
-    background: rgba(8, 47, 31, 0.82);
-    border-color: rgba(74, 222, 128, 0.18);
-}
-
-.service-status-banner.tone-warn {
-    background: rgba(68, 45, 8, 0.84);
-    border-color: rgba(251, 191, 36, 0.2);
-}
-
-.service-status-banner.tone-danger {
-    background: rgba(69, 10, 10, 0.84);
-    border-color: rgba(248, 113, 113, 0.2);
-}
-
-.service-status-title {
-    padding-right: 24px;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-}
-
-.service-status-body {
-    margin-top: 4px;
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-.service-status-meta {
-    margin-top: 6px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    color: rgba(226, 232, 240, 0.72);
-}
-
-.service-status-time {
-    min-width: 0;
-}
-
-.service-status-countdown {
-    flex: 0 0 auto;
-    padding: 2px 7px;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    font-size: 11px;
-    font-weight: 800;
-    line-height: 1.25;
-    color: rgba(248, 250, 252, 0.88);
-    font-variant-numeric: tabular-nums;
-}
-
-.service-status-close {
-    position: absolute;
-    top: 8px;
-    right: 10px;
-    width: 26px;
-    height: 26px;
-    border: 0;
-    border-radius: 50%;
-    background: rgba(15, 23, 42, 0.45);
-    color: rgba(248, 250, 252, 0.86);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-    transition: background var(--transition), color var(--transition), transform var(--transition);
-}
-
-.service-status-close:hover {
-    background: rgba(15, 23, 42, 0.72);
-    color: #fff;
-    transform: scale(1.04);
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
 }
 
 .view {
@@ -1183,7 +1092,6 @@ body.world-tour-active {
 }
 
 body.world-tour-active #header,
-body.world-tour-active #service-status-banner,
 body.world-tour-active #pwa-install-prompt {
     opacity: 0 !important;
     visibility: hidden !important;
@@ -3040,12 +2948,6 @@ body.world-tour-active #pwa-install-prompt {
 
 /* === Responsive === */
 @media (max-width: 600px) {
-    .service-status-banner {
-        top: max(10px, env(safe-area-inset-top));
-        width: calc(100% - 20px);
-        padding: 11px 12px;
-    }
-
     .header-inner {
         gap: 8px;
         max-width: 100%;

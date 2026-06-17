@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Refresh playability metadata for the existing global CCTV directory.
 
-This is intentionally lighter than a full collection run: it keeps every known
-source record, removes snapshot-only records from the user-facing list, rejects
+This is intentionally lighter than a full collection run: it removes
+still-image-only and source-site-only records from the user-facing list, rejects
 bogus embeds such as analytics iframes, and refreshes YouTube live playability
 so ended/unavailable live streams stop appearing as green in-app videos.
 """
@@ -130,12 +130,16 @@ def select_audit_items(items: list[dict], max_items: int | None = None) -> tuple
 
 def run(path: Path, max_workers: int = 10, max_items: int | None = None) -> dict:
     payload = json.loads(path.read_text(encoding='utf-8'))
-    items = payload.get('items', [])
+    raw_items = payload.get('items', [])
+    items = [item for item in raw_items if not world.is_snapshot_only_item(item)]
+    still_image_only_removed = len(raw_items) - len(items)
     selected_items, selected_ids = select_audit_items(items, max_items)
     preserved_items = [item for item in items if str(item.get('id') or '') not in selected_ids]
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         audited_selected = [item for item in executor.map(audit_item, selected_items) if item]
-    audited = audited_selected + preserved_items
+    audited_before_playback_filter = audited_selected + preserved_items
+    audited = [item for item in audited_before_playback_filter if world.is_user_facing_world_tour_item(item)]
+    app_playback_removed = len(audited_before_playback_filter) - len(audited)
     audited.sort(
         key=lambda item: (
             0 if world.is_in_app_video_item(item) and not item.get('sourceOnly') else 1,
@@ -148,55 +152,27 @@ def run(path: Path, max_workers: int = 10, max_items: int | None = None) -> dict
     meta['itemCount'] = len(audited)
     meta['lastPlayabilityAuditAt'] = dt.datetime.now(dt.timezone.utc).isoformat()
     meta['playabilityAuditPolicy'] = (
-        'Snapshot-only feeds are excluded; unavailable/embed-disabled/source-only feeds are retained but not treated as in-app playable. '
-        'When max-items is used, stale and high-risk source items are rotated first so every retained item eventually receives a fresh check.'
+        'Still-image-only, unavailable, embed-disabled, unchecked, and source-site-only feeds are excluded from the user-facing global list. '
+        'Only verified in-app playable video feeds contribute to the source verification table.'
     )
     meta['playabilityAuditMode'] = 'full' if len(audited_selected) >= len(items) else 'rotating'
     meta['playabilityAuditedThisRun'] = len(audited_selected)
     meta['playabilityRetainedWithoutAuditThisRun'] = len(preserved_items)
+    meta['stillImageOnlyRemovedThisRun'] = still_image_only_removed
+    meta['appPlaybackRemovedThisRun'] = app_playback_removed
     meta['oldestCheckedAt'] = min((str(item.get('lastCheckedAt') or '') for item in audited if item.get('lastCheckedAt')), default=None)
     meta['uncheckedCount'] = sum(1 for item in audited if item.get('playbackStatus') == 'unchecked')
     meta['playbackStatusCounts'] = dict(Counter(item.get('playbackStatus') or 'unknown' for item in audited))
     meta['sourceOnlyCount'] = sum(1 for item in audited if item.get('sourceOnly'))
-    meta['sourceTypeHealth'] = {
-        source: {
-            'total': total,
-            'verified': verified,
-            'sourceOnly': source_only,
-            'unchecked': unchecked,
-            'unavailable': unavailable,
-            'embedDisabled': embed_disabled,
-            'directHls': direct_hls,
-            'trustedEmbed': trusted_embed,
-            'externalOnly': source_only + unavailable + embed_disabled,
-            'verifiedRate': round(verified / total, 4) if total else 0,
-        }
-        for source, total, verified, source_only, unchecked, unavailable, embed_disabled, direct_hls, trusted_embed in (
-            (
-                source,
-                len(source_items),
-                sum(1 for item in source_items if item.get('playbackStatus') == 'verified' and not item.get('sourceOnly')),
-                sum(1 for item in source_items if item.get('sourceOnly')),
-                sum(1 for item in source_items if item.get('playbackStatus') == 'unchecked'),
-                sum(1 for item in source_items if item.get('playbackStatus') == 'unavailable'),
-                sum(1 for item in source_items if item.get('playbackStatus') == 'embed_disabled'),
-                sum(1 for item in source_items if item.get('playUrl') or item.get('directPlaybackStatus') in {'direct_hls', 'proxied_hls'}),
-                sum(1 for item in source_items if item.get('embedUrl') or item.get('directPlaybackStatus') in {'trusted_provider_embed', 'in_app_playable'}),
-            )
-            for source, source_items in sorted(
-                {
-                    key: [item for item in audited if (item.get('sourceType') or 'unknown') == key]
-                    for key in sorted({item.get('sourceType') or 'unknown' for item in audited})
-                }.items()
-            )
-        )
-    }
+    meta['verifiedRate'] = 1 if audited else 0
+    meta['sourceTypeHealth'] = world.world_tour_source_type_health(audited)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return {
         'items': len(audited),
         'auditedThisRun': len(audited_selected),
         'status': meta['playbackStatusCounts'],
         'sourceOnly': meta['sourceOnlyCount'],
+        'appPlaybackRemoved': app_playback_removed,
     }
 
 

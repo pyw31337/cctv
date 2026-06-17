@@ -234,6 +234,15 @@ def row_from_check_registry(
     }
 
 
+def is_active_quality_row(row: dict[str, Any]) -> bool:
+    return (
+        int(row.get("success") or 0) > 0
+        and int(row.get("failure") or 0) == 0
+        and int(row.get("slow") or 0) == 0
+        and int(row.get("direct_playable_samples") or 0) > 0
+    )
+
+
 def add_rollup(bucket: dict[str, Any], row: dict[str, Any]) -> None:
     bucket["samples"] += int(row.get("samples") or 0)
     bucket["success"] += int(row.get("success") or 0)
@@ -294,6 +303,7 @@ def main() -> int:
     cameras: dict[str, Any] = {}
     source_buckets: dict[str, Any] = defaultdict(lambda: defaultdict(int))
     region_buckets: dict[str, Any] = defaultdict(lambda: defaultdict(int))
+    excluded_quality_rows = 0
 
     for region_key, region in (status.get("regions") or {}).items():
         if not isinstance(region, dict):
@@ -304,6 +314,9 @@ def main() -> int:
             sample_ids = [str(item) for item in (region.get("passed_ids") or []) if item] + list(failed_by_id.keys())
         for camera_id in sample_ids:
             row = row_from_status_sample(camera_id, catalog_index.get(camera_id), region_key, region, failed_by_id.get(camera_id))
+            if not is_active_quality_row(row):
+                excluded_quality_rows += 1
+                continue
             cameras[camera_id] = row
             add_rollup(source_buckets[row["source"]], row)
             add_rollup(region_buckets[region_key], row)
@@ -316,6 +329,9 @@ def main() -> int:
         if not isinstance(entry, dict) or camera_id in cameras:
             continue
         row = row_from_check_registry(str(camera_id), entry, catalog_index.get(str(camera_id)))
+        if not is_active_quality_row(row):
+            excluded_quality_rows += 1
+            continue
         cameras[str(camera_id)] = row
         add_rollup(source_buckets[row["source"]], row)
         add_rollup(region_buckets[row["region"]], row)
@@ -332,6 +348,9 @@ def main() -> int:
                 continue
             row = row_from_result(result, region_label)
             row["region"] = canonical_quality_region(region_label, catalog_index.get(camera_id))
+            if not is_active_quality_row(row):
+                excluded_quality_rows += 1
+                continue
             cameras[camera_id] = row
             add_rollup(source_buckets[row["source"]], row)
             add_rollup(region_buckets[row["region"]], row)
@@ -344,6 +363,8 @@ def main() -> int:
         "telemetry_status": "fallback_from_regional_health_and_canary",
         "telemetry_note": "실사용 Worker 요약이 비어 있거나 접근 불가할 때 지역 헬스 샘플 전체와 핵심 카나리 점검 결과로 대시보드를 채웁니다.",
         "service_status": ops.get("service_status"),
+        "active_quality_policy": "fallback summary includes only successful, non-slow, directly playable app candidates; failed/source-only candidates remain in canary/status quarantine metadata.",
+        "excluded_quality_rows": excluded_quality_rows,
         "inventory_total": len(catalog) if isinstance(catalog, list) else 0,
         "status_region_count": len(status.get("regions", {}) or {}),
         "sampling_policy": status.get("sampling_policy") or {},
