@@ -93,15 +93,17 @@ def test_world_tour_header_switch_is_next_to_close_button():
     assert "updateWorldTourHeaderSwitch(null);" in app_js
     assert ".world-tour-header-switch" in style_css
     assert ".world-tour-header-switch .world-tour-mode-switch" in style_css
+    assert "--world-tour-action-height: 38px;" in style_css
+    assert "background: #31c690;" in style_css
 
 
 def test_click_only_marker_popup_cache_bust_is_deployed():
     index_html = (ROOT / "index.html").read_text(encoding="utf-8")
     sw_js = (ROOT / "sw.js").read_text(encoding="utf-8")
 
-    assert "js/app.js?v=20260618-world-header-switch" in index_html
-    assert "sw.js?v=20260618-world-header-switch" in index_html
-    assert "v20260618-world-header-switch" in sw_js
+    assert "js/app.js?v=20260618-header-pill-switch" in index_html
+    assert "sw.js?v=20260618-header-pill-switch" in index_html
+    assert "v20260618-header-pill-switch" in sw_js
 
 
 if __name__ == "__main__":
