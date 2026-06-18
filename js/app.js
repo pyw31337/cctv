@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260618-c623ab32';
+const APP_BUILD_VERSION = '20260618-proxy-world-hls';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6386,10 +6386,16 @@ async function loadWorldTourCams() {
 }
 
 function getWorldTourEmbedUrl(cam) {
-    if (cam.playUrl) return cam.playUrl;
-    if (cam.embedUrl && !isWorldTourEmbedBlocked(cam, cam.embedUrl)) return cam.embedUrl;
+    if (cam.playUrl) return getWorldTourPlayableStreamUrl(cam.playUrl);
+    if (cam.embedUrl && !isWorldTourEmbedBlocked(cam, cam.embedUrl)) return getWorldTourPlayableStreamUrl(cam.embedUrl);
     if (!cam.videoId) return null;
     return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
+}
+
+function getWorldTourPlayableStreamUrl(url) {
+    const value = String(url || '').trim();
+    if (/^http:\/\//i.test(value) && isWorldTourHlsUrl(value)) return proxyWithOracle(value);
+    return value;
 }
 
 function isWorldTourRejectedOriginalOnlyCam(cam) {

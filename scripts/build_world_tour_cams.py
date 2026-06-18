@@ -200,10 +200,11 @@ WORLD_TOUR_STALE_CACHE_HOURS = float(os.getenv('WORLD_TOUR_STALE_CACHE_HOURS', '
 WORLD_TOUR_HTTP_TIMEOUT_CAP = float(os.getenv('WORLD_TOUR_HTTP_TIMEOUT_CAP', '14'))
 WORLD_TOUR_SOURCE_ENRICH_LIMIT = int(os.getenv('WORLD_TOUR_SOURCE_ENRICH_LIMIT', '160'))
 WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS = int(os.getenv('WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS', '150'))
-WORLD_TOUR_ONGJIN_PROXY_BASE = os.getenv(
-    'WORLD_TOUR_ONGJIN_PROXY_BASE',
-    'https://cctv-proxy-hoon-001.fly.dev/proxy?url=',
+WORLD_TOUR_HTTP_HLS_PROXY_BASE = os.getenv(
+    'WORLD_TOUR_HTTP_HLS_PROXY_BASE',
+    'https://158.179.194.163.sslip.io/proxy?url=',
 )
+WORLD_TOUR_ONGJIN_PROXY_BASE = os.getenv('WORLD_TOUR_ONGJIN_PROXY_BASE', WORLD_TOUR_HTTP_HLS_PROXY_BASE)
 WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT = int(os.getenv('WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT', '24'))
 WORLD_TOUR_WEBCAMHOPPER_LIMIT = int(os.getenv('WORLD_TOUR_WEBCAMHOPPER_LIMIT', '24'))
 WORLD_TOUR_WORLDCAMTV_LIMIT = int(os.getenv('WORLD_TOUR_WORLDCAMTV_LIMIT', '12'))
@@ -1390,12 +1391,17 @@ def refresh_source_video_id(item):
     source_type = str(item.get('sourceType') or '').lower()
     hls_url = extract_preferred_hls_url(page, source_type)
     if hls_url:
+        raw_hls_url = hls_url
+        if source_type == 'ongjin':
+            hls_url = proxied_ongjin_stream_url(raw_hls_url)
+            item['originUrl'] = raw_hls_url
+            item['originalStreamUrl'] = raw_hls_url
         if item.get('playUrl') != hls_url:
             item['previousPlayUrl'] = item.get('playUrl')
         item['playUrl'] = hls_url
         item['sourceRefreshedAt'] = utc_now().isoformat()
         item['playbackStatus'] = 'verified'
-        item['directPlaybackStatus'] = 'direct_hls'
+        item['directPlaybackStatus'] = 'proxied_hls' if hls_url != raw_hls_url else 'direct_hls'
         item['sourceOnly'] = False
         item.pop('sourceOnlyReason', None)
         return item
