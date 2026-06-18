@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260618-4439d1b3';
+const APP_BUILD_VERSION = '20260618-binary-world-markers';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -121,6 +121,12 @@ const WORLD_TOUR_SOURCE_ONLY_MARKER = {
     fillColor: '#ef4444',
     selectedColor: '#fff1f2',
     selectedFillColor: '#f43f5e'
+};
+const WORLD_TOUR_IN_APP_MARKER = {
+    color: '#047857',
+    fillColor: '#22c55e',
+    selectedColor: '#ecfeff',
+    selectedFillColor: '#22c55e'
 };
 const WORLD_TOUR_SOURCE_LABELS = {
     earthcam: 'EarthCam',
@@ -6480,18 +6486,16 @@ function getWorldTourMarkerStyle(cam, isSelected) {
             radius: isSelected ? 9 : 6,
             color: isSelected ? WORLD_TOUR_SOURCE_ONLY_MARKER.selectedColor : WORLD_TOUR_SOURCE_ONLY_MARKER.color,
             weight: isSelected ? 3 : 2,
-            fillColor: WORLD_TOUR_SOURCE_ONLY_MARKER.fillColor,
-            fillOpacity: isSelected ? 0.98 : 0.82,
-            dashArray: isSelected ? undefined : '3 3'
+            fillColor: isSelected ? WORLD_TOUR_SOURCE_ONLY_MARKER.selectedFillColor : WORLD_TOUR_SOURCE_ONLY_MARKER.fillColor,
+            fillOpacity: isSelected ? 0.98 : 0.82
         };
     }
 
-    const regionColor = WORLD_TOUR_REGION_COLORS[cam.region] || '#38bdf8';
     return {
         radius: isSelected ? 9 : 6,
-        color: isSelected ? '#ecfeff' : regionColor,
+        color: isSelected ? WORLD_TOUR_IN_APP_MARKER.selectedColor : WORLD_TOUR_IN_APP_MARKER.color,
         weight: isSelected ? 3 : 2,
-        fillColor: isSelected ? '#22c55e' : regionColor,
+        fillColor: WORLD_TOUR_IN_APP_MARKER.fillColor,
         fillOpacity: isSelected ? 0.98 : 0.74
     };
 }

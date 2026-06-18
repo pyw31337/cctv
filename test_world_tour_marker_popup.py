@@ -22,13 +22,24 @@ def test_world_tour_circle_marker_popup_opens_on_click_only():
     assert "setTimeout(() => marker.openPopup()" not in marker_code
 
 
-def test_source_only_world_tour_markers_are_red_and_direct_to_source():
+def test_world_tour_markers_use_only_green_or_red_playback_status_colors():
     app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    marker_style = re.search(
+        r"function getWorldTourMarkerStyle\(cam, isSelected\) \{.*?\n\}",
+        app_js,
+        re.S,
+    )
 
     assert "WORLD_TOUR_SOURCE_ONLY_MARKER" in app_js
+    assert "WORLD_TOUR_IN_APP_MARKER" in app_js
     assert "fillColor: '#ef4444'" in app_js
     assert "color: '#991b1b'" in app_js
+    assert "fillColor: '#22c55e'" in app_js
+    assert "color: '#047857'" in app_js
     assert "getWorldTourMarkerStyle(cam, isSelected)" in app_js
+    assert marker_style, "world tour marker style function not found"
+    assert "WORLD_TOUR_REGION_COLORS" not in marker_style.group(0)
+    assert "dashArray" not in marker_style.group(0)
     assert "const sourceOnly = !canPlayWorldTourInApp(cam);" in app_js
     assert "const primaryLabel = sourceOnly ? '원본보기' : '영상보기';" in app_js
     assert "window.open(cam.sourceUrl, '_blank', 'noopener,noreferrer')" in app_js
@@ -101,14 +112,14 @@ def test_click_only_marker_popup_cache_bust_is_deployed():
     index_html = (ROOT / "index.html").read_text(encoding="utf-8")
     sw_js = (ROOT / "sw.js").read_text(encoding="utf-8")
 
-    assert "js/app.js?v=20260618-header-pill-switch" in index_html
-    assert "sw.js?v=20260618-header-pill-switch" in index_html
-    assert "v20260618-header-pill-switch" in sw_js
+    assert "js/app.js?v=20260618-binary-world-markers" in index_html
+    assert "sw.js?v=20260618-binary-world-markers" in index_html
+    assert "v20260618-binary-world-markers" in sw_js
 
 
 if __name__ == "__main__":
     test_world_tour_circle_marker_popup_opens_on_click_only()
-    test_source_only_world_tour_markers_are_red_and_direct_to_source()
+    test_world_tour_markers_use_only_green_or_red_playback_status_colors()
     test_refused_hdontap_originals_are_removed_and_hls_is_preferred()
     test_world_tour_http_hls_is_proxied_for_https_pages()
     test_world_tour_header_switch_is_next_to_close_button()
