@@ -1633,6 +1633,13 @@ def is_snapshot_only_item(item):
     return bool(item.get('snapshotUrl')) and not is_in_app_video_item(item)
 
 
+def is_refused_original_only_item(item):
+    source_type = str((item or {}).get('sourceType') or '').lower()
+    if source_type == 'hdontap' and (item.get('sourceOnly') or (not item.get('playUrl') and not item.get('videoId'))):
+        return True
+    return False
+
+
 def existing_playable_items():
     payload = json.loads(DATA_PATH.read_text())
     items = []
@@ -4861,10 +4868,17 @@ def validate_items(items):
     snapshot_only_removed = sum(1 for item in items if is_snapshot_only_item(item))
     if snapshot_only_removed:
         print(f'excluding snapshot-only world tour feeds: {snapshot_only_removed}', flush=True)
-    candidates = [item for item in items if not is_snapshot_only_item(item)]
+    refused_original_removed = sum(1 for item in items if is_refused_original_only_item(item))
+    if refused_original_removed:
+        print(f'excluding refused original-only world tour feeds: {refused_original_removed}', flush=True)
+    candidates = [item for item in items if not is_snapshot_only_item(item) and not is_refused_original_only_item(item)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
         validated = [item for item in executor.map(validate_youtube_item, candidates) if item]
-    return [enrich_item_quality(item) for item in validated if calculate_quality_score(item) >= 52]
+    return [
+        enrich_item_quality(item)
+        for item in validated
+        if not is_refused_original_only_item(item) and calculate_quality_score(item) >= 52
+    ]
 
 
 def dedupe_items(items):

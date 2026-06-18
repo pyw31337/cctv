@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260618-24464987';
+const APP_BUILD_VERSION = '20260618-remove-refused-originals';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6376,6 +6376,7 @@ async function loadWorldTourCams() {
     state.worldTourCams = (payload.items || [])
         .filter(item => item && (item.videoId || item.embedUrl || item.playUrl || item.sourceUrl))
         .filter(item => !(item.snapshotUrl && !item.videoId && !item.embedUrl && !item.playUrl))
+        .filter(item => !isWorldTourRejectedOriginalOnlyCam(item))
         .sort((a, b) => (
             Number(b.qualityScore || b.stabilityScore || b.priority || 0)
             - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
@@ -6385,10 +6386,16 @@ async function loadWorldTourCams() {
 }
 
 function getWorldTourEmbedUrl(cam) {
-    if (cam.embedUrl && !isWorldTourEmbedBlocked(cam, cam.embedUrl)) return cam.embedUrl;
     if (cam.playUrl) return cam.playUrl;
+    if (cam.embedUrl && !isWorldTourEmbedBlocked(cam, cam.embedUrl)) return cam.embedUrl;
     if (!cam.videoId) return null;
     return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
+}
+
+function isWorldTourRejectedOriginalOnlyCam(cam) {
+    const sourceType = String(cam?.sourceType || '').toLowerCase();
+    if (sourceType === 'hdontap' && (cam?.sourceOnly || (!cam?.playUrl && !cam?.videoId))) return true;
+    return false;
 }
 
 function escapeWorldTourHtml(value) {

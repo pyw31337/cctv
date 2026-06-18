@@ -135,7 +135,11 @@ def run(path: Path, max_workers: int = 10, max_items: int | None = None) -> dict
     preserved_items = [item for item in items if str(item.get('id') or '') not in selected_ids]
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         audited_selected = [item for item in executor.map(audit_item, selected_items) if item]
-    audited = audited_selected + preserved_items
+    audited = [
+        item
+        for item in audited_selected + preserved_items
+        if not world.is_refused_original_only_item(item)
+    ]
     audited.sort(
         key=lambda item: (
             0 if world.is_in_app_video_item(item) and not item.get('sourceOnly') else 1,
@@ -146,9 +150,21 @@ def run(path: Path, max_workers: int = 10, max_items: int | None = None) -> dict
     payload['items'] = audited
     meta = payload.setdefault('collectionMeta', {})
     meta['itemCount'] = len(audited)
+    meta['sourceCounts'] = dict(Counter(item.get('sourceType') or 'unknown' for item in audited))
+    meta['regionCounts'] = dict(Counter(item.get('region') or 'Other' for item in audited))
+    meta['playbackCounts'] = dict(Counter(item.get('playbackStatus') or 'unknown' for item in audited))
+    meta['qualityTiers'] = dict(Counter(item.get('qualityTier') or 'unknown' for item in audited))
+    meta['directPlaybackStatusCounts'] = dict(Counter(
+        item.get('directPlaybackStatus') or ('in_app_playable' if world.is_in_app_video_item(item) else 'source_site_only')
+        for item in audited
+    ))
+    meta['sourceOnlyReasons'] = dict(Counter(
+        item.get('sourceOnlyReason') for item in audited if item.get('sourceOnlyReason')
+    ))
     meta['lastPlayabilityAuditAt'] = dt.datetime.now(dt.timezone.utc).isoformat()
     meta['playabilityAuditPolicy'] = (
         'Snapshot-only feeds are excluded; unavailable/embed-disabled/source-only feeds are retained but not treated as in-app playable. '
+        'Known refused original-only providers are removed from the user-facing list. '
         'When max-items is used, stale and high-risk source items are rotated first so every retained item eventually receives a fresh check.'
     )
     meta['playabilityAuditMode'] = 'full' if len(audited_selected) >= len(items) else 'rotating'
