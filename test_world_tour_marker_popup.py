@@ -64,6 +64,35 @@ def test_refused_hdontap_originals_are_removed_and_hls_is_preferred():
     assert hdotap_health["externalOnly"] == 0
 
 
+def test_forbidden_viewsurf_embeds_are_source_site_only():
+    app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    build_py = (ROOT / "scripts/build_world_tour_cams.py").read_text(encoding="utf-8")
+    audit_py = (ROOT / "scripts/audit_world_tour_playability.py").read_text(encoding="utf-8")
+    world_tour = json.loads((ROOT / "data/world_tour_cams.json").read_text(encoding="utf-8"))
+    items = world_tour["items"]
+
+    assert "viewsurf' && /platforms\\d*\\.joada\\.net\\/embeded\\/embeded\\.html/i.test(embedUrl)" in app_js
+    assert "def is_forbidden_embed_url(url):" in build_py
+    assert "viewsurf_embed_forbidden_or_not_embeddable" in build_py
+    assert "world.is_forbidden_embed_url(blocked_embed)" in audit_py
+
+    joada_embeds = [
+        item for item in items
+        if str(item.get("sourceType", "")).lower() == "viewsurf"
+        and re.search(r"platforms\d*\.joada\.net/embeded/embeded\.html", item.get("embedUrl", ""), re.I)
+    ]
+    assert joada_embeds == []
+
+    viewsurf = [item for item in items if str(item.get("sourceType", "")).lower() == "viewsurf"]
+    assert viewsurf
+    assert all(item.get("sourceOnly") for item in viewsurf)
+    assert all(item.get("playbackStatus") == "source-only" for item in viewsurf)
+    assert any(item.get("blockedEmbedUrl") for item in viewsurf)
+    viewsurf_health = world_tour["collectionMeta"]["sourceTypeHealth"]["viewsurf"]
+    assert viewsurf_health["verified"] == 0
+    assert viewsurf_health["sourceOnly"] == viewsurf_health["total"]
+
+
 def test_world_tour_http_hls_is_proxied_for_https_pages():
     app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
     build_py = (ROOT / "scripts/build_world_tour_cams.py").read_text(encoding="utf-8")
@@ -112,15 +141,16 @@ def test_click_only_marker_popup_cache_bust_is_deployed():
     index_html = (ROOT / "index.html").read_text(encoding="utf-8")
     sw_js = (ROOT / "sw.js").read_text(encoding="utf-8")
 
-    assert "js/app.js?v=20260618-binary-world-markers" in index_html
-    assert "sw.js?v=20260618-binary-world-markers" in index_html
-    assert "v20260618-binary-world-markers" in sw_js
+    assert "js/app.js?v=20260618-block-forbidden-embeds" in index_html
+    assert "sw.js?v=20260618-block-forbidden-embeds" in index_html
+    assert "v20260618-block-forbidden-embeds" in sw_js
 
 
 if __name__ == "__main__":
     test_world_tour_circle_marker_popup_opens_on_click_only()
     test_world_tour_markers_use_only_green_or_red_playback_status_colors()
     test_refused_hdontap_originals_are_removed_and_hls_is_preferred()
+    test_forbidden_viewsurf_embeds_are_source_site_only()
     test_world_tour_http_hls_is_proxied_for_https_pages()
     test_world_tour_header_switch_is_next_to_close_button()
     test_click_only_marker_popup_cache_bust_is_deployed()

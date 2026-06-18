@@ -1275,11 +1275,22 @@ def is_youtube_live_stream_channel_embed(url):
     return parsed.path.strip('/').lower() == 'embed/live_stream'
 
 
+def is_forbidden_embed_url(url):
+    parsed = urlparse(html.unescape(str(url or '')).strip())
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    if re.search(r'platforms\d*\.joada\.net$', host) and path == '/embeded/embeded.html':
+        return True
+    return False
+
+
 def is_valid_embed_url(url):
     value = html.unescape(str(url or '')).strip()
     if not value.startswith(('http://', 'https://')):
         return False
     if BLOCKED_EMBED_URL_RE.search(value):
+        return False
+    if is_forbidden_embed_url(value):
         return False
     # Channel-level YouTube live embeds are not stable enough to promise in-app
     # playback: they often resolve to an ended/disabled live recording while the
@@ -3499,9 +3510,17 @@ def collect_viewsurf(limit=WORLD_TOUR_VIEWSURF_LIMIT):
         if not item:
             continue
         if iframe_match:
-            item['embedUrl'] = html.unescape(iframe_match.group(1))
-            item['status'] = 'is_live'
-            item['sourceOnly'] = False
+            embed_url = html.unescape(iframe_match.group(1))
+            if is_valid_embed_url(embed_url):
+                item['embedUrl'] = embed_url
+                item['status'] = 'is_live'
+                item['sourceOnly'] = False
+            else:
+                item['blockedEmbedUrl'] = embed_url
+                item['playbackStatus'] = 'source-only'
+                item['directPlaybackStatus'] = 'source_site_only'
+                item['sourceOnly'] = True
+                item['sourceOnlyReason'] = 'viewsurf_embed_forbidden_or_not_embeddable'
         country_counts[item['country']] = country_counts.get(item['country'], 0) + 1
         items.append(item)
         if len(items) >= limit:

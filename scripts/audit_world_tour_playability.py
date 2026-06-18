@@ -64,7 +64,11 @@ def normalize_world_tour_playback_item(item: dict) -> dict:
         normalized['blockedEmbedUrl'] = blocked_embed
         normalized['directPlaybackStatus'] = 'source_site_only'
         normalized['sourceOnly'] = True
-        normalized['sourceOnlyReason'] = 'invalid_or_unstable_embed_url'
+        normalized['sourceOnlyReason'] = (
+            'viewsurf_embed_forbidden_or_not_embeddable'
+            if world.is_forbidden_embed_url(blocked_embed)
+            else 'invalid_or_unstable_embed_url'
+        )
         normalized['playbackStatus'] = 'source-only'
     return normalized
 

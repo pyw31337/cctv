@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260618-77babb72';
+const APP_BUILD_VERSION = '20260618-block-forbidden-embeds';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -6445,6 +6445,10 @@ function isWorldTourEmbedBlocked(cam, url) {
     // the source page still works, so keep it as source-site-only instead of
     // showing a dead iframe in our player.
     if (sourceType === 'livebeaches' && /youtube\.com\/embed\/live_stream/i.test(embedUrl)) return true;
+    // ViewSurf's joada embed endpoint frequently renders a bare 403 Forbidden
+    // page when framed directly. Treat it as source-site-only so the app never
+    // displays the thin forbidden-page iframe as a working video.
+    if (sourceType === 'viewsurf' && /platforms\d*\.joada\.net\/embeded\/embeded\.html/i.test(embedUrl)) return true;
     return false;
 }
 
