@@ -252,7 +252,7 @@
             canaryStatusUrl: 'https://158.179.194.163.sslip.io/canary-status'
         };
     </script>
-    <script src="js/app.js?v=20260616-d4632785"></script>
+    <script src="js/app.js?v=20260618-click-only-marker-popup"></script>
     <script>
         // Register the offline-friendly service worker. Wrapped in a load
         // listener so SW registration never blocks first paint; wrapped in a
@@ -260,9 +260,11 @@
         // browsers degrade silently.
         if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js').catch(err => {
-                    console.warn('[sw] registration failed:', err);
-                });
+                navigator.serviceWorker.register('sw.js?v=20260618-click-only-marker-popup')
+                    .then(registration => registration.update?.())
+                    .catch(err => {
+                        console.warn('[sw] registration failed:', err);
+                    });
             });
         }
     </script>

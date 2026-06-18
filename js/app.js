@@ -8145,7 +8145,6 @@ async function initWorldTourMap(selected, visibleCams) {
                     offset: [0, -6],
                     className: 'world-tour-leaflet-popup'
                 })
-                .on('mouseover', () => marker.openPopup())
                 .on('click', () => marker.openPopup());
 
             worldTourLeafletMarkers.push(marker);
@@ -8154,7 +8153,6 @@ async function initWorldTourMap(selected, visibleCams) {
                 worldTourLeafletMap.setView([lat, lng], Math.max(worldTourLeafletMap.getZoom(), state.worldTourRegion === 'All' ? 4 : 5), {
                     animate: false
                 });
-                setTimeout(() => marker.openPopup(), 120);
             }
         });
 
