@@ -29,7 +29,7 @@
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="dns-prefetch" href="//dapi.kakao.com">
     <link rel="dns-prefetch" href="//tile.openstreetmap.org">
-    <link rel="stylesheet" href="css/style.css?v=20260618-7ac92d7a">
+    <link rel="stylesheet" href="css/style.css?v=20260618-world-header-switch">
 
     <!-- Kakao Maps -->
     <script type="text/javascript"
@@ -222,6 +222,7 @@
             <div class="weather-content">
                 <div class="weather-header">
                     <h2 id="weather-title">서울역 주간 날씨</h2>
+                    <div id="world-tour-header-switch" class="world-tour-header-switch" aria-label="세계 관광 라이브 보기 방식" hidden></div>
                     <button id="weather-close">&times;</button>
                 </div>
                 <div class="weather-list" id="weather-list"></div>
@@ -252,7 +253,7 @@
             canaryStatusUrl: 'https://158.179.194.163.sslip.io/canary-status'
         };
     </script>
-    <script src="js/app.js?v=20260618-7ac92d7a"></script>
+    <script src="js/app.js?v=20260618-world-header-switch"></script>
     <script>
         // Register the offline-friendly service worker. Wrapped in a load
         // listener so SW registration never blocks first paint; wrapped in a
@@ -260,7 +261,7 @@
         // browsers degrade silently.
         if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js?v=20260618-7ac92d7a')
+                navigator.serviceWorker.register('sw.js?v=20260618-world-header-switch')
                     .then(registration => registration.update?.())
                     .catch(err => {
                         console.warn('[sw] registration failed:', err);

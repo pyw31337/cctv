@@ -79,13 +79,29 @@ def test_world_tour_http_hls_is_proxied_for_https_pages():
     assert all(item.get("directPlaybackStatus") == "proxied_hls" for item in ongjin)
 
 
+def test_world_tour_header_switch_is_next_to_close_button():
+    index_html = (ROOT / "index.html").read_text(encoding="utf-8")
+    app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    style_css = (ROOT / "css/style.css").read_text(encoding="utf-8")
+
+    assert '<div id="world-tour-header-switch" class="world-tour-header-switch"' in index_html
+    assert index_html.index('id="world-tour-header-switch"') < index_html.index('id="weather-close"')
+    assert "$('#world-tour-header-switch')?.addEventListener('click'" in app_js
+    assert "function updateWorldTourHeaderSwitch(selected = null)" in app_js
+    assert "function switchWorldTourViewMode(viewMode)" in app_js
+    assert "updateWorldTourHeaderSwitch(selected);" in app_js
+    assert "updateWorldTourHeaderSwitch(null);" in app_js
+    assert ".world-tour-header-switch" in style_css
+    assert ".world-tour-header-switch .world-tour-mode-switch" in style_css
+
+
 def test_click_only_marker_popup_cache_bust_is_deployed():
     index_html = (ROOT / "index.html").read_text(encoding="utf-8")
     sw_js = (ROOT / "sw.js").read_text(encoding="utf-8")
 
-    assert "js/app.js?v=20260618-proxy-world-hls" in index_html
-    assert "sw.js?v=20260618-proxy-world-hls" in index_html
-    assert "v20260618-proxy-world-hls" in sw_js
+    assert "js/app.js?v=20260618-world-header-switch" in index_html
+    assert "sw.js?v=20260618-world-header-switch" in index_html
+    assert "v20260618-world-header-switch" in sw_js
 
 
 if __name__ == "__main__":
@@ -93,5 +109,6 @@ if __name__ == "__main__":
     test_source_only_world_tour_markers_are_red_and_direct_to_source()
     test_refused_hdontap_originals_are_removed_and_hls_is_preferred()
     test_world_tour_http_hls_is_proxied_for_https_pages()
+    test_world_tour_header_switch_is_next_to_close_button()
     test_click_only_marker_popup_cache_bust_is_deployed()
     print("world tour marker popup tests passed")

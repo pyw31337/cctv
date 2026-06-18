@@ -20,7 +20,7 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
-const APP_BUILD_VERSION = '20260618-7ac92d7a';
+const APP_BUILD_VERSION = '20260618-world-header-switch';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
 // getStoredPlaybackHealthTtl which referenced PLAYBACK_HEALTH_PROBLEM_TTL_MS
@@ -836,6 +836,13 @@ function setupEventListeners() {
     // Weather
     $('#weather-btn').addEventListener('click', toggleWeather);
     $('#weather-close').addEventListener('click', closeWeather);
+    $('#world-tour-header-switch')?.addEventListener('click', event => {
+        const button = event.target.closest('[data-world-tour-view]');
+        if (!button) return;
+        event.preventDefault();
+        event.stopPropagation();
+        switchWorldTourViewMode(button.dataset.worldTourView);
+    });
 
     $$('[data-quality-sort-select]').forEach(sortSelect => {
         sortSelect.addEventListener('change', () => {
@@ -6302,6 +6309,7 @@ function closeWeather(options = {}) {
     content?.classList.remove('world-tour-content');
     document.body.classList.remove('world-tour-active');
     state.worldTourListOpen = false;
+    updateWorldTourHeaderSwitch(null);
     $('#weather-btn')?.classList.remove('active');
     $('#dim-overlay')?.classList.remove('active');
     const list = $('#weather-list');
@@ -7096,6 +7104,35 @@ function renderWorldTourModeSwitch(selected) {
     `;
 }
 
+function updateWorldTourHeaderSwitch(selected = null) {
+    const switchEl = $('#world-tour-header-switch');
+    if (!switchEl) return;
+    const isWorldTour = document.body.classList.contains('world-tour-active');
+    if (!isWorldTour || !selected) {
+        switchEl.hidden = true;
+        switchEl.innerHTML = '';
+        return;
+    }
+
+    switchEl.hidden = false;
+    switchEl.innerHTML = renderWorldTourModeSwitch(selected);
+}
+
+function switchWorldTourViewMode(viewMode) {
+    const nextMode = viewMode === 'map' ? 'map' : 'video';
+    if (!document.body.classList.contains('world-tour-active')) return;
+
+    const list = $('#weather-list');
+    const cardRail = list?.querySelector('.world-tour-card-rail');
+    const regionTabs = list?.querySelector('.world-tour-region-tabs');
+    renderWorldTourCams(state.selectedWorldTourId, {
+        viewMode: nextMode,
+        cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+        regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+        focusSelected: true
+    });
+}
+
 function renderWorldTourSections(cams, selectedId) {
     if (state.worldTourRegion !== 'All') {
         return `
@@ -7882,6 +7919,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         const selected = selectedFromVisible || selectedFromAll || visibleCams[0] || cams[0];
         state.selectedWorldTourId = selected.id;
         syncWorldTourUrlState(selected, { viewMode: state.worldTourViewMode });
+        updateWorldTourHeaderSwitch(selected);
         destroyWorldTourMap();
 
         const isMapView = state.worldTourViewMode === 'map';
@@ -8011,14 +8049,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         });
         list.querySelectorAll('.world-tour-mode-option').forEach(button => {
             button.addEventListener('click', () => {
-                const viewMode = button.dataset.worldTourView === 'map' ? 'map' : 'video';
-                const cardRail = list.querySelector('.world-tour-card-rail');
-                const regionTabs = list.querySelector('.world-tour-region-tabs');
-                renderWorldTourCams(state.selectedWorldTourId, {
-                    viewMode,
-                    cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
-                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft
-                });
+                switchWorldTourViewMode(button.dataset.worldTourView);
             });
         });
         list.querySelectorAll('.world-tour-nearby-item').forEach(item => {
