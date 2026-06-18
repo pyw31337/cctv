@@ -116,6 +116,12 @@ const WORLD_TOUR_REGION_COLORS = {
     'South America': '#f59e0b',
     Africa: '#fb7185'
 };
+const WORLD_TOUR_SOURCE_ONLY_MARKER = {
+    color: '#991b1b',
+    fillColor: '#ef4444',
+    selectedColor: '#fff1f2',
+    selectedFillColor: '#f43f5e'
+};
 const WORLD_TOUR_SOURCE_LABELS = {
     earthcam: 'EarthCam',
     skyline: 'Skyline',
@@ -6446,6 +6452,29 @@ function canPlayWorldTourInApp(cam) {
     return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
 }
 
+function getWorldTourMarkerStyle(cam, isSelected) {
+    const sourceOnly = !canPlayWorldTourInApp(cam);
+    if (sourceOnly) {
+        return {
+            radius: isSelected ? 9 : 6,
+            color: isSelected ? WORLD_TOUR_SOURCE_ONLY_MARKER.selectedColor : WORLD_TOUR_SOURCE_ONLY_MARKER.color,
+            weight: isSelected ? 3 : 2,
+            fillColor: WORLD_TOUR_SOURCE_ONLY_MARKER.fillColor,
+            fillOpacity: isSelected ? 0.98 : 0.82,
+            dashArray: isSelected ? undefined : '3 3'
+        };
+    }
+
+    const regionColor = WORLD_TOUR_REGION_COLORS[cam.region] || '#38bdf8';
+    return {
+        radius: isSelected ? 9 : 6,
+        color: isSelected ? '#ecfeff' : regionColor,
+        weight: isSelected ? 3 : 2,
+        fillColor: isSelected ? '#22c55e' : regionColor,
+        fillOpacity: isSelected ? 0.98 : 0.74
+    };
+}
+
 // Returns a suggested refresh cadence (ms) for snapshot-based cameras.
 // Conservative defaults keep CDN load reasonable while feeling "live".
 function getWorldTourSnapshotRefreshMs(cam) {
@@ -7277,13 +7306,16 @@ function renderWorldTourMapHero(selected, visibleCams) {
 }
 
 function createWorldTourMarkerPopup(cam) {
+    const sourceOnly = !canPlayWorldTourInApp(cam);
+    const primaryLabel = sourceOnly ? '원본보기' : '영상보기';
+    const primaryClass = sourceOnly ? ' world-tour-marker-video-btn-source-only' : '';
     const popup = document.createElement('div');
     popup.className = 'world-tour-marker-popup';
     popup.innerHTML = `
         <strong>${escapeWorldTourHtml(cam.title)}</strong>
         <span>${escapeWorldTourHtml(cam.city)} · ${escapeWorldTourHtml(cam.country)}</span>
         <div class="world-tour-marker-popup-actions">
-            <button type="button" class="world-tour-marker-video-btn">영상보기</button>
+            <button type="button" class="world-tour-marker-video-btn${primaryClass}">${primaryLabel}</button>
             <button type="button" class="world-tour-marker-share-btn">공유</button>
         </div>
     `;
@@ -7291,6 +7323,11 @@ function createWorldTourMarkerPopup(cam) {
     popup.querySelector('.world-tour-marker-video-btn')?.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
+        if (sourceOnly && cam.sourceUrl) {
+            const opened = window.open(cam.sourceUrl, '_blank', 'noopener,noreferrer');
+            if (!opened) window.location.href = cam.sourceUrl;
+            return;
+        }
         renderWorldTourCams(cam.id, {
             viewMode: 'video',
             focusSelected: true,
@@ -8130,13 +8167,7 @@ async function initWorldTourMap(selected, visibleCams) {
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
             const isSelected = cam.id === selected.id;
-            const marker = L.circleMarker([lat, lng], {
-                radius: isSelected ? 9 : 6,
-                color: isSelected ? '#ecfeff' : (WORLD_TOUR_REGION_COLORS[cam.region] || '#38bdf8'),
-                weight: isSelected ? 3 : 2,
-                fillColor: isSelected ? '#22c55e' : (WORLD_TOUR_REGION_COLORS[cam.region] || '#38bdf8'),
-                fillOpacity: isSelected ? 0.98 : 0.74
-            }).addTo(worldTourLeafletMap);
+            const marker = L.circleMarker([lat, lng], getWorldTourMarkerStyle(cam, isSelected)).addTo(worldTourLeafletMap);
 
             marker
                 .bindPopup(createWorldTourMarkerPopup(cam), {
