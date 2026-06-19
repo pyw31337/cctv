@@ -63,6 +63,12 @@ jobs:
 
       - name: Commit and push changes
         if: steps.check_changes.outputs.changes_detected == 'true'
+        env:
+          # Generated world-tour data can conflict with a human/Codex push that
+          # lands while this long-running refresh is executing. Prefer keeping
+          # the newer main branch clean and let the next scheduled refresh
+          # regenerate data instead of failing the whole workflow or force-pushing.
+          CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
         run: |
           scripts/commit_and_push_changes.sh "Auto-update: World tour CCTV data [skip ci]" \
             data/world_tour_cams.json \
