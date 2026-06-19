@@ -24,11 +24,19 @@ import build_world_tour_cams as world  # noqa: E402
 
 
 SOURCE_COLLECTORS = {
+    'tabi': world.collect_tabi,
+    'earthcam': lambda: world.collect_earthcam(80),
+    'webcamtaxi': world.collect_webcamtaxi_seeds,
+    'thematic': world.collect_thematic_seeds,
     'worldcamlive': lambda: world.collect_worldcamlive(160),
     'panoramask': lambda: world.collect_panoramask(180),
     'airportwebcams': lambda: world.collect_airportwebcams(90),
     'webcamhopper': lambda: world.collect_webcamhopper(120),
     'livecamcroatia': lambda: world.collect_livecamcroatia(80),
+    'webcamsdemexico': lambda: world.collect_webcamsdemexico(80),
+    'wetter': lambda: world.collect_wetter(80),
+    'idokep': lambda: world.collect_idokep(80),
+    'panomax': lambda: world.collect_panomax(80),
     'viewsurf': lambda: world.collect_viewsurf(50),
     'worldcam': lambda: world.collect_worldcam(180),
     'baltic': lambda: world.collect_baltic(180),
