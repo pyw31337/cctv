@@ -26,13 +26,13 @@ import build_world_tour_cams as world  # noqa: E402
 SOURCE_COLLECTORS = {
     'worldcamlive': lambda: world.collect_worldcamlive(160),
     'panoramask': lambda: world.collect_panoramask(180),
-    'airportwebcams': lambda: world.collect_airportwebcams(180),
+    'airportwebcams': lambda: world.collect_airportwebcams(90),
     'webcamhopper': lambda: world.collect_webcamhopper(120),
     'livecamcroatia': lambda: world.collect_livecamcroatia(80),
-    'viewsurf': lambda: world.collect_viewsurf(160),
+    'viewsurf': lambda: world.collect_viewsurf(50),
     'worldcam': lambda: world.collect_worldcam(180),
     'baltic': lambda: world.collect_baltic(180),
-    'skyline': lambda: world.collect_skyline(120),
+    'skyline': lambda: world.collect_skyline(50),
 }
 
 BLOCKED_SOURCE_PAGE_RE = re.compile(

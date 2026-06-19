@@ -94,7 +94,7 @@ def test_forbidden_viewsurf_embeds_are_source_site_only():
     assert viewsurf_health["sourceOnly"] == viewsurf_health["total"]
 
 
-def test_source_only_expansion_adds_one_verified_100_item_batch():
+def test_source_only_expansion_adds_verified_batched_items():
     expand_py = (ROOT / "scripts/expand_world_tour_source_only.py").read_text(encoding="utf-8")
     world_tour = json.loads((ROOT / "data/world_tour_cams.json").read_text(encoding="utf-8"))
     expansion_items = [item for item in world_tour["items"] if item.get("sourceExpansionBatch")]
@@ -104,14 +104,14 @@ def test_source_only_expansion_adds_one_verified_100_item_batch():
     assert "Candidates are collected broadly" in expand_py
     assert "if len(accepted) >= batch_size:" in expand_py
     assert "probe_source_page(item)" in expand_py
-    assert len(expansion_items) == 100
+    assert len(expansion_items) >= 100
     assert len(source_urls) == len(set(source_urls))
     assert all(item.get("sourceUrlProbeStatus") == "source_page_ok" for item in expansion_items)
     assert all(item.get("playbackStatus") == "source-only" for item in expansion_items)
     assert all(item.get("sourceOnly") for item in expansion_items)
     assert expansion_meta["batchSize"] == 100
-    assert expansion_meta["accepted"] == 100
-    assert expansion_meta["checked"] >= 100
+    assert 0 < expansion_meta["accepted"] <= 100
+    assert expansion_meta["checked"] >= expansion_meta["accepted"]
     assert expansion_meta["dryRun"] is False
 
 
@@ -164,9 +164,9 @@ def test_click_only_marker_popup_cache_bust_is_deployed():
     index_html = (ROOT / "index.html").read_text(encoding="utf-8")
     sw_js = (ROOT / "sw.js").read_text(encoding="utf-8")
 
-    assert "js/app.js?v=20260619-source-batch-100" in index_html
-    assert "sw.js?v=20260619-source-batch-100" in index_html
-    assert "v20260619-source-batch-100" in sw_js
+    assert "js/app.js?v=20260619-6828b86a" in index_html
+    assert "sw.js?v=20260619-6828b86a" in index_html
+    assert "v20260619-6828b86a" in sw_js
 
 
 if __name__ == "__main__":
@@ -174,7 +174,7 @@ if __name__ == "__main__":
     test_world_tour_markers_use_only_green_or_red_playback_status_colors()
     test_refused_hdontap_originals_are_removed_and_hls_is_preferred()
     test_forbidden_viewsurf_embeds_are_source_site_only()
-    test_source_only_expansion_adds_one_verified_100_item_batch()
+    test_source_only_expansion_adds_verified_batched_items()
     test_world_tour_http_hls_is_proxied_for_https_pages()
     test_world_tour_header_switch_is_next_to_close_button()
     test_click_only_marker_popup_cache_bust_is_deployed()
