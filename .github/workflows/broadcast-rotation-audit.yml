@@ -1,0 +1,92 @@
+name: Broadcast Rotation Audit
+
+on:
+  schedule:
+    # 12 runs per 48h. Default budgets cover the current 19.8k local and 2.4k
+    # global catalogs within that window while leaving retry headroom.
+    - cron: '37 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      local_budget:
+        description: 'Local cameras to audit this run.'
+        required: false
+        default: '1700'
+      global_budget:
+        description: 'Global cameras to audit this run.'
+        required: false
+        default: '240'
+
+permissions:
+  contents: write
+
+env:
+  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
+
+concurrency:
+  group: cctv-repo-writes
+  cancel-in-progress: false
+
+jobs:
+  rotate-broadcast-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run 48h rotating broadcast audit
+        env:
+          LOCAL_BUDGET: ${{ inputs.local_budget || '1700' }}
+          GLOBAL_BUDGET: ${{ inputs.global_budget || '240' }}
+        run: |
+          set -euo pipefail
+          python scripts/rotate_broadcast_audit.py \
+            --window-hours 48 \
+            --schedule-hours 4 \
+            --local-budget "$LOCAL_BUDGET" \
+            --global-budget "$GLOBAL_BUDGET" \
+            --workers 32 \
+            --timeout 8
+
+      - name: Validate audit status
+        run: python -m json.tool data/broadcast_audit_status.json >/tmp/broadcast_audit_status.pretty.json
+
+      - name: Write audit summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          path = Path('data/broadcast_audit_status.json')
+          print('## Broadcast Rotation Audit')
+          if not path.exists():
+              print('No data/broadcast_audit_status.json found.')
+              raise SystemExit(0)
+          data = json.loads(path.read_text())
+          summary = data.get('summary', {})
+          policy = data.get('policy', {})
+          print(f"- Policy: `{policy.get('name', '-')}` / window `{policy.get('windowHours', '-')}`h")
+          print(f"- Checked this run: `{summary.get('checkedThisRun', 0)}` / OK `{summary.get('okThisRun', 0)}` / Failed `{summary.get('failedThisRun', 0)}`")
+          for scope in ('local', 'global'):
+              item = summary.get(scope, {})
+              print(
+                  f"- {scope}: `{item.get('coveredInWindow', 0)}/{item.get('total', 0)}` "
+                  f"covered in `{item.get('coverageWindowHours', '-')}`h "
+                  f"(`{item.get('coverageRate', 0):.1%}`), selected `{item.get('selectedThisRun', 0)}`"
+              )
+          print('')
+          print('The selector audits never-checked, failed, and stale cameras first; local backup URLs are tried before marking a stream unavailable.')
+          PY
+
+      - name: Commit and push audit status
+        run: |
+          if git diff --quiet -- data/broadcast_audit_status.json; then
+            echo "No broadcast audit status changes."
+          else
+            scripts/commit_and_push_changes.sh "AUTO: Rotate broadcast audit [skip ci]" data/broadcast_audit_status.json
+          fi
