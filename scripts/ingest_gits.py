@@ -11,8 +11,8 @@ GITS 카메라 (경기도 지능형 교통체계) 1,800+개를 cctv_data.json �
 
 전략:
   - collectors.gits.GitsCollector 를 그대로 사용 (이미 popup 3개 패턴 처리)
-  - 기존 source=GITS 항목 전부 제거 후 새 항목 추가 (Upsert)
-  - 결과: 클라이언트는 별도 worker 없이 cctv.url 을 video src 로 직접 사용 가능
+  - 새로 받은 카메라는 갱신하고, 이번 실행에서 누락된 기존 ID는 검토 상태로 보존
+  - 결과: 일시적인 토큰 발급 실패로 카탈로그가 축소되지 않음
 """
 import json
 import os
@@ -25,6 +25,45 @@ sys.path.insert(0, ROOT)
 from collectors.gits import GitsCollector
 
 CCTV_DATA = os.path.join(ROOT, "cctv_data.json")
+
+
+def merge_gits_catalog(data, fresh, now_iso):
+    others = [cam for cam in data if cam.get("source") != "GITS"]
+    existing = {
+        str(cam.get("id")): cam
+        for cam in data
+        if cam.get("source") == "GITS" and cam.get("id")
+    }
+    fresh_by_id = {}
+    for cam in fresh:
+        cam_id = str(cam.get("id") or "")
+        if not cam_id:
+            continue
+        normalized = dict(cam)
+        normalized.setdefault("source", "GITS")
+        normalized["status"] = "active"
+        normalized.setdefault("backup_urls", [])
+        normalized["ingested_at"] = now_iso
+        normalized.pop("health_reason", None)
+        normalized.pop("health_checked_at", None)
+        fresh_by_id[cam_id] = normalized
+
+    retained = []
+    for cam_id, cam in existing.items():
+        if cam_id in fresh_by_id:
+            continue
+        preserved = dict(cam)
+        preserved["status"] = "manual_check"
+        preserved["health_reason"] = "stream_missing_latest_gits_ingest"
+        preserved["health_checked_at"] = now_iso
+        retained.append(preserved)
+
+    return others + list(fresh_by_id.values()) + retained, {
+        "fresh": len(fresh_by_id),
+        "retained": len(retained),
+        "new": len(set(fresh_by_id) - set(existing)),
+        "updated": len(set(fresh_by_id) & set(existing)),
+    }
 
 
 def main():
@@ -42,22 +81,16 @@ def main():
         print("[gits-ingest] empty result - aborting to avoid wiping cctv_data.json", flush=True)
         sys.exit(1)
 
-    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    for cam in fresh:
-        cam.setdefault("source", "GITS")
-        cam.setdefault("status", "active")
-        cam.setdefault("backup_urls", [])
-        cam["ingested_at"] = now_iso
-
     with open(CCTV_DATA, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     before_gits = sum(1 for c in data if c.get("source") == "GITS")
-    others = [c for c in data if c.get("source") != "GITS"]
-    merged = others + fresh
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    merged, stats = merge_gits_catalog(data, fresh, now_iso)
+    after_gits = sum(1 for c in merged if c.get("source") == "GITS")
     print(
-        f"[gits-ingest] cctv_data.json: GITS {before_gits} -> {len(fresh)}, "
-        f"total {len(data)} -> {len(merged)}",
+        f"[gits-ingest] cctv_data.json: GITS {before_gits} -> {after_gits}, "
+        f"total {len(data)} -> {len(merged)}; {stats}",
         flush=True,
     )
 

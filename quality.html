@@ -183,9 +183,9 @@
 const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const FALLBACK_URL = 'data/quality_summary.json';
 const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
-const CANARY_URLS = [`${ORACLE_BASE}/canary-status`, 'data/canary_status.json'];
-const OPS_URLS = [`${ORACLE_BASE}/ops-status`, 'data/ops_status.json'];
-const CANARY_HISTORY_URLS = [`${ORACLE_BASE}/canary-history`, 'data/canary_history.json'];
+const CANARY_URLS = ['data/canary_status.json', `${ORACLE_BASE}/canary-status`];
+const OPS_URLS = ['data/ops_status.json', `${ORACLE_BASE}/ops-status`];
+const CANARY_HISTORY_URLS = ['data/canary_history.json', `${ORACLE_BASE}/canary-history`];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
 const STATUS_URL = 'data/status.json';
@@ -200,7 +200,7 @@ function ms(value) { return value > 0 ? `${Math.round(value / 100) / 10}s` : '-'
 const MIN_STRONG_QUALITY_SAMPLES = 5;
 const MIN_RED_QUALITY_SAMPLES = 3;
 function evidenceLevel(item) {
-    const samples = Number(item?.samples || 0);
+    const samples = Number(item?.directPlayableSamples ?? item?.direct_playable_samples ?? item?.samples ?? 0);
     if (samples <= 0) return 'none';
     if (samples < MIN_RED_QUALITY_SAMPLES) return 'thin';
     if (samples < MIN_STRONG_QUALITY_SAMPLES) return 'limited';
@@ -208,10 +208,11 @@ function evidenceLevel(item) {
 }
 function qualityTone(item) {
     const samples = Number(item?.samples || 0);
+    const directSamples = Number(item?.directPlayableSamples ?? item?.direct_playable_samples ?? samples);
     const rate = Number(item?.successRate ?? item?.success_rate);
     const avg = Number(item?.avgFirstFrameMs ?? item?.avg_first_frame_ms ?? 0);
     const failure = Number(item?.failure || 0);
-    if (!samples) return 'muted';
+    if (!samples || directSamples <= 0 || !Number.isFinite(rate)) return 'muted';
     if (samples < MIN_RED_QUALITY_SAMPLES) return failure ? 'warn' : 'info';
     if (rate < .35 && failure >= MIN_RED_QUALITY_SAMPLES) return 'bad';
     if (rate < .75 || failure > 0 || avg > 8000) return 'warn';
@@ -228,6 +229,9 @@ function evidenceLabel(item) {
     return '충분';
 }
 function qualityStatusLabel(item) {
+    const directSamples = Number(item?.directPlayableSamples ?? item?.direct_playable_samples ?? item?.samples ?? 0);
+    if (directSamples <= 0 && Number(item?.source_only || 0) > 0) return '원본 전용';
+    if (directSamples <= 0 && Number(item?.monitor_unverified || 0) > 0) return '재생 모니터 대상';
     const toneName = qualityTone(item);
     if (toneName === 'bad') return '반복 실패';
     if (toneName === 'warn') return item.samples < MIN_STRONG_QUALITY_SAMPLES ? '재확인 필요' : '주의';
@@ -287,16 +291,18 @@ function timeMeta(payload, fallbackKey) {
 }
 function normalize(item) {
     const samples = Number(item.samples || item.total || 0);
+    const directPlayableSamples = Number(item.direct_playable_samples ?? samples);
     const success = Number(item.success || 0);
     const failure = Number(item.failure || 0);
     const slow = Number(item.slow || 0);
     const fallback = Number(item.fallback || 0);
-    const successRate = Number.isFinite(Number(item.success_rate)) ? Number(item.success_rate) : (samples ? success / samples : 0);
+    const rawSuccessRate = item.direct_success_rate ?? item.success_rate;
+    const successRate = rawSuccessRate == null ? NaN : Number(rawSuccessRate);
     const avgFirstFrameMs = Number(item.avg_first_frame_ms || 0);
-    return { ...item, samples, success, failure, slow, fallback, successRate, avgFirstFrameMs };
+    return { ...item, samples, directPlayableSamples, success, failure, slow, fallback, successRate, avgFirstFrameMs };
 }
 function weightedRate(items) {
-    const total = items.reduce((sum, item) => sum + item.samples, 0);
+    const total = items.reduce((sum, item) => sum + item.directPlayableSamples, 0);
     if (!total) return NaN;
     return items.reduce((sum, item) => sum + item.success, 0) / total;
 }
@@ -307,7 +313,7 @@ function weightedLoad(items) {
 }
 async function loadSummary() {
     let summary = null;
-    for (const url of [SUMMARY_URL, FALLBACK_URL]) {
+    for (const url of [FALLBACK_URL, SUMMARY_URL]) {
         try {
             const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
             if (!res.ok) throw new Error(res.status);
@@ -347,7 +353,8 @@ async function loadFirstJson(urls, fallback) {
 }
 function qualityRow(item, label) {
     const qTone = qualityTone(item);
-    return `<tr><td>${esc(label)}</td><td><span class="pill ${qTone}">${pct(item.successRate)}</span><div class="mini">${esc(qualityStatusLabel(item))} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.samples}</td></tr>`;
+    const rateLabel = Number.isFinite(item.successRate) ? pct(item.successRate) : '별도 분류';
+    return `<tr><td>${esc(label)}</td><td><span class="pill ${qTone}">${rateLabel}</span><div class="mini">${esc(qualityStatusLabel(item))} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.directPlayableSamples} / ${item.samples}</td></tr>`;
 }
 function render(summary, opsData = {}) {
     const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
@@ -409,14 +416,17 @@ function renderWorldTourQuality(worldTour) {
         .map(([source, item]) => {
             const total = Number(item.total || 0);
             const verified = Number(item.verified || 0);
-            const rate = total ? verified / total : 0;
-            const toneClass = total && rate >= .7 ? 'ok' : total && rate >= .25 ? 'warn' : 'bad';
             const external = Number(item.externalOnly ?? 0);
+            const eligible = Math.max(verified, Number(item.directHls || 0) + Number(item.trustedEmbed || 0));
+            const rate = eligible ? verified / eligible : NaN;
+            const externalOnly = eligible === 0 && external > 0;
+            const toneClass = externalOnly ? 'info' : eligible && rate >= .7 ? 'ok' : eligible && rate >= .25 ? 'warn' : 'bad';
+            const rateLabel = externalOnly ? '원본 전용' : pct(rate);
             return `<tr>
                 <td>${esc(source)}</td>
                 <td>${total.toLocaleString('ko-KR')}</td>
                 <td>${verified.toLocaleString('ko-KR')}</td>
-                <td><span class="pill ${toneClass}">${pct(rate)}</span></td>
+                <td><span class="pill ${toneClass}">${rateLabel}</span></td>
                 <td class="ok">${Number(item.directHls || 0).toLocaleString('ko-KR')}</td>
                 <td class="info">${Number(item.trustedEmbed || 0).toLocaleString('ko-KR')}</td>
                 <td class="${external ? 'warn' : 'muted'}">${external.toLocaleString('ko-KR')}</td>
@@ -547,10 +557,10 @@ function renderInventory(items, summary) {
         if (isDirectLike(item)) bySource[source].direct += 1;
         if (Array.isArray(item.backup_urls) && item.backup_urls.length) bySource[source].backup += 1;
         if (quality) {
-            bySource[source].samples += quality.samples;
+            bySource[source].samples += quality.directPlayableSamples;
             bySource[source].success += quality.success;
             bySource[source].load += quality.avgFirstFrameMs * quality.success;
-            byRegion[region].samples += quality.samples;
+            byRegion[region].samples += quality.directPlayableSamples;
             byRegion[region].success += quality.success;
             byRegion[region].load += quality.avgFirstFrameMs * quality.success;
         }

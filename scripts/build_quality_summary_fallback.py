@@ -193,6 +193,13 @@ def row_from_check_registry(
     cam: dict[str, Any] | None,
 ) -> dict[str, Any]:
     ok = bool(entry.get("last_ok"))
+    check_count = max(1, int(entry.get("check_count") or 1))
+    success_count = max(0, int(entry.get("success_count") or 0))
+    failure_count = max(0, int(entry.get("failure_count") or 0))
+    if success_count + failure_count <= 0:
+        success_count = 1 if ok else 0
+        failure_count = 0 if ok else 1
+    check_count = max(check_count, success_count + failure_count)
     source = str(entry.get("source") or (cam or {}).get("source") or "UNKNOWN")
     region_key = str(entry.get("region") or source_region_from_camera(cam or {}))
     name = entry.get("name") or (cam or {}).get("name") or camera_id
@@ -205,21 +212,38 @@ def row_from_check_registry(
         reason,
         entry.get("last_url") or (cam or {}).get("url") or (cam or {}).get("directUrl"),
     )
-    failure = 0 if ok or source_only or monitor_unverified else 1
+    if source_only:
+        counted_success = 0
+        counted_failure = 0
+        direct_samples = 0
+        source_only_samples = check_count
+        monitor_unverified_samples = 0
+    elif monitor_unverified:
+        counted_success = success_count
+        counted_failure = 0
+        direct_samples = success_count
+        source_only_samples = 0
+        monitor_unverified_samples = failure_count
+    else:
+        counted_success = success_count
+        counted_failure = failure_count
+        direct_samples = counted_success + counted_failure
+        source_only_samples = 0
+        monitor_unverified_samples = 0
     return {
         "camera_name": name,
         "source": source,
         "region": region_key,
-        "samples": 1,
-        "success": 1 if ok else 0,
-        "failure": failure,
+        "samples": check_count,
+        "success": counted_success,
+        "failure": counted_failure,
         "slow": 0,
         "fallback": 0,
-        "source_only": 1 if source_only else 0,
-        "monitor_unverified": 1 if monitor_unverified else 0,
-        "direct_playable_samples": 0 if source_only or monitor_unverified else 1,
-        "success_rate": 1 if ok else 0,
-        "failure_rate": failure / 1,
+        "source_only": source_only_samples,
+        "monitor_unverified": monitor_unverified_samples,
+        "direct_playable_samples": direct_samples,
+        "success_rate": counted_success / direct_samples if direct_samples else None,
+        "failure_rate": counted_failure / direct_samples if direct_samples else 0,
         "slow_rate": 0,
         "fallback_rate": 0,
         "avg_first_frame_ms": 0,
@@ -269,7 +293,7 @@ def finalize_rollup(bucket: dict[str, Any]) -> dict[str, Any]:
         "source_only": source_only,
         "monitor_unverified": monitor_unverified,
         "direct_playable_samples": direct_playable_samples,
-        "success_rate": success / samples if samples else 0,
+        "success_rate": direct_success_rate,
         "direct_success_rate": direct_success_rate,
         "source_only_rate": source_only / samples if samples else 0,
         "monitor_unverified_rate": monitor_unverified / samples if samples else 0,

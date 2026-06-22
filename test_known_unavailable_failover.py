@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -22,8 +23,11 @@ class KnownUnavailableFailoverTests(unittest.TestCase):
     def test_cache_version_forces_failover_release(self):
         index_html = (ROOT / "index.html").read_text(encoding="utf-8")
         service_worker = (ROOT / "sw.js").read_text(encoding="utf-8")
-        self.assertIn("20260622-auto-failover", index_html)
-        self.assertIn("20260622-auto-failover", service_worker)
+        app_version = re.search(r'js/app\.js\?v=([^"\']+)', index_html)
+        cache_version = re.search(r"CACHE_VERSION = 'v([^']+)'", service_worker)
+        self.assertIsNotNone(app_version)
+        self.assertIsNotNone(cache_version)
+        self.assertEqual(app_version.group(1), cache_version.group(1))
 
 
 if __name__ == "__main__":

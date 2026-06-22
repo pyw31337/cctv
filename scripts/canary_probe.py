@@ -405,6 +405,8 @@ def select_candidates(
     failed_ids = failed_ids or set()
     out = []
     for cam in cameras:
+        if str(cam.get("status") or "active").lower() in {"manual_check", "disabled", "inactive", "broken"}:
+            continue
         try:
             lat = float(cam.get("lat"))
             lng = float(cam.get("lng"))
@@ -464,8 +466,10 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
         status = "NO_CANDIDATES"
         severity = "danger"
     elif passed >= min_ok:
-        status = "OK" if failures == 0 else "DEGRADED"
-        severity = "ok" if failures == 0 else "warn"
+        # Service availability is healthy once enough verified alternatives exist.
+        # Individual failed candidates remain in results for repair/downranking.
+        status = "OK"
+        severity = "ok"
     else:
         status = "IMPACT"
         severity = "danger"
