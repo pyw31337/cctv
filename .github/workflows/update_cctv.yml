@@ -19,17 +19,18 @@ jobs:
     timeout-minutes: 240 # Allow up to 4 hours for stealth sync
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
+          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install -r requirements.txt
 
       - name: Snapshot current dataset
         run: cp cctv_data.json /tmp/cctv_data.before.json
@@ -42,20 +43,33 @@ jobs:
         run: |
           echo "Running validation..."
           python validate_cctv_data.py
-          echo "validation_passed=true" >> $GITHUB_OUTPUT
+          echo "validation_passed=true" >> "$GITHUB_OUTPUT"
 
       - name: Guard data preservation
+        id: preservation
         if: steps.validate.outputs.validation_passed == 'true'
-        run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses --max-drop-ratio 0.05
+        run: |
+          set +e
+          python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses --max-drop-ratio 0.05
+          guard_status=$?
+          set -e
+
+          if [[ $guard_status -ne 0 ]]; then
+            cp /tmp/cctv_data.before.json cctv_data.json
+            echo "preservation_passed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Unsafe dataset refresh was rolled back; the current production catalog was preserved."
+          else
+            echo "preservation_passed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Check for changes
         id: check_changes
-        if: steps.validate.outputs.validation_passed == 'true'
+        if: steps.validate.outputs.validation_passed == 'true' && steps.preservation.outputs.preservation_passed == 'true'
         run: |
-          if [[ -n $(git status -s cctv_data.json) ]]; then
-            echo "changes_detected=true" >> $GITHUB_OUTPUT
+          if [[ -n "$(git status -s cctv_data.json)" ]]; then
+            echo "changes_detected=true" >> "$GITHUB_OUTPUT"
           else
-            echo "changes_detected=false" >> $GITHUB_OUTPUT
+            echo "changes_detected=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Commit and push changes

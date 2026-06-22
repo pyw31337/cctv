@@ -8,8 +8,11 @@ CCTV 데이터 자동 검증 스크립트
 2. 주요 CCTV 샘플의 스트림이 실제로 접근 가능한지
 """
 
+import argparse
 import json
 import sys
+import time
+
 import requests
 import urllib3
 
@@ -50,9 +53,28 @@ def validate_direct_hls_urls(data):
     return errors
 
 
-def validate_critical_samples(data):
-    """주요 CCTV 샘플이 올바르게 설정되어 있는지 확인"""
+def check_stream_access(url, attempts=3, timeout=5, request_get=requests.get):
+    """Return an availability warning after retrying transient stream failures."""
+    last_error = "unknown error"
+    for attempt in range(attempts):
+        try:
+            resp = request_get(url, timeout=timeout, verify=False, stream=True)
+            if resp.status_code == 200:
+                return None
+            last_error = f"HTTP {resp.status_code}"
+        except requests.RequestException as exc:
+            last_error = str(exc)[:80]
+
+        if attempt + 1 < attempts:
+            time.sleep(0.5 * (attempt + 1))
+
+    return f"스트림 일시 접근 실패 ({last_error})"
+
+
+def validate_critical_samples(data, strict_network=False, access_checker=check_stream_access):
+    """Validate sample configuration and observe external stream availability."""
     errors = []
+    warnings = []
     
     for sample in CRITICAL_SAMPLES:
         found = False
@@ -73,18 +95,19 @@ def validate_critical_samples(data):
                 
                 # 스트림 접근 테스트
                 if url.endswith(".m3u8"):
-                    try:
-                        resp = requests.get(url, timeout=5, verify=False, stream=True)
-                        if resp.status_code != 200:
-                            errors.append(f"[ERROR] {item['name']}: 스트림 접근 실패 (HTTP {resp.status_code})")
-                    except Exception as e:
-                        errors.append(f"[ERROR] {item['name']}: 스트림 접근 실패 ({str(e)[:30]})")
+                    availability_issue = access_checker(url)
+                    if availability_issue:
+                        message = f"{item['name']}: {availability_issue}"
+                        if strict_network:
+                            errors.append(f"[ERROR] {message}")
+                        else:
+                            warnings.append(f"[WARN] {message}")
                 break
         
         if not found:
             errors.append(f"[ERROR] '{sample['name']}' CCTV를 찾을 수 없음")
     
-    return errors
+    return errors, warnings
 
 
 def validate_no_iframe_for_direct_servers(data):
@@ -115,7 +138,18 @@ def validate_no_iframe_for_direct_servers(data):
     return errors
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Validate CCTV dataset configuration")
+    parser.add_argument(
+        "--strict-network",
+        action="store_true",
+        help="Treat temporary critical-stream access failures as fatal",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     print("=" * 60)
     print("CCTV 데이터 자동 검증 시작")
     print("=" * 60)
@@ -139,13 +173,16 @@ def main():
     
     # 2. 주요 CCTV 샘플 검증
     print("\n[2] 주요 CCTV 샘플 검증...")
-    errors = validate_critical_samples(data)
+    errors, warnings = validate_critical_samples(data, strict_network=args.strict_network)
     all_errors.extend(errors)
-    if not errors:
+    if not errors and not warnings:
         print("    ✅ 통과")
     else:
         for e in errors:
             print(f"    {e}")
+        for warning in warnings:
+            print(f"    {warning}")
+            print(f"::warning::{warning}")
     
     # 3. iframe 방지 검증
     print("\n[3] iframe 방지 검증...")
