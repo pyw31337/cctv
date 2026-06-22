@@ -3028,95 +3028,8 @@ function isStaleHealthTimestamp(timestamp, maxAgeMs = HEALTH_STALE_MS) {
 }
 
 function renderServiceStatusBanner() {
-    const banner = $('#service-status-banner');
-    if (!banner) return;
-
-    clearServiceStatusBannerTimers();
-
-    if (!state.healthSnapshot || !state.healthSnapshot.regions) {
-        hideServiceStatusBanner(true);
-        return;
-    }
-
-    const currentRegionKeys = [...new Set(
-        state.nearestCctvs.slice(0, 4).map(cctv => inferRegionKey(cctv)).filter(Boolean)
-    )];
-    if (currentRegionKeys.length === 0) {
-        hideServiceStatusBanner(true);
-        return;
-    }
-
-    const visibleHealth = state.nearestCctvs.slice(0, 4)
-        .map(cctv => {
-            const health = getCameraHealthMeta(cctv);
-            const displayHealth = getCameraDisplayHealthMeta(cctv, health);
-            return {
-                cctv,
-                health,
-                displayHealth,
-                regionKey: health.regionKey || inferRegionKey(cctv)
-            };
-        });
-    const downRegions = visibleHealth.filter(item => item.displayHealth.tone === 'danger');
-    const degradedRegions = visibleHealth.filter(item => item.displayHealth.tone === 'warn');
-    const newestAffectedTimestamp = [...downRegions, ...degradedRegions]
-        .map(item => item.displayHealth.lastUpdated || item.health.lastUpdated)
-        .find(Boolean);
-    const lastUpdatedText = formatRelativeTime(newestAffectedTimestamp || state.healthSnapshot.last_updated);
-
-    let tone = null;
-    let title = '';
-    let body = '';
-
-    if (state.healthSnapshotStale) {
-        tone = 'warn';
-        title = '점검 정보 지연';
-        body = `${currentRegionKeys.map(getRegionLabel).join(', ')} 점검 정보가 지연되어 화면별 실제 재생 상태를 우선 반영합니다.`;
-    } else if (downRegions.length > 0) {
-        tone = 'danger';
-        title = '현재 지역 장애';
-        body = `${[...new Set(downRegions.slice(0, 3).map(item => getRegionLabel(item.regionKey)))].join(', ')} 연결이 불안정합니다. 대체 소스를 우선 추천합니다.`;
-    } else if (degradedRegions.length > 0) {
-        tone = 'warn';
-        title = '현재 지역 점검 중';
-        body = `${[...new Set(degradedRegions.slice(0, 3).map(item => getRegionLabel(item.regionKey)))].join(', ')} 품질이 일시적으로 흔들릴 수 있습니다.`;
-    }
-
-    if (!tone) {
-        hideServiceStatusBanner(true);
-        return;
-    }
-
-    const bannerKey = `${tone}:${title}:${body}:${lastUpdatedText}`;
-    if (state.serviceBannerDismissedKey === bannerKey) {
-        hideServiceStatusBanner(true);
-        return;
-    }
-
-    banner.className = `service-status-banner tone-${tone}`;
-    banner.innerHTML = `
-        <button type="button" class="service-status-close" aria-label="상태 메시지 닫기">×</button>
-        <div class="service-status-content">
-            <div class="service-status-title">${title}</div>
-            <div class="service-status-body">${body}</div>
-            <div class="service-status-meta">
-                <span class="service-status-time">${lastUpdatedText}</span>
-                <span class="service-status-countdown" aria-label="5초 후 자동으로 닫힘">5s</span>
-            </div>
-        </div>
-    `;
-    const closeButton = banner.querySelector('.service-status-close');
-    if (closeButton) {
-        closeButton.addEventListener('click', () => {
-            state.serviceBannerDismissedKey = bannerKey;
-            hideServiceStatusBanner();
-        }, { once: true });
-    }
-
-    startServiceStatusBannerCountdown(banner);
-    state.serviceBannerTimer = setTimeout(() => {
-        hideServiceStatusBanner();
-    }, SERVICE_BANNER_VISIBLE_MS);
+    // Camera health remains visible on each player; the global overlay is disabled.
+    hideServiceStatusBanner(true);
 }
 
 function clearServiceStatusBannerTimers() {
@@ -3129,22 +3042,6 @@ function clearServiceStatusBannerTimers() {
         clearInterval(state.serviceBannerCountdownTimer);
         state.serviceBannerCountdownTimer = null;
     }
-}
-
-function startServiceStatusBannerCountdown(banner) {
-    const countdown = banner.querySelector('.service-status-countdown');
-    if (!countdown) return;
-
-    const startedAt = Date.now();
-    const updateCountdown = () => {
-        const elapsed = Date.now() - startedAt;
-        const remainingSeconds = Math.max(0, Math.ceil((SERVICE_BANNER_VISIBLE_MS - elapsed) / 1000));
-        countdown.textContent = `${remainingSeconds}s`;
-        countdown.setAttribute('aria-label', `${remainingSeconds}초 후 상태 메시지 자동 닫힘`);
-    };
-
-    updateCountdown();
-    state.serviceBannerCountdownTimer = setInterval(updateCountdown, 250);
 }
 
 function hideServiceStatusBanner(clearContent = false) {
