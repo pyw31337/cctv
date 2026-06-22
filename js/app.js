@@ -1923,6 +1923,16 @@ function getDatasetReviewHealthMeta(cctv, regionKey, lastUpdated) {
     };
 }
 
+function isKnownUnavailableCamera(cctv) {
+    if (!cctv) return false;
+    const status = String(cctv.status || '').toLowerCase();
+    const reason = String(cctv.health_reason || cctv.disabled_reason || cctv.status_note || '').toLowerCase();
+    if (status === 'disabled') return true;
+    if (status !== 'manual_check') return false;
+
+    return /(?:http[_ -]?(?:404|410)|maintenance|점검|no[_ -]?stream|stream[_ -]?missing|not[_ -]?found|invalid[_ -]?(?:url|stream))/.test(reason);
+}
+
 function getCameraQualitySummary(cctv) {
     if (state.qualitySummaryStale) return null;
     if (!cctv || !state.qualitySummary || !state.qualitySummary.cameras) return null;
@@ -2623,6 +2633,7 @@ function isFrameOnlyPlaybackCandidate(cctv) {
 }
 
 function shouldIsolateProblemCamera(cctv) {
+    if (isKnownUnavailableCamera(cctv)) return true;
     const health = cctv?._health || getCameraHealthMeta(cctv);
     if (!health) return false;
     if (health.status === 'UNSUPPORTED') return true;
@@ -3808,13 +3819,14 @@ function updateNearestCctvs() {
         .map(cctv => decorateNearestCandidate(cctv, lat, lng))
         .sort((a, b) => a._priorityScore - b._priorityScore || a.distance - b.distance);
 
-    const preferred = ranked.filter(cctv => !shouldIsolateProblemCamera(cctv));
-    const isolated = ranked.filter(cctv => shouldIsolateProblemCamera(cctv));
+    const selectable = ranked.filter(cctv => !isKnownUnavailableCamera(cctv));
+    const preferred = selectable.filter(cctv => !shouldIsolateProblemCamera(cctv));
+    const isolated = selectable.filter(cctv => shouldIsolateProblemCamera(cctv));
     const ordered = state.sortMode === 'stability'
-        ? buildStabilityModeOrdering(ranked, lat, lng)
+        ? buildStabilityModeOrdering(selectable, lat, lng)
         : preferred.length >= 4
         ? preferred.concat(isolated)
-        : ranked;
+        : selectable;
 
     const canaryAware = applyCoreCanarySuccessPriority(ordered, lat, lng);
     const localAware = applyLocalPlacePriority(canaryAware, lat, lng);
@@ -4084,6 +4096,7 @@ function resetPanelRetryState(panel) {
     panel._verifiedRetryFallbackPromise = null;
     delete panel.dataset.preparedRetryFallbackId;
     delete panel.dataset.retrySourceId;
+    delete panel.dataset.autoFallbackAttemptedFor;
 }
 
 function getManualRetryFallbackDistance(sourceCctv, candidate) {
@@ -4110,6 +4123,7 @@ function getManualRetryFallbackDistance(sourceCctv, candidate) {
 
 function isManualRetryFallbackCandidate(candidate, sourceCctv) {
     if (!candidate || !candidate.id || candidate.id === sourceCctv?.id) return false;
+    if (isKnownUnavailableCamera(candidate)) return false;
     if (isUnsupportedBrowserStream(candidate)) return false;
     if (!isDirectVideoPlaybackCandidate(candidate) || isFrameOnlyPlaybackCandidate(candidate)) return false;
     return Boolean(candidate.directUrl || candidate.url);
@@ -5455,6 +5469,27 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
             penalty: 6
         });
         if (panel) updatePanelHealthUi(panel, cctv);
+
+        const autoFallbackAlreadyAttempted = panel?.dataset.autoFallbackAttemptedFor === cctv.id;
+        if (panel && preparedFallback && !autoFallbackAlreadyAttempted) {
+            panel.dataset.autoFallbackAttemptedFor = cctv.id;
+            const loadingCopy = getStreamLoadingCopy(preparedFallback, true, nextIndex, backupCount);
+            showStreamLoadingIndicator(wrapper, '정상 카메라로 자동 전환 중', loadingCopy.detail);
+            switchToPreparedRetryFallback(panel, cctv, { requireVerified: true })
+                .then(switched => {
+                    if (!switched && wrapper.isConnected && panel.dataset.cctvId === cctv.id) {
+                        handleStreamFailover(wrapper, cctv, nextIndex);
+                    }
+                })
+                .catch(error => {
+                    console.warn('[Failover] automatic camera switch failed:', error);
+                    if (wrapper.isConnected && panel.dataset.cctvId === cctv.id) {
+                        handleStreamFailover(wrapper, cctv, nextIndex);
+                    }
+                });
+            return;
+        }
+
         const nextRetryNumber = Math.min(MANUAL_RETRY_PRIMARY_ATTEMPTS, retryCount + 1);
         const retryLabel = retryCount >= MANUAL_RETRY_PRIMARY_ATTEMPTS && preparedFallback
             ? '다른 영상 보기'
@@ -8229,6 +8264,17 @@ function getCloudLabel(cloudCover) {
 
 // === Video Layer ===
 function openVideoLayer(cctv) {
+    if (isKnownUnavailableCamera(cctv)) {
+        const fallback = state.nearestCctvs.find(candidate => candidate
+            && candidate.id !== cctv.id
+            && !isKnownUnavailableCamera(candidate)
+            && !shouldIsolateProblemCamera(candidate));
+        if (fallback) {
+            openVideoLayer(fallback);
+            return;
+        }
+    }
+
     const layer = $('#video-layer');
     const frame = $('#video-frame');
     const health = cctv._health || getCameraHealthMeta(cctv);
