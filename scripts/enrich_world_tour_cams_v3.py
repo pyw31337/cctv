@@ -103,7 +103,8 @@ def deep_crawling_target(source_url, title):
                         ajax_html = response.read().decode('utf-8', errors='ignore')
                         resolved_hls = extract_hls_url(ajax_html)
                         if resolved_hls:
-                            return None, resolved_hls
+                            proxied_url = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(resolved_hls)}"
+                            return None, proxied_url
                 except Exception:
                     pass
 
@@ -186,6 +187,14 @@ def main():
         source_type = item.get('sourceType', '')
         source_url = item.get('sourceUrl', '')
         country = item.get('country', '')
+        
+        # Re-wrap existing Baltic Cam playUrl with proxy if not wrapped
+        if source_type == 'baltic' and not item.get('sourceOnly') and item.get('playUrl'):
+            play_url = item.get('playUrl')
+            if '158.179.194.163.sslip.io' not in play_url:
+                proxied = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(play_url)}"
+                item['playUrl'] = proxied
+                promoted_deep_crawl += 1
         
         # Panomax Promotion
         if source_type == 'panomax' and item.get('sourceOnly'):
