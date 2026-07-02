@@ -6,9 +6,33 @@ import urllib.parse
 from pathlib import Path
 from collections import Counter
 import concurrent.futures
+import datetime as dt
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data' / 'world_tour_cams.json'
+
+# Suggested refresh intervals (seconds) by sourceType
+# Strict session-limited or dynamic token sites are refreshed frequently.
+# Heavy public API or long-lived HLS sites have longer cache lifetime to avoid server load.
+REFRESH_INTERVALS = {
+    'baltic': 4 * 3600,         # Baltic AJAX token: 4 hours
+    'skyline': 4 * 3600,        # Skyline Clappr token: 4 hours
+    'earthcam': 4 * 3600,       # EarthCam CDN session: 4 hours
+    'webcamtaxi': 4 * 3600,     # WebcamTaxi dynamic: 4 hours
+    
+    'youtube': 12 * 3600,       # YouTube live stream IDs: 12 hours
+    'youtube-search': 12 * 3600,
+    
+    'cctv_world': 24 * 3600,    # Korean regional/traffic CCTV: 24 hours (1 day)
+    'ongjin': 24 * 3600,        # Ongjin disaster CCTV: 24 hours
+    'nswtraffic': 24 * 3600,
+    'dctraffic': 24 * 3600,
+    'public_traffic': 24 * 3600,
+    
+    'panomax': 7 * 24 * 3600,   # Embedded fixed frames: 7 days
+    'roundshot': 7 * 24 * 3600,
+}
+DEFAULT_INTERVAL = 12 * 3600    # Default: 12 hours
 
 def fetch_text(url, timeout=6):
     try:
@@ -181,12 +205,14 @@ def main():
     promoted_panomax = 0
     promoted_roundshot = 0
     promoted_deep_crawl = 0
+    skipped_fresh_cams = 0
     
     targets_to_crawl = []
+    utc_now = dt.datetime.now(dt.timezone.utc)
+    
     for item in items:
         source_type = item.get('sourceType', '')
         source_url = item.get('sourceUrl', '')
-        country = item.get('country', '')
         
         # Re-wrap existing Baltic Cam playUrl with proxy if not wrapped
         if source_type == 'baltic' and not item.get('sourceOnly') and item.get('playUrl'):
@@ -194,8 +220,27 @@ def main():
             if '158.179.194.163.sslip.io' not in play_url:
                 proxied = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(play_url)}"
                 item['playUrl'] = proxied
+                item['sourceRefreshedAt'] = utc_now.isoformat()
                 promoted_deep_crawl += 1
         
+        # Check cache freshness policy
+        refreshed_at_str = item.get('sourceRefreshedAt')
+        is_cache_fresh = False
+        if refreshed_at_str and (item.get('videoId') or item.get('playUrl') or item.get('embedUrl')):
+            try:
+                # Remove Z placeholder for fromisoformat compatibility
+                refreshed_at = dt.datetime.fromisoformat(refreshed_at_str.replace('Z', '+00:00'))
+                elapsed = (utc_now - refreshed_at).total_seconds()
+                interval = REFRESH_INTERVALS.get(source_type, DEFAULT_INTERVAL)
+                if elapsed < interval:
+                    is_cache_fresh = True
+            except Exception:
+                pass
+                
+        if is_cache_fresh:
+            skipped_fresh_cams += 1
+            continue
+
         # Panomax Promotion
         if source_type == 'panomax' and item.get('sourceOnly'):
             item_id = item.get('id', '')
@@ -208,6 +253,7 @@ def main():
                 item['sourceOnly'] = False
                 item['playbackStatus'] = 'verified'
                 item['status'] = 'is_live'
+                item['sourceRefreshedAt'] = utc_now.isoformat()
                 item.pop('sourceOnlyReason', None)
                 promoted_panomax += 1
                 
@@ -219,14 +265,16 @@ def main():
                 item['sourceOnly'] = False
                 item['playbackStatus'] = 'verified'
                 item['status'] = 'is_live'
+                item['sourceRefreshedAt'] = utc_now.isoformat()
                 item.pop('sourceOnlyReason', None)
                 promoted_roundshot += 1
                 
-        # Deep Crawl for ALL sourceOnly cams globally
+        # Deep Crawl for expired/new sourceOnly cams globally
         elif item.get('sourceOnly') and source_url:
             targets_to_crawl.append(item)
 
-    print(f"\nCollected {len(targets_to_crawl)} deep crawling candidates. Processing concurrently...")
+    print(f"Skipped {skipped_fresh_cams} fresh cached cams from scan.")
+    print(f"Collected {len(targets_to_crawl)} deep crawling candidates. Processing concurrently...")
     
     def process_item(item):
         title = item.get('title', '')
@@ -235,28 +283,30 @@ def main():
         vid, hls = deep_crawling_target(source_url, title)
         return item, vid, hls
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
-        futures = {executor.submit(process_item, item): item for item in targets_to_crawl}
-        for future in concurrent.futures.as_completed(futures):
-            item, vid, hls = future.result()
-            if vid:
-                item['videoId'] = vid
-                item['directPlaybackStatus'] = 'youtube_embed_verified'
-                item['sourceOnly'] = False
-                item['playbackStatus'] = 'verified'
-                item['status'] = 'is_live'
-                item.pop('sourceOnlyReason', None)
-                promoted_deep_crawl += 1
-                print(f"SUCCESS: Promoted '{item.get('title')}' to YouTube VideoId: {vid}")
-            elif hls:
-                item['playUrl'] = hls
-                item['directPlaybackStatus'] = 'direct_hls'
-                item['sourceOnly'] = False
-                item['playbackStatus'] = 'verified'
-                item['status'] = 'is_live'
-                item.pop('sourceOnlyReason', None)
-                promoted_deep_crawl += 1
-                print(f"SUCCESS: Promoted '{item.get('title')}' to HLS stream: {hls}")
+    if targets_to_crawl:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
+            futures = {executor.submit(process_item, item): item for item in targets_to_crawl}
+            for future in concurrent.futures.as_completed(futures):
+                item, vid, hls = future.result()
+                item['sourceRefreshedAt'] = utc_now.isoformat()
+                if vid:
+                    item['videoId'] = vid
+                    item['directPlaybackStatus'] = 'youtube_embed_verified'
+                    item['sourceOnly'] = False
+                    item['playbackStatus'] = 'verified'
+                    item['status'] = 'is_live'
+                    item.pop('sourceOnlyReason', None)
+                    promoted_deep_crawl += 1
+                    print(f"SUCCESS: Promoted '{item.get('title')}' to YouTube VideoId: {vid}")
+                elif hls:
+                    item['playUrl'] = hls
+                    item['directPlaybackStatus'] = 'direct_hls'
+                    item['sourceOnly'] = False
+                    item['playbackStatus'] = 'verified'
+                    item['status'] = 'is_live'
+                    item.pop('sourceOnlyReason', None)
+                    promoted_deep_crawl += 1
+                    print(f"SUCCESS: Promoted '{item.get('title')}' to HLS stream: {hls}")
 
     print(f"\nEnrichment complete.")
     print(f"Promoted Panomax: {promoted_panomax}")
@@ -279,7 +329,7 @@ def main():
     print("\nUpdated stats:")
     print(json.dumps(dict(direct_status_counts), indent=2))
     
-    if promoted_panomax > 0 or promoted_roundshot > 0 or promoted_deep_crawl > 0:
+    if promoted_panomax > 0 or promoted_roundshot > 0 or promoted_deep_crawl > 0 or skipped_fresh_cams > 0:
         print("\nSaving updated data back to JSON...")
         payload['updated_at'] = dt.date.today().isoformat()
         DATA_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
@@ -288,5 +338,4 @@ def main():
         print("\nNo promotions made. Skipping save.")
 
 if __name__ == '__main__':
-    import datetime as dt
     main()
