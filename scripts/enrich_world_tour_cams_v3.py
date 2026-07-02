@@ -10,7 +10,7 @@ import concurrent.futures
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data' / 'world_tour_cams.json'
 
-def fetch_text(url, timeout=10):
+def fetch_text(url, timeout=6):
     try:
         req = urllib.request.Request(
             url, 
@@ -175,15 +175,9 @@ def main():
                 item.pop('sourceOnlyReason', None)
                 promoted_roundshot += 1
                 
-        # Deep Crawl for South Korea cams + others
+        # Deep Crawl for ALL sourceOnly cams globally
         elif item.get('sourceOnly') and source_url:
-            # We prioritize South Korea to resolve user's local government request,
-            # but also include any WorldCam / Baltic cams that are currently sourceOnly
-            if country == 'South Korea':
-                targets_to_crawl.append(item)
-            elif 'worldcam.eu' in source_url and len(targets_to_crawl) < 120:
-                # Include some global ones as well (limit to 120 to run within reasonable time)
-                targets_to_crawl.append(item)
+            targets_to_crawl.append(item)
 
     print(f"\nCollected {len(targets_to_crawl)} deep crawling candidates. Processing concurrently...")
     
@@ -195,7 +189,7 @@ def main():
         vid, hls = deep_crawling_target(source_url, title)
         return item, vid, hls
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
         futures = {executor.submit(process_item, item): item for item in targets_to_crawl}
         for future in concurrent.futures.as_completed(futures):
             item, vid, hls = future.result()
