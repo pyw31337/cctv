@@ -6057,14 +6057,12 @@ function initKmaPrecipOverlay() {
 function renderMapMarkers() {
     if (!map) return;
 
-    // Clear existing markers
-    state.markers.forEach(marker => marker.setMap(null));
-    state.markers = [];
-
+    // Reuse markers from state.markers as a pool
+    const pool = state.markers;
+    const targets = state.nearestCctvs.slice(0, MAP_MARKER_LIMIT);
     const placedPositions = []; // To track overlaps: {lat, lng, count}
 
-    // Render new markers (bounded for mobile map performance)
-    state.nearestCctvs.slice(0, MAP_MARKER_LIMIT).forEach(cctv => {
+    targets.forEach((cctv, idx) => {
         let lat = cctv.lat;
         let lng = cctv.lng;
         const health = cctv._health || getCameraHealthMeta(cctv);
@@ -6086,29 +6084,54 @@ function renderMapMarkers() {
         }
 
         const markerTitle = `${cctv.name} · ${displayHealth.shortLabel}`;
-        const markerOptions = {
-            position: new kakao.maps.LatLng(lat, lng),
-            map: map,
-            title: markerTitle
-        };
+        const position = new kakao.maps.LatLng(lat, lng);
 
+        let markerImage = null;
         if (cctv.source === 'YOUTUBE') {
             const imageSize = new kakao.maps.Size(32, 32);
             const imageOption = { offset: new kakao.maps.Point(16, 16) }; // Center
-            markerOptions.image = new kakao.maps.MarkerImage(YOUTUBE_MARKER_SRC, imageSize, imageOption);
+            markerImage = new kakao.maps.MarkerImage(YOUTUBE_MARKER_SRC, imageSize, imageOption);
         } else {
-            const healthMarkerImage = createHealthMarkerImage(displayHealth);
-            if (healthMarkerImage) markerOptions.image = healthMarkerImage;
+            markerImage = createHealthMarkerImage(displayHealth);
         }
 
-        const marker = new kakao.maps.Marker(markerOptions);
+        let marker;
+        if (idx < pool.length) {
+            // Reuse existing marker instance from pool
+            marker = pool[idx];
+            marker.setPosition(position);
+            if (markerImage) marker.setImage(markerImage);
+            marker.setTitle(markerTitle);
+            if (marker.getMap() !== map) {
+                marker.setMap(map);
+            }
+        } else {
+            // Pool is exhausted, create new marker instance
+            const markerOptions = {
+                position: position,
+                map: map,
+                title: markerTitle
+            };
+            if (markerImage) markerOptions.image = markerImage;
 
-        kakao.maps.event.addListener(marker, 'click', () => {
-            openVideoLayer(cctv);
-        });
+            marker = new kakao.maps.Marker(markerOptions);
+            kakao.maps.event.addListener(marker, 'click', () => {
+                if (marker.cctvData) {
+                    openVideoLayer(marker.cctvData);
+                }
+            });
+            pool.push(marker);
+        }
 
-        state.markers.push(marker);
+        // Dynamically bind current CCTV data so that click event resolves it correctly
+        marker.cctvData = cctv;
     });
+
+    // Hide unused markers remaining in the pool
+    for (let i = targets.length; i < pool.length; i++) {
+        pool[i].setMap(null);
+        pool[i].cctvData = null;
+    }
 }
 
 function createHealthMarkerImage(health) {
@@ -6251,7 +6274,10 @@ function closeWeather(options = {}) {
     $('#weather-btn')?.classList.remove('active');
     $('#dim-overlay')?.classList.remove('active');
     const list = $('#weather-list');
-    if (list) list.innerHTML = '';
+    if (list) {
+        cleanupWorldTourVideoPlayers(list);
+        list.innerHTML = '';
+    }
 
     if (wasWorldTour && restoreDomesticMap) {
         state.initialWorldTourId = null;
