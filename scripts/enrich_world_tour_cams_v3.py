@@ -74,23 +74,66 @@ def deep_crawling_target(source_url, title):
     """
     url_to_crawl = source_url
     
-    # 1. Resolve WorldCam redirection code if present
+    # 1. Baltic Live Cam (2-depth AJAX auth_token POST request resolution)
+    if 'balticlivecam.com' in source_url:
+        page_html = fetch_text(source_url)
+        if page_html:
+            match_id = re.search(r'id:\s*(\d+),', page_html)
+            if match_id:
+                cam_id = match_id.group(1)
+                ajax_url = "https://balticlivecam.com/wp-admin/admin-ajax.php"
+                post_data = {
+                    'action': 'auth_token',
+                    'id': str(cam_id),
+                    'embed': '0',
+                    'main_referer': 'https://balticlivecam.com/'
+                }
+                encoded_data = urllib.parse.urlencode(post_data).encode('utf-8')
+                try:
+                    req = urllib.request.Request(
+                        ajax_url,
+                        data=encoded_data,
+                        headers={
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                            'Referer': 'https://balticlivecam.com/'
+                        }
+                    )
+                    with urllib.request.urlopen(req, timeout=6) as response:
+                        ajax_html = response.read().decode('utf-8', errors='ignore')
+                        resolved_hls = extract_hls_url(ajax_html)
+                        if resolved_hls:
+                            return None, resolved_hls
+                except Exception:
+                    pass
+
+    # 2. SkylineWebcams (Clappr source parameter + trap bypass + referer bypass proxy)
+    if 'skylinewebcams.com' in source_url:
+        page_html = fetch_text(source_url)
+        if page_html:
+            match_src = re.search(r"source\s*:\s*['\"]([^'\"]+)['\"]", page_html)
+            if match_src:
+                src_val = match_src.group(1)
+                src_val = src_val.replace('livee.m3u8', 'live.m3u8')
+                absolute_hls = f"https://hd-auth.skylinewebcams.com/{src_val}"
+                
+                # Wrap with referer-bypass proxy
+                proxied_url = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(absolute_hls)}"
+                return None, proxied_url
+
+    # 3. Resolve WorldCam redirection code if present
     if 'worldcam.eu' in source_url:
         page_html = fetch_text(source_url)
         if page_html:
-            # Look for /click/source?code=... redirect link
             match = re.search(r'href=["\']([^"\']*/click/source\?code=[^"\']+)["\']', page_html)
             if match:
                 redirect_link = urllib.parse.urljoin('https://worldcam.eu', match.group(1))
-                print(f" -> Found redirect tunnel: {redirect_link}")
                 resolved = resolve_redirect_url(redirect_link)
                 if resolved:
-                    print(f" -> Resolved original source URL: {resolved}")
                     url_to_crawl = resolved
                 else:
                     return None, None
             else:
-                # Check if there is an iframe embed or YouTube video directly on the worldcam detail page
                 resolved_vid = extract_youtube_id(page_html)
                 if resolved_vid:
                     return resolved_vid, None
@@ -98,7 +141,7 @@ def deep_crawling_target(source_url, title):
                 if resolved_hls:
                     return None, resolved_hls
 
-    # 2. Check if the original URL is youtube channel or watch page
+    # 4. Check if the original URL is youtube channel or watch page
     channel_match = re.search(r'youtube(?:-nocookie)?\.com/(?:embed/live_stream\?channel=|channel/|c/|@)([A-Za-z0-9_#-]+)', url_to_crawl)
     if channel_match or ('youtube.com' in url_to_crawl or 'youtu.be' in url_to_crawl):
         resolved_vid = resolve_youtube_channel_live(url_to_crawl)
@@ -106,8 +149,7 @@ def deep_crawling_target(source_url, title):
             return resolved_vid, None
         return None, None
 
-    # 3. Perform final fetch of target website ( 지자체 / 해외 관공서 등 )
-    print(f" -> Accessing final source: {url_to_crawl}")
+    # 5. Perform final fetch of target website ( 지자체 / 해외 관공서 등 )
     final_html = fetch_text(url_to_crawl)
     if final_html:
         resolved_vid = extract_youtube_id(final_html)
@@ -139,10 +181,6 @@ def main():
     promoted_roundshot = 0
     promoted_deep_crawl = 0
     
-    # Filter targets:
-    # 1. Panomax / Roundshot
-    # 2. South Korea local government cameras (deep crawl)
-    # 3. Major European/US locations that are currently source-site-only
     targets_to_crawl = []
     for item in items:
         source_type = item.get('sourceType', '')
@@ -181,7 +219,6 @@ def main():
 
     print(f"\nCollected {len(targets_to_crawl)} deep crawling candidates. Processing concurrently...")
     
-    # We process deep crawling concurrently with 8 threads to save time
     def process_item(item):
         title = item.get('title', '')
         source_url = item.get('sourceUrl', '')
