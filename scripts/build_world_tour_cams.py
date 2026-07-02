@@ -1244,6 +1244,30 @@ def clean_title(title):
     return title.strip(' -') or 'Live Cam'
 
 
+def resolve_youtube_channel_live(channel_url):
+    """
+    Fetch the youtube live_stream?channel=... page and extract the concrete 11-char videoId currently broadcasting.
+    """
+    if not channel_url or 'channel=' not in channel_url:
+        return None
+    try:
+        # Fetch the embed page with short timeout
+        html_text = fetch_text(channel_url, timeout=10, cache=False) # Disable cache for live status
+        if html_text:
+            # Try to find standard 11-char videoId in the page config/HTML
+            # e.g., "live_stream?video_id=...", "videoId":"...", etc.
+            match = re.search(r'"videoId"\s*:\s*"([A-Za-z0-9_-]{11})"', html_text)
+            if match:
+                return match.group(1)
+            # Try matching watch?v= or other video formats
+            match = re.search(r'youtube\.com/watch\?v=([A-Za-z0-9_-]{11})', html_text)
+            if match:
+                return match.group(1)
+    except Exception as e:
+        print(f"[YouTube Live Resolver] Failed to resolve channel {channel_url}: {e}")
+    return None
+
+
 def extract_youtube_id(text):
     ids = []
     patterns = [
@@ -1256,6 +1280,16 @@ def extract_youtube_id(text):
     for vid in ids:
         if vid != 'live_stream':
             return vid
+
+    # Try resolving youtube live channel embed if present
+    channel_match = re.search(r'youtube(?:-nocookie)?\.com/embed/live_stream\?channel=([A-Za-z0-9_-]+)', text or '')
+    if channel_match:
+        channel_id = channel_match.group(1)
+        channel_url = f"https://www.youtube.com/embed/live_stream?channel={channel_id}"
+        resolved_vid = resolve_youtube_channel_live(channel_url)
+        if resolved_vid:
+            return resolved_vid
+
     return None
 
 
@@ -3005,6 +3039,13 @@ def collect_roundshot(limit=WORLD_TOUR_ROUNDSHOT_LIMIT):
                 channel='Roundshot',
             )
             if item:
+                if source_url and '.roundshot.com' in source_url:
+                    item['embedUrl'] = source_url
+                    item['directPlaybackStatus'] = 'trusted_provider_embed'
+                    item['sourceOnly'] = False
+                    item.pop('sourceOnlyReason', None)
+                    item['playbackStatus'] = 'verified'
+                    item['status'] = 'is_live'
                 items.append(item)
             if len(items) >= limit:
                 return items
@@ -3643,6 +3684,14 @@ def collect_panomax(limit=WORLD_TOUR_PANOMAX_LIMIT):
             channel='Panomax',
         )
         if item:
+            cam_id_str = raw.get('id') or cam_id
+            if cam_id_str:
+                item['embedUrl'] = f"https://{cam_id_str}.camera.panomax.com/"
+                item['directPlaybackStatus'] = 'trusted_provider_embed'
+                item['sourceOnly'] = False
+                item.pop('sourceOnlyReason', None)
+                item['playbackStatus'] = 'verified'
+                item['status'] = 'is_live'
             country_counts[item['country']] = country_counts.get(item['country'], 0) + 1
             items.append(item)
         if len(items) >= limit:
