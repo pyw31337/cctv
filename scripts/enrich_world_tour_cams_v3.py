@@ -12,8 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data' / 'world_tour_cams.json'
 
 # Suggested refresh intervals (seconds) by sourceType
-# Strict session-limited or dynamic token sites are refreshed frequently.
-# Heavy public API or long-lived HLS sites have longer cache lifetime to avoid server load.
 REFRESH_INTERVALS = {
     'baltic': 4 * 3600,         # Baltic AJAX token: 4 hours
     'skyline': 4 * 3600,        # Skyline Clappr token: 4 hours
@@ -127,8 +125,9 @@ def deep_crawling_target(source_url, title):
                         ajax_html = response.read().decode('utf-8', errors='ignore')
                         resolved_hls = extract_hls_url(ajax_html)
                         if resolved_hls:
-                            proxied_url = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(resolved_hls)}"
-                            return None, proxied_url
+                            # HLS 식별 조건 우회를 위해 ext=.m3u8 쿼리를 꼬리에 장착
+                            hint_url = f"https://balticlivecam.com/?baltic_id={cam_id}&ext=.m3u8"
+                            return None, hint_url
                 except Exception:
                     pass
 
@@ -214,21 +213,24 @@ def main():
         source_type = item.get('sourceType', '')
         source_url = item.get('sourceUrl', '')
         
-        # Re-wrap existing Baltic Cam playUrl with proxy if not wrapped
+        # Convert existing Baltic Cam playUrl to the new runtime hint format with HLS dummy extension
         if source_type == 'baltic' and not item.get('sourceOnly') and item.get('playUrl'):
             play_url = item.get('playUrl')
-            if '158.179.194.163.sslip.io' not in play_url:
-                proxied = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(play_url)}"
-                item['playUrl'] = proxied
-                item['sourceRefreshedAt'] = utc_now.isoformat()
-                promoted_deep_crawl += 1
+            if 'baltic_id=' not in play_url or 'ext=.m3u8' not in play_url:
+                page_html = fetch_text(source_url)
+                if page_html:
+                    match_id = re.search(r'id:\s*(\d+),', page_html)
+                    if match_id:
+                        cam_id = match_id.group(1)
+                        item['playUrl'] = f"https://balticlivecam.com/?baltic_id={cam_id}&ext=.m3u8"
+                        item['sourceRefreshedAt'] = utc_now.isoformat()
+                        promoted_deep_crawl += 1
         
         # Check cache freshness policy
         refreshed_at_str = item.get('sourceRefreshedAt')
         is_cache_fresh = False
         if refreshed_at_str and (item.get('videoId') or item.get('playUrl') or item.get('embedUrl')):
             try:
-                # Remove Z placeholder for fromisoformat compatibility
                 refreshed_at = dt.datetime.fromisoformat(refreshed_at_str.replace('Z', '+00:00'))
                 elapsed = (utc_now - refreshed_at).total_seconds()
                 interval = REFRESH_INTERVALS.get(source_type, DEFAULT_INTERVAL)
