@@ -125,7 +125,7 @@ def deep_crawling_target(source_url, title):
                         ajax_html = response.read().decode('utf-8', errors='ignore')
                         resolved_hls = extract_hls_url(ajax_html)
                         if resolved_hls:
-                            proxied_url = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(resolved_hls)}"
+                            proxied_url = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(resolved_hls)}&ext=.m3u8"
                             return None, proxied_url
                 except Exception:
                     pass
@@ -212,8 +212,8 @@ def main():
         source_type = item.get('sourceType', '')
         source_url = item.get('sourceUrl', '')
         
-        # Force refresh for Baltic cams that currently hold the legacy baltic_id hint url format
-        if source_type == 'baltic' and item.get('playUrl') and 'baltic_id=' in item.get('playUrl'):
+        # Force refresh for Baltic cams that currently hold the legacy baltic_id hint url format or lack HLS extension hint
+        if source_type == 'baltic' and item.get('playUrl') and ('baltic_id=' in item.get('playUrl') or '&ext=.m3u8' not in item.get('playUrl')):
             item['playUrl'] = None
             item['sourceOnly'] = True
             item['sourceRefreshedAt'] = None

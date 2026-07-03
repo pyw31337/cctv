@@ -6476,7 +6476,8 @@ function getWorldTourSnapshotRefreshMs(cam) {
 }
 
 function isWorldTourHlsUrl(url) {
-    return /\.m3u8(?:[?#].*)?$/i.test(String(url || '').trim());
+    const val = String(url || '').trim();
+    return /\.m3u8(?:[?#].*)?$/i.test(val) || val.includes('.m3u8') || (val.includes('%2F') && val.includes('m3u8'));
 }
 
 function isWorldTourDirectVideoUrl(url) {
