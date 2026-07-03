@@ -125,9 +125,8 @@ def deep_crawling_target(source_url, title):
                         ajax_html = response.read().decode('utf-8', errors='ignore')
                         resolved_hls = extract_hls_url(ajax_html)
                         if resolved_hls:
-                            # HLS 식별 조건 우회를 위해 ext=.m3u8 쿼리를 꼬리에 장착
-                            hint_url = f"https://balticlivecam.com/?baltic_id={cam_id}&ext=.m3u8"
-                            return None, hint_url
+                            proxied_url = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(resolved_hls)}"
+                            return None, proxied_url
                 except Exception:
                     pass
 
@@ -213,18 +212,11 @@ def main():
         source_type = item.get('sourceType', '')
         source_url = item.get('sourceUrl', '')
         
-        # Convert existing Baltic Cam playUrl to the new runtime hint format with HLS dummy extension
-        if source_type == 'baltic' and not item.get('sourceOnly') and item.get('playUrl'):
-            play_url = item.get('playUrl')
-            if 'baltic_id=' not in play_url or 'ext=.m3u8' not in play_url:
-                page_html = fetch_text(source_url)
-                if page_html:
-                    match_id = re.search(r'id:\s*(\d+),', page_html)
-                    if match_id:
-                        cam_id = match_id.group(1)
-                        item['playUrl'] = f"https://balticlivecam.com/?baltic_id={cam_id}&ext=.m3u8"
-                        item['sourceRefreshedAt'] = utc_now.isoformat()
-                        promoted_deep_crawl += 1
+        # Force refresh for Baltic cams that currently hold the legacy baltic_id hint url format
+        if source_type == 'baltic' and item.get('playUrl') and 'baltic_id=' in item.get('playUrl'):
+            item['playUrl'] = None
+            item['sourceOnly'] = True
+            item['sourceRefreshedAt'] = None
         
         # Check cache freshness policy
         refreshed_at_str = item.get('sourceRefreshedAt')
