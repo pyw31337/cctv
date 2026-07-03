@@ -1,0 +1,76 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare deploy directory
+        run: |
+          mkdir -p _site
+          # Copy only web-serving files (HTML, JS, CSS, JSON data, images, manifests)
+          rsync -av --include='*.html' --include='*.js' --include='*.css' \
+            --include='*.json' --include='*.png' --include='*.ico' \
+            --include='*.svg' --include='*.webmanifest' --include='*.txt' \
+            --include='.nojekyll' \
+            --exclude='venv/' --exclude='scripts/' --exclude='server/' \
+            --exclude='rtsp-server/' --exclude='workers/' --exclude='ops/' \
+            --exclude='utils/' --exclude='docs/' --exclude='logs/' \
+            --exclude='artifacts_backup/' --exclude='_legacy_backup/' \
+            --exclude='.git/' --exclude='.github/' --exclude='*.py' \
+            --exclude='*.log' --exclude='*.xls' --exclude='*.webp' \
+            --exclude='*.bk*' --exclude='node_modules/' \
+            --exclude='cctv_data_pre_audit_v2.json' \
+            --exclude='cctv_data_test.json' \
+            --exclude='validation_results.jsonl' \
+            --exclude='integrity_report.json' \
+            --exclude='spatic_raw.json' \
+            --exclude='ntic_data.json' \
+            --exclude='oracle_key*' \
+            --exclude='Dockerfile' \
+            --prune-empty-dirs \
+            . _site/
+          # Copy data directory fully (needed for app)
+          mkdir -p _site/data
+          cp -r data/*.json _site/data/ 2>/dev/null || true
+          cp -r js/ _site/js/ 2>/dev/null || true
+          cp -r css/ _site/css/ 2>/dev/null || true
+          echo "=== Deploy size ==="
+          du -sh _site/
+          echo "=== File count ==="
+          find _site/ -type f | wc -l
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
