@@ -5,9 +5,9 @@
 ## 📊 검증 요약
 
 - **총 검증 대상**: 168개 채널
-- **재생 성공 (SUCCESS)**: 112개
-- **재생 실패 (FAIL)**: 56개
-- **직통 재생 성공률**: 66.67%
+- **재생 성공 (SUCCESS)**: 119개
+- **재생 실패 (FAIL)**: 49개
+- **직통 재생 성공률**: 70.83%
 
 ## 📋 상세 검증 리스트
 
@@ -23,12 +23,12 @@
 | baltic | 11 November Embankment | Latvia | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
 | baltic | A Coruña | Spain | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
 | baltic | Agaete beach | Spain | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
-| baltic | Albissola Marina resort | Italy | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
 | baltic | Amalfi Cathedral | Italy | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
-| baltic | Another view from "Cafe 53" to the Jomas street | Latvia | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
-| baltic | Anshun Bridge | China | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
-| baltic | Almog beach | Israel | ❌ FAIL | HTTP Error 404: Not Found |
-| baltic | Anacapri | Italy | ❌ FAIL | HTTP Error 404: Not Found |
+| baltic | Al-Haram Mosque | Saudi Arabia | ❌ FAIL | HTTP Error 502: Bad Gateway |
+| baltic | Al-Masjid an-Nabawi | Saudi Arabia | ❌ FAIL | HTTP Error 502: Bad Gateway |
+| baltic | Albissola Marina resort | Italy | ❌ FAIL | HTTP Error 502: Bad Gateway |
+| baltic | Almog beach | Israel | ❌ FAIL | HTTP Error 502: Bad Gateway |
+| baltic | Anacapri | Italy | ❌ FAIL | HTTP Error 502: Bad Gateway |
 | camscape | 1000 Islands Webcam Near Rockport | United States | ✅ SUCCESS | Embedded trusted provider site active |
 | camscape | Borovets Ski Resort Webcam in the Rila Mountains | Bulgaria | ✅ SUCCESS | Embedded trusted provider site active |
 | camscape | Burgas Beach Arena Beach Sports Webcams | Bulgaria | ✅ SUCCESS | Embedded trusted provider site active |
@@ -90,16 +90,16 @@
 | ongjin | 옹진 진두항-1 | South Korea | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
 | ongjin | 옹진 진두항-2 | South Korea | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
 | ongjin | 옹진 진두항-3 | South Korea | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
-| panomax | Aberg - Maria Alm | Austria | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | BBC Glastonbury Webcam | United Kingdom | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | Bad Gastein | Austria | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | Bad Hofgastein | Austria | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | Bec Carre | Switzerland | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | Bessanese | Italy | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | Bleßberg | Germany | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | Brendturm | Germany | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | Cervinia Matterhorn | Switzerland | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
-| panomax | Chamois | Switzerland | ❌ FAIL | <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Ho... |
+| panomax | Aberg - Maria Alm | Austria | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | BBC Glastonbury Webcam | United Kingdom | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | Bad Gastein | Austria | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | Bad Hofgastein | Austria | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | Bec Carre | Switzerland | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | Bessanese | Italy | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | Bleßberg | Germany | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | Brendturm | Germany | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | Cervinia Matterhorn | Switzerland | ✅ SUCCESS | Embedded trusted provider site active |
+| panomax | Chamois | Switzerland | ✅ SUCCESS | Embedded trusted provider site active |
 | panoramask | Bourgas - center | Bulgaria | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |
 | panoramask | Cervinia Ski Paradise - Matterhorn - Plateau Rosa | Switzerland | ✅ SUCCESS | Embedded trusted provider site active |
 | panoramask | Dublin - O`Connell Street | Ireland | ✅ SUCCESS | HTTP 200 OK (Validated HLS Playlist) |

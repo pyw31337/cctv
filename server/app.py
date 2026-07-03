@@ -667,7 +667,7 @@ def proxy_stream():
                     ):
                         base_url = target_url + '/'
                     full_segment_url = urljoin(base_url, line.strip())
-                    new_lines.append(f"/proxy?url={quote(full_segment_url, safe='')}")
+                    new_lines.append(f"https://158.179.194.163.sslip.io/proxy?url={quote(full_segment_url, safe='')}")
                 else:
                     new_lines.append(line)
             
@@ -747,6 +747,74 @@ def proxy_daejeon():
 
     logger.warning(f"Daejeon {cctv_id} no recent MP4 found; last tried {last_url}")
     return "Daejeon stream not ready", 502
+
+# === Baltic Live Cam Dynamic Token Proxy Logic ===
+@app.route('/baltic')
+def proxy_baltic():
+    cam_id = request.args.get('id')
+    if not cam_id:
+        return "Missing camera ID", 400
+
+    ajax_url = "https://balticlivecam.com/wp-admin/admin-ajax.php"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Referer': 'https://balticlivecam.com/'
+    }
+    post_data = {
+        'action': 'auth_token',
+        'id': str(cam_id),
+        'embed': '0',
+        'main_referer': 'https://balticlivecam.com/'
+    }
+    
+    try:
+        # 1. Fetch the dynamic token stream URL from Baltic Live Cam AJAX API
+        resp = requests.post(ajax_url, data=post_data, headers=headers, timeout=6)
+        if resp.status_code != 200:
+            return f"Baltic Live Cam AJAX failed with status {resp.status_code}", 502
+        
+        # 2. Extract m3u8 stream URL
+        html_content = resp.text
+        m3u8_match = re.search(r'https?://[^"\'\s]+?\.m3u8(?:\?[^"\'\s]*)?', html_content, re.IGNORECASE)
+        if not m3u8_match:
+            return "m3u8 stream url not found in Baltic Live Cam response", 502
+            
+        raw_hls_url = m3u8_match.group(0).replace('\\/', '/').replace('\\u0026', '&')
+        
+        # 3. Request the m3u8 file contents
+        stream_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://balticlivecam.com/'
+        }
+        stream_resp = requests.get(raw_hls_url, headers=stream_headers, timeout=6)
+        if stream_resp.status_code != 200:
+            return f"Failed to fetch upstream HLS manifest: {stream_resp.status_code}", 502
+            
+        # 4. Rewrite relative stream tracks/segments inside playlist to absolute proxied URLs
+        content = stream_resp.text
+        lines = content.splitlines()
+        new_lines = []
+        for line in lines:
+            if line.strip() and not line.startswith('#'):
+                full_segment_url = urljoin(raw_hls_url, line.strip())
+                new_lines.append(f"https://158.179.194.163.sslip.io/proxy?url={quote(full_segment_url, safe='')}")
+            else:
+                new_lines.append(line)
+                
+        rewritten_content = "\n".join(new_lines).encode('utf-8')
+        
+        # 5. Return rewritten stream to the Hls.js client with proper headers
+        resp_headers = [
+            ('Access-Control-Allow-Origin', '*'),
+            ('Cache-Control', 'no-store, max-age=0'),
+            ('Content-Type', 'application/vnd.apple.mpegurl')
+        ]
+        return Response(rewritten_content, 200, resp_headers)
+        
+    except Exception as e:
+        logger.error(f"Baltic proxy error for cam {cam_id}: {e}")
+        return f"Baltic proxy error: {str(e)}", 502
 
 # === Jeju Proxy Logic ===
 @app.route('/jeju')

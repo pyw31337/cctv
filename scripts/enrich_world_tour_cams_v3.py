@@ -96,39 +96,15 @@ def deep_crawling_target(source_url, title):
     """
     url_to_crawl = source_url
     
-    # 1. Baltic Live Cam (2-depth AJAX auth_token POST request resolution)
+    # 1. Baltic Live Cam (Dynamic Real-time Token Proxy Setup)
     if 'balticlivecam.com' in source_url:
         page_html = fetch_text(source_url)
         if page_html:
             match_id = re.search(r'id:\s*(\d+),', page_html)
             if match_id:
                 cam_id = match_id.group(1)
-                ajax_url = "https://balticlivecam.com/wp-admin/admin-ajax.php"
-                post_data = {
-                    'action': 'auth_token',
-                    'id': str(cam_id),
-                    'embed': '0',
-                    'main_referer': 'https://balticlivecam.com/'
-                }
-                encoded_data = urllib.parse.urlencode(post_data).encode('utf-8')
-                try:
-                    req = urllib.request.Request(
-                        ajax_url,
-                        data=encoded_data,
-                        headers={
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                            'Referer': 'https://balticlivecam.com/'
-                        }
-                    )
-                    with urllib.request.urlopen(req, timeout=6) as response:
-                        ajax_html = response.read().decode('utf-8', errors='ignore')
-                        resolved_hls = extract_hls_url(ajax_html)
-                        if resolved_hls:
-                            proxied_url = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(resolved_hls)}&ext=.m3u8"
-                            return None, proxied_url
-                except Exception:
-                    pass
+                hint_url = f"https://158.179.194.163.sslip.io/baltic?id={cam_id}&ext=.m3u8"
+                return None, hint_url
 
     # 2. SkylineWebcams (Clappr source parameter + trap bypass + referer bypass proxy)
     if 'skylinewebcams.com' in source_url:
@@ -212,8 +188,8 @@ def main():
         source_type = item.get('sourceType', '')
         source_url = item.get('sourceUrl', '')
         
-        # Force refresh for Baltic cams that currently hold the legacy baltic_id hint url format or lack HLS extension hint
-        if source_type == 'baltic' and item.get('playUrl') and ('baltic_id=' in item.get('playUrl') or '&ext=.m3u8' not in item.get('playUrl')):
+        # Force refresh for Baltic cams that do not yet hold the new real-time /baltic?id= format
+        if source_type == 'baltic' and item.get('playUrl') and 'baltic?id=' not in item.get('playUrl'):
             item['playUrl'] = None
             item['sourceOnly'] = True
             item['sourceRefreshedAt'] = None

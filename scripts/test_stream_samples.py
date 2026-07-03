@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data' / 'world_tour_cams.json'
 REPORT_PATH = ROOT / 'cctv_sampling_validation_report.md'
 
+import ssl
+UNVERIFIED_CONTEXT = ssl._create_unverified_context()
+
 def check_hls_url(url, source_type, timeout=6):
     """
     Sends a GET request to the stream URL (proxied or raw).
@@ -23,7 +26,7 @@ def check_hls_url(url, source_type, timeout=6):
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         )
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.urlopen(req, timeout=timeout, context=UNVERIFIED_CONTEXT) as response:
             status_code = response.getcode()
             content = response.read(1024).decode('utf-8', errors='ignore')
             
@@ -65,7 +68,7 @@ def check_embed_provider(url, timeout=6):
             url,
             headers={'User-Agent': 'Mozilla/5.0'}
         )
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.urlopen(req, timeout=timeout, context=UNVERIFIED_CONTEXT) as response:
             if response.getcode() == 200:
                 return True, "Embedded trusted provider site active"
             return False, f"HTTP {response.getcode()}"
