@@ -1002,6 +1002,48 @@ def proxy_whatsupcam():
         return f"WhatUpCam depth-3 error: {e}", 502
 
 
+# === Roundshot Snapshot Proxy ===
+@app.route('/roundshot')
+def proxy_roundshot():
+    """
+    Fetch Roundshot page to parse og:image Cam ID and redirect to latest image.
+    E.g., /roundshot?url=https://zermatt.roundshot.com/blauherd
+    """
+    source_url = request.args.get('url')
+    if not source_url:
+        return "Missing source URL", 400
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    }
+    try:
+        resp = requests.get(source_url, headers=headers, timeout=6)
+        if resp.status_code != 200:
+            return f"Roundshot page fetch failed: {resp.status_code}", 502
+
+        html = resp.text
+        import re as _re
+        # Find og:image content (e.g. content="/cams/2091")
+        m = _re.search(r'property="og:image"\s+content="([^"]+)"', html)
+        if not m:
+            m = _re.search(r'content="([^"]+)"\s+property="og:image"', html)
+        if not m:
+            return "Roundshot: camera ID not found in page", 502
+
+        cam_path = m.group(1).strip() # e.g. "/cams/2091"
+        
+        # Build final target URL relative to the source domain
+        from urllib.parse import urlparse
+        parsed = urlparse(source_url)
+        base_domain = f"{parsed.scheme}://{parsed.netloc}"
+        target_img_url = f"{base_domain.rstrip('/')}/{cam_path.lstrip('/')}"
+        
+        return flask.redirect(target_img_url, code=302)
+    except Exception as e:
+        logger.error(f"Roundshot proxy error for {source_url}: {e}")
+        return f"Roundshot proxy error: {str(e)}", 502
+
+
 # === Jeju Proxy Logic ===
 @app.route('/jeju')
 @app.route('/jeju2')

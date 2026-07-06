@@ -7588,6 +7588,71 @@ function cleanupWorldTourVideoPlayers(root = document) {
     });
 }
 
+function getNearbyDistanceText(cam1, cam2) {
+    if (!cam1 || !cam2 || !cam1.lat || !cam1.lng || !cam2.lat || !cam2.lng) return '인근';
+    const R = 6371; // Earth radius in km
+    const dLat = (cam2.lat - cam1.lat) * Math.PI / 180;
+    const dLng = (cam2.lng - cam1.lng) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(cam1.lat * Math.PI / 180) * Math.cos(cam2.lat * Math.PI / 180) * 
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const d = R * c;
+    return d < 1 ? `${Math.round(d * 1000)}m` : `${d.toFixed(1)}km`;
+}
+
+function showOutageAlternativeSuggestions(videoElement, selectedCam) {
+    const wrapper = videoElement.parentElement;
+    if (!wrapper || !selectedCam) return;
+    if (wrapper.querySelector('.world-tour-alternative-suggestions')) return;
+
+    const cams = state.worldTourCams || [];
+    if (!cams.length) return;
+
+    const candidates = cams.filter(c => c.id !== selectedCam.id && canPlayWorldTourInApp(c));
+    if (!candidates.length) return;
+
+    const nearby = getWorldTourNearbyCams(selectedCam, candidates, 3);
+    if (!nearby.length) return;
+
+    const container = document.createElement('div');
+    container.className = 'world-tour-alternative-suggestions';
+
+    let html = `
+        <div class="world-tour-suggestion-header">근처의 추천 라이브 카메라</div>
+        <div class="world-tour-suggestion-list">
+    `;
+
+    nearby.forEach(cam => {
+        const title = escapeWorldTourHtml(cam.title);
+        const distText = getNearbyDistanceText(selectedCam, cam);
+        html += `
+            <button type="button" class="world-tour-suggestion-btn" data-suggestion-id="${escapeWorldTourHtml(cam.id)}">
+                <span class="suggestion-title">${title}</span>
+                <span class="suggestion-dist">${distText}</span>
+            </button>
+        `;
+    });
+
+    html += `</div>`;
+    container.innerHTML = html;
+
+    container.querySelectorAll('.world-tour-suggestion-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.dataset.suggestionId;
+            const targetCam = cams.find(c => c.id === targetId);
+            if (targetCam) {
+                renderWorldTourCams(targetId, {
+                    viewMode: state.worldTourViewMode,
+                    focusSelected: true
+                });
+            }
+        });
+    });
+
+    wrapper.appendChild(container);
+}
+
 function initWorldTourVideoPlayback() {
     const video = document.querySelector('.world-tour-direct-video');
     if (!video) return;
@@ -7595,12 +7660,23 @@ function initWorldTourVideoPlayback() {
     const streamUrl = video.dataset.worldTourStream;
     if (!streamUrl) return;
 
+    const selected = state.worldTourCams?.find(c => c.id === state.selectedWorldTourId);
     const loading = video.parentElement?.querySelector('.world-tour-video-loading');
     const markReady = () => {
         video.classList.add('is-ready');
         loading?.classList.add('hidden');
     };
     const playSafely = () => video.play().then(markReady).catch(() => markReady());
+    
+    const triggerOutageSuggestions = () => {
+        if (loading) {
+            loading.classList.add('is-error');
+            loading.innerHTML = '영상을 재생할 수 없습니다.<br>아래 추천 카메라로 이동해 보세요.';
+        }
+        showOutageAlternativeSuggestions(video, selected);
+    };
+
+    video.addEventListener('error', triggerOutageSuggestions);
 
     if (isWorldTourHlsUrl(streamUrl)) {
         if (window.Hls && window.Hls.isSupported()) {
@@ -7617,7 +7693,7 @@ function initWorldTourVideoPlayback() {
             hls.on(window.Hls.Events.MANIFEST_PARSED, playSafely);
             hls.on(window.Hls.Events.ERROR, (event, data) => {
                 if (!data?.fatal) return;
-                loading?.classList.add('is-error');
+                triggerOutageSuggestions();
                 if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR && typeof hls.recoverMediaError === 'function') {
                     hls.recoverMediaError();
                     return;
@@ -7640,6 +7716,7 @@ function initWorldTourVideoPlayback() {
     video.src = streamUrl;
     video.addEventListener('loadedmetadata', playSafely, { once: true });
 }
+
 
 function bindWorldTourListPanel(root, cams, selected) {
     const overlay = root.querySelector('[data-world-tour-list-overlay]');
