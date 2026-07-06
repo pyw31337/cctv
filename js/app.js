@@ -6477,12 +6477,16 @@ function getWorldTourSnapshotRefreshMs(cam) {
 
 function isWorldTourHlsUrl(url) {
     const val = String(url || '').trim();
+    if (val.includes('/skyline?') || val.includes('/whatsupcam?') || val.includes('/baltic?')) return true;
     return /\.m3u8(?:[?#].*)?$/i.test(val) || val.includes('.m3u8') || (val.includes('%2F') && val.includes('m3u8'));
 }
 
 function isWorldTourDirectVideoUrl(url) {
-    return /\.(?:mp4|webm|ogv)(?:[?#].*)?$/i.test(String(url || '').trim());
+    const val = String(url || '').trim();
+    if (val.includes('/feratel?')) return true;
+    return /\.(?:mp4|webm|ogv)(?:[?#].*)?$/i.test(val);
 }
+
 
 function normalizeWorldTourText(value) {
     return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
