@@ -816,6 +816,176 @@ def proxy_baltic():
         logger.error(f"Baltic proxy error for cam {cam_id}: {e}")
         return f"Baltic proxy error: {str(e)}", 502
 
+
+# === SkylineWebcams Dynamic Token Proxy ===
+@app.route('/skyline')
+def proxy_skyline():
+    """Fetch a fresh HLS token from SkylineWebcams page and return the m3u8 content."""
+    source_url = request.args.get('url')
+    if not source_url:
+        return "Missing source URL", 400
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://www.skylinewebcams.com/',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    }
+    try:
+        resp = requests.get(source_url, headers=headers, timeout=8)
+        if resp.status_code != 200:
+            return f"SkylineWebcams page fetch failed: {resp.status_code}", 502
+
+        html = resp.text
+        import re as _re
+        tokens = _re.findall(r'hd-auth\.skylinewebcams\.com/live\.m3u8\?a=([a-zA-Z0-9]+)', html)
+        if not tokens:
+            # Try alternate pattern
+            tokens = _re.findall(r'live\.m3u8\?a=([a-zA-Z0-9]+)', html)
+        if not tokens:
+            return "SkylineWebcams: m3u8 token not found in page", 502
+
+        token = tokens[0]
+        hls_url = f"https://hd-auth.skylinewebcams.com/live.m3u8?a={token}"
+
+        # Fetch and relay the HLS manifest
+        stream_headers = {'User-Agent': headers['User-Agent'], 'Referer': 'https://www.skylinewebcams.com/'}
+        stream_resp = requests.get(hls_url, headers=stream_headers, timeout=8)
+        if stream_resp.status_code != 200:
+            return f"SkylineWebcams HLS fetch failed: {stream_resp.status_code}", 502
+
+        content = stream_resp.text
+        lines = content.splitlines()
+        new_lines = []
+        for line in lines:
+            if line.strip() and not line.startswith('#'):
+                full_url = urljoin(hls_url, line.strip())
+                new_lines.append(f"https://158.179.194.163.sslip.io/proxy?url={quote(full_url, safe='')}")
+            else:
+                new_lines.append(line)
+
+        rewritten = "\n".join(new_lines).encode('utf-8')
+        return Response(rewritten, 200, [
+            ('Access-Control-Allow-Origin', '*'),
+            ('Cache-Control', 'no-store, max-age=0'),
+            ('Content-Type', 'application/vnd.apple.mpegurl'),
+        ])
+    except Exception as e:
+        logger.error(f"SkylineWebcams proxy error for {source_url}: {e}")
+        return f"SkylineWebcams proxy error: {str(e)}", 502
+
+
+# === Feratel MP4 Proxy ===
+@app.route('/feratel')
+def proxy_feratel():
+    """
+    Depth-1: Fetch feratel.com source page to extract webtvfc iframe cam ID.
+    Depth-2: Fetch webtvfc.feratel.com page to confirm MP4 URL.
+    Depth-3: Redirect client to stsfc001.feratel.com MP4 stream.
+    """
+    source_url = request.args.get('url')
+    cam_id_override = request.args.get('cam')  # optional direct cam ID
+    if not source_url and not cam_id_override:
+        return "Missing source URL or cam ID", 400
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://www.feratel.com/',
+    }
+    import re as _re
+
+    cam_id = cam_id_override
+    if not cam_id:
+        try:
+            resp = requests.get(source_url, headers=headers, timeout=8)
+            html = resp.text
+            # Look for iframe cam parameter
+            ids = _re.findall(r'[?&]cam=(\d+)', html)
+            if not ids:
+                return "Feratel: cam ID not found in page", 502
+            cam_id = ids[0]
+        except Exception as e:
+            return f"Feratel depth-1 error: {e}", 502
+
+    mp4_url = f"https://stsfc001.feratel.com/streams/latest/1/{cam_id}.mp4?dcsdesign=WTP_feratel.com"
+    
+    # Probe that it exists before redirecting
+    try:
+        probe = requests.head(mp4_url, headers={'Referer': 'https://webtvfc.feratel.com/'}, timeout=5)
+        if probe.status_code not in (200, 206):
+            return f"Feratel MP4 not available (status={probe.status_code})", 502
+    except Exception as e:
+        return f"Feratel MP4 probe error: {e}", 502
+
+    return flask.redirect(mp4_url, code=302)
+
+
+# === WhatUpCam JSONP Stream Proxy ===
+@app.route('/whatsupcam')
+def proxy_whatsupcam():
+    """
+    Depth-1: Fetch WhatUpCam source page to extract widget slug.
+    Depth-2: Call JSONP stream API to get HLS URL.
+    Depth-3: Relay HLS manifest with proxied segment URLs.
+    """
+    source_url = request.args.get('url')
+    slug_override = request.args.get('slug')
+    if not source_url and not slug_override:
+        return "Missing source URL or slug", 400
+
+    import re as _re
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://www.whatsupcams.com/',
+    }
+
+    slug = slug_override
+    if not slug:
+        try:
+            resp = requests.get(source_url, headers=headers, timeout=8)
+            slugs = _re.findall(r'services\.whatsupcams\.com/wgt/([a-zA-Z0-9_-]+)', resp.text)
+            if not slugs:
+                return "WhatUpCam: widget slug not found in page", 502
+            slug = slugs[0]
+        except Exception as e:
+            return f"WhatUpCam depth-1 error: {e}", 502
+
+    api_url = f"https://services.whatsupcams.com/streams/{slug}?jsonp=true"
+    try:
+        api_resp = requests.get(api_url, headers={'Referer': 'https://services.whatsupcams.com/'}, timeout=8)
+        raw = api_resp.text
+        hls_match = _re.search(r'"url"\s*:\s*"(https?://[^"]+\.m3u8[^"]*)"', raw)
+        if not hls_match:
+            return "WhatUpCam: HLS URL not found in stream API", 502
+        hls_url = hls_match.group(1)
+    except Exception as e:
+        return f"WhatUpCam depth-2 error: {e}", 502
+
+    # Relay manifest
+    try:
+        stream_resp = requests.get(hls_url, headers={'Referer': 'https://www.whatsupcams.com/'}, timeout=8)
+        if stream_resp.status_code != 200:
+            return f"WhatUpCam HLS fetch failed: {stream_resp.status_code}", 502
+
+        content = stream_resp.text
+        lines = content.splitlines()
+        new_lines = []
+        for line in lines:
+            if line.strip() and not line.startswith('#'):
+                full_url = urljoin(hls_url, line.strip())
+                new_lines.append(f"https://158.179.194.163.sslip.io/proxy?url={quote(full_url, safe='')}")
+            else:
+                new_lines.append(line)
+
+        rewritten = "\n".join(new_lines).encode('utf-8')
+        return Response(rewritten, 200, [
+            ('Access-Control-Allow-Origin', '*'),
+            ('Cache-Control', 'no-store, max-age=0'),
+            ('Content-Type', 'application/vnd.apple.mpegurl'),
+        ])
+    except Exception as e:
+        return f"WhatUpCam depth-3 error: {e}", 502
+
+
 # === Jeju Proxy Logic ===
 @app.route('/jeju')
 @app.route('/jeju2')
