@@ -122,12 +122,19 @@ const WORLD_TOUR_SOURCE_ONLY_MARKER = {
     selectedColor: '#fff1f2',
     selectedFillColor: '#f43f5e'
 };
+const WORLD_TOUR_WARNING_MARKER = {
+    color: '#b45309',
+    fillColor: '#f59e0b',
+    selectedColor: '#fffbeb',
+    selectedFillColor: '#f59e0b'
+};
 const WORLD_TOUR_IN_APP_MARKER = {
     color: '#047857',
     fillColor: '#22c55e',
     selectedColor: '#ecfeff',
     selectedFillColor: '#22c55e'
 };
+
 const WORLD_TOUR_SOURCE_LABELS = {
     earthcam: 'EarthCam',
     skyline: 'Skyline',
@@ -6442,8 +6449,23 @@ function canPlayWorldTourInApp(cam) {
 }
 
 function getWorldTourMarkerStyle(cam, isSelected) {
-    const sourceOnly = !canPlayWorldTourInApp(cam);
-    if (sourceOnly) {
+    const isPlayable = canPlayWorldTourInApp(cam);
+    const playbackStatus = String(cam?.playbackStatus || '').toLowerCase();
+    
+    const isTemporaryOutage = !isPlayable && !cam?.sourceOnly && 
+        (['unavailable', 'source-only'].includes(playbackStatus) || cam?.sourceOnlyReason);
+        
+    if (isTemporaryOutage) {
+        return {
+            radius: isSelected ? 9 : 6,
+            color: isSelected ? WORLD_TOUR_WARNING_MARKER.selectedColor : WORLD_TOUR_WARNING_MARKER.color,
+            weight: isSelected ? 3 : 2,
+            fillColor: isSelected ? WORLD_TOUR_WARNING_MARKER.selectedFillColor : WORLD_TOUR_WARNING_MARKER.fillColor,
+            fillOpacity: isSelected ? 0.98 : 0.85
+        };
+    }
+
+    if (!isPlayable) {
         return {
             radius: isSelected ? 9 : 6,
             color: isSelected ? WORLD_TOUR_SOURCE_ONLY_MARKER.selectedColor : WORLD_TOUR_SOURCE_ONLY_MARKER.color,
@@ -6461,6 +6483,7 @@ function getWorldTourMarkerStyle(cam, isSelected) {
         fillOpacity: isSelected ? 0.98 : 0.74
     };
 }
+
 
 // Returns a suggested refresh cadence (ms) for snapshot-based cameras.
 // Conservative defaults keep CDN load reasonable while feeling "live".
@@ -7221,13 +7244,36 @@ function renderWorldTourBottomMenu(cams, visibleCams, selected) {
 }
 
 function renderWorldTourVideoHero(selected) {
+    const isPlayable = canPlayWorldTourInApp(selected);
     const embedUrl = getWorldTourEmbedUrl(selected);
     const sourceLabel = getWorldTourSourceLabel(selected);
     const isDirectVideo = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl);
     const snapshotUrl = !embedUrl ? (selected.snapshotUrl || '') : '';
 
     let mediaHtml;
-    if (embedUrl && isDirectVideo) {
+    if (!isPlayable) {
+        const playbackStatus = String(selected?.playbackStatus || '').toLowerCase();
+        const isTemporaryOutage = !selected?.sourceOnly && 
+            (['unavailable', 'source-only'].includes(playbackStatus) || selected?.sourceOnlyReason);
+            
+        const title = isTemporaryOutage ? '⚠️ 임시 점검 중' : '외부 원본 사이트 제공 영상';
+        const msg = isTemporaryOutage 
+            ? '현재 해당 스트림에 일시적인 연결 장애가 발생했습니다.<br>우측 상단의 나침반 버튼 또는 아래 링크를 통해 원본 사이트에서 직접 확인하실 수 있습니다.'
+            : '해당 채널은 외부 원본 사이트에서 직접 시청하실 수 있습니다.';
+            
+        const actionBtn = selected.sourceUrl
+            ? `<a class="world-tour-action-btn" href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본 사이트에서 시청</a>`
+            : '';
+            
+        mediaHtml = `
+            <div class="world-tour-video world-tour-outage-hero">
+                <div class="world-tour-outage-content">
+                    <div class="world-tour-outage-title">${title}</div>
+                    <div class="world-tour-outage-text">${msg}</div>
+                    ${actionBtn}
+                </div>
+            </div>`;
+    } else if (embedUrl && isDirectVideo) {
         mediaHtml = `
             <div class="world-tour-video">
                 <video
@@ -7249,6 +7295,7 @@ function renderWorldTourVideoHero(selected) {
                 ></iframe>
             </div>`;
     } else if (snapshotUrl) {
+
         // In-app snapshot playback for sources without an embeddable player
         // (HK Traffic, USGS VolcView, Panomax, Roundshot). The image auto-
         // refreshes via initWorldTourSnapshotRefresh after the DOM mounts.

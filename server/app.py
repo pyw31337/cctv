@@ -850,8 +850,24 @@ def proxy_skyline():
         # Fetch and relay the HLS manifest
         stream_headers = {'User-Agent': headers['User-Agent'], 'Referer': 'https://www.skylinewebcams.com/'}
         stream_resp = requests.get(hls_url, headers=stream_headers, timeout=8)
+        
+        # [Self-healing] If the initial stream fetch fails, try to recrawl the page once more
         if stream_resp.status_code != 200:
-            return f"SkylineWebcams HLS fetch failed: {stream_resp.status_code}", 502
+            logger.warning(f"Skyline: HLS token invalid or expired (status={stream_resp.status_code}). Recrawling...")
+            resp = requests.get(source_url, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                html = resp.text
+                tokens = _re.findall(r'hd-auth\.skylinewebcams\.com/live\.m3u8\?a=([a-zA-Z0-9]+)', html)
+                if not tokens:
+                    tokens = _re.findall(r'live\.m3u8\?a=([a-zA-Z0-9]+)', html)
+                if tokens:
+                    token = tokens[0]
+                    hls_url = f"https://hd-auth.skylinewebcams.com/live.m3u8?a={token}"
+                    stream_resp = requests.get(hls_url, headers=stream_headers, timeout=8)
+
+        if stream_resp.status_code != 200:
+            return f"SkylineWebcams HLS fetch failed after retry: {stream_resp.status_code}", 502
+
 
         content = stream_resp.text
         lines = content.splitlines()
