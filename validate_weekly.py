@@ -10,7 +10,7 @@ from datetime import datetime
 
 # Configuration
 DATA_FILE = 'cctv_data.json'
-ALERT_THRESHOLD = 0.30  # 30%
+ALERT_THRESHOLD = 0.55  # 55%
 ALERT_EMAIL_RECIPIENT = "pyw213@naver.com"
 SMTP_SERVER = "smtp.gmail.com"  # Default to Gmail, change if using Naver: smtp.naver.com
 SMTP_PORT = 587
