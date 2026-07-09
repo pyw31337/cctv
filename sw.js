@@ -142,7 +142,7 @@ self.addEventListener('fetch', event => {
     }
 
     if (isStaleWhileRevalidate(url)) {
-        event.respondWith(staleWhileRevalidate(request, DATA_CACHE));
+        event.respondWith(networkFirst(request, DATA_CACHE));
         return;
     }
 

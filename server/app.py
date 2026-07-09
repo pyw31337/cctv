@@ -35,6 +35,30 @@ logger = logging.getLogger(__name__)
 streams = {}  # { stream_id: { 'process': Popen, 'last_access': time, 'url': url } }
 lock = threading.Lock()
 
+from functools import wraps
+def timed_cache(seconds: int = 60, maxsize: int = 128):
+    cache = {}
+    cache_lock = threading.Lock()
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
+            with cache_lock:
+                if key in cache:
+                    val, expire = cache[key]
+                    if now < expire:
+                        return val
+            val = func(*args, **kwargs)
+            if val is not None:
+                with cache_lock:
+                    if len(cache) >= maxsize:
+                        cache.clear()
+                    cache[key] = (val, now + seconds)
+            return val
+        return wrapper
+    return decorator
+
 # === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
 _z3_cache = {
     'data': None,       # dict: cctvip (str) -> appUrl (str)
@@ -818,13 +842,8 @@ def proxy_baltic():
 
 
 # === SkylineWebcams Dynamic Token Proxy ===
-@app.route('/skyline')
-def proxy_skyline():
-    """Fetch a fresh HLS token from SkylineWebcams page and return the m3u8 content."""
-    source_url = request.args.get('url')
-    if not source_url:
-        return "Missing source URL", 400
-
+@timed_cache(seconds=60)
+def get_cached_skyline_manifest(source_url: str) -> tuple:
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Referer': 'https://www.skylinewebcams.com/',
@@ -837,10 +856,7 @@ def proxy_skyline():
 
         html = resp.text
         import re as _re
-        tokens = _re.findall(r'hd-auth\.skylinewebcams\.com/live\.m3u8\?a=([a-zA-Z0-9]+)', html)
-        if not tokens:
-            # Try alternate pattern
-            tokens = _re.findall(r'live\.m3u8\?a=([a-zA-Z0-9]+)', html)
+        tokens = _re.findall(r'hd-auth\.skylinewebcams\.com/live\.m3u8\?a=([a-zA-Z0-9]+)', html) or _re.findall(r'live\.m3u8\?a=([a-zA-Z0-9]+)', html)
         if not tokens:
             return "SkylineWebcams: m3u8 token not found in page", 502
 
@@ -857,9 +873,7 @@ def proxy_skyline():
             resp = requests.get(source_url, headers=headers, timeout=8)
             if resp.status_code == 200:
                 html = resp.text
-                tokens = _re.findall(r'hd-auth\.skylinewebcams\.com/live\.m3u8\?a=([a-zA-Z0-9]+)', html)
-                if not tokens:
-                    tokens = _re.findall(r'live\.m3u8\?a=([a-zA-Z0-9]+)', html)
+                tokens = _re.findall(r'hd-auth\.skylinewebcams\.com/live\.m3u8\?a=([a-zA-Z0-9]+)', html) or _re.findall(r'live\.m3u8\?a=([a-zA-Z0-9]+)', html)
                 if tokens:
                     token = tokens[0]
                     hls_url = f"https://hd-auth.skylinewebcams.com/live.m3u8?a={token}"
@@ -867,7 +881,6 @@ def proxy_skyline():
 
         if stream_resp.status_code != 200:
             return f"SkylineWebcams HLS fetch failed after retry: {stream_resp.status_code}", 502
-
 
         content = stream_resp.text
         lines = content.splitlines()
@@ -880,74 +893,29 @@ def proxy_skyline():
                 new_lines.append(line)
 
         rewritten = "\n".join(new_lines).encode('utf-8')
-        return Response(rewritten, 200, [
+        return rewritten, 200
+    except Exception as e:
+        return f"Skyline error: {str(e)}", 502
+
+@app.route('/skyline')
+def proxy_skyline():
+    """Fetch a fresh HLS token from SkylineWebcams page and return the m3u8 content."""
+    source_url = request.args.get('url')
+    if not source_url:
+        return "Missing source URL", 400
+    
+    result, status = get_cached_skyline_manifest(source_url)
+    if status == 200:
+        return Response(result, 200, [
             ('Access-Control-Allow-Origin', '*'),
             ('Cache-Control', 'no-store, max-age=0'),
             ('Content-Type', 'application/vnd.apple.mpegurl'),
         ])
-    except Exception as e:
-        logger.error(f"SkylineWebcams proxy error for {source_url}: {e}")
-        return f"SkylineWebcams proxy error: {str(e)}", 502
-
-
-# === Feratel MP4 Proxy ===
-@app.route('/feratel')
-def proxy_feratel():
-    """
-    Depth-1: Fetch feratel.com source page to extract webtvfc iframe cam ID.
-    Depth-2: Fetch webtvfc.feratel.com page to confirm MP4 URL.
-    Depth-3: Redirect client to stsfc001.feratel.com MP4 stream.
-    """
-    source_url = request.args.get('url')
-    cam_id_override = request.args.get('cam')  # optional direct cam ID
-    if not source_url and not cam_id_override:
-        return "Missing source URL or cam ID", 400
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer': 'https://www.feratel.com/',
-    }
-    import re as _re
-
-    cam_id = cam_id_override
-    if not cam_id:
-        try:
-            resp = requests.get(source_url, headers=headers, timeout=8)
-            html = resp.text
-            # Look for iframe cam parameter
-            ids = _re.findall(r'[?&]cam=(\d+)', html)
-            if not ids:
-                return "Feratel: cam ID not found in page", 502
-            cam_id = ids[0]
-        except Exception as e:
-            return f"Feratel depth-1 error: {e}", 502
-
-    mp4_url = f"https://stsfc001.feratel.com/streams/latest/1/{cam_id}.mp4?dcsdesign=WTP_feratel.com"
-    
-    # Probe that it exists before redirecting
-    try:
-        probe = requests.head(mp4_url, headers={'Referer': 'https://webtvfc.feratel.com/'}, timeout=5)
-        if probe.status_code not in (200, 206):
-            return f"Feratel MP4 not available (status={probe.status_code})", 502
-    except Exception as e:
-        return f"Feratel MP4 probe error: {e}", 502
-
-    return flask.redirect(mp4_url, code=302)
-
+    return result, status
 
 # === WhatUpCam JSONP Stream Proxy ===
-@app.route('/whatsupcam')
-def proxy_whatsupcam():
-    """
-    Depth-1: Fetch WhatUpCam source page to extract widget slug.
-    Depth-2: Call JSONP stream API to get HLS URL.
-    Depth-3: Relay HLS manifest with proxied segment URLs.
-    """
-    source_url = request.args.get('url')
-    slug_override = request.args.get('slug')
-    if not source_url and not slug_override:
-        return "Missing source URL or slug", 400
-
+@timed_cache(seconds=60)
+def get_cached_whatsupcam_manifest(source_url: str, slug_override: str) -> tuple:
     import re as _re
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
@@ -993,14 +961,30 @@ def proxy_whatsupcam():
                 new_lines.append(line)
 
         rewritten = "\n".join(new_lines).encode('utf-8')
-        return Response(rewritten, 200, [
+        return rewritten, 200
+    except Exception as e:
+        return f"WhatUpCam depth-3 error: {e}", 502
+
+@app.route('/whatsupcam')
+def proxy_whatsupcam():
+    """
+    Depth-1: Fetch WhatUpCam source page to extract widget slug.
+    Depth-2: Call JSONP stream API to get HLS URL.
+    Depth-3: Relay HLS manifest with proxied segment URLs.
+    """
+    source_url = request.args.get('url')
+    slug_override = request.args.get('slug')
+    if not source_url and not slug_override:
+        return "Missing source URL or slug", 400
+
+    result, status = get_cached_whatsupcam_manifest(source_url, slug_override)
+    if status == 200:
+        return Response(result, 200, [
             ('Access-Control-Allow-Origin', '*'),
             ('Cache-Control', 'no-store, max-age=0'),
             ('Content-Type', 'application/vnd.apple.mpegurl'),
         ])
-    except Exception as e:
-        return f"WhatUpCam depth-3 error: {e}", 502
-
+    return result, status
 
 # === Roundshot Snapshot Proxy ===
 @app.route('/roundshot')
