@@ -5761,51 +5761,99 @@ function initMap() {
     // The precipitation overlay was removed from the map UI. Keep the
     // cleanup path here so cached sessions cannot leave stale controls behind.
     initKmaPrecipOverlay();
-    initWindyRadarOverlay();
+    initWindyLayersPanel();
 }
 
 // === Windy Weather Map Overlay Interaction ===
-function initWindyRadarOverlay() {
-    const radarBtn = document.getElementById('windy-radar-btn');
+function initWindyLayersPanel() {
+    const menuToggle = document.getElementById('windy-menu-toggle');
+    const layersList = document.getElementById('windy-layers-list');
     const overlay = document.getElementById('windy-map-overlay');
     const closeBtn = document.getElementById('windy-overlay-close');
     const iframe = document.getElementById('windy-radar-iframe');
+    const layerItems = document.querySelectorAll('.layer-item');
 
-    if (!radarBtn || !overlay || !closeBtn || !iframe) return;
+    if (!menuToggle || !layersList || !overlay || !closeBtn || !iframe) return;
 
-    const toggleOverlay = () => {
-        const isHidden = overlay.classList.contains('hidden');
-        if (isHidden) {
-            if (!map) return;
-            const center = map.getCenter();
-            const lat = center.getLat().toFixed(4);
-            const lng = center.getLng().toFixed(4);
-            const zoom = map.getLevel();
-            // Convert Kakao level to Leaflet/OSM zoom (roughly: 15 - Kakao level)
-            const leafletZoom = Math.max(3, Math.min(18, 15 - zoom));
-
-            const embedUrl = `https://embed.windy.com/embed.html?lat=${lat}&lon=${lng}&zoom=${leafletZoom}&level=surface&overlay=radar&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=${lat}&detailLon=${lng}&radarRange=-1`;
-            
-            iframe.src = embedUrl;
-            overlay.classList.remove('hidden');
-            radarBtn.classList.add('active');
-        } else {
-            iframe.src = '';
-            overlay.classList.add('hidden');
-            radarBtn.classList.remove('active');
-        }
-    };
-
-    radarBtn.addEventListener('click', event => {
+    // Toggle menu dropdown
+    menuToggle.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
-        toggleOverlay();
+        const isCollapsed = layersList.classList.contains('collapsed');
+        if (isCollapsed) {
+            layersList.classList.remove('collapsed');
+            menuToggle.classList.add('active');
+        } else {
+            layersList.classList.add('collapsed');
+            menuToggle.classList.remove('active');
+        }
     });
 
+    // Close menu when clicking outside of the panel
+    document.addEventListener('click', event => {
+        if (!event.target.closest('#windy-layers-panel')) {
+            layersList.classList.add('collapsed');
+            menuToggle.classList.remove('active');
+        }
+    });
+
+    const updateIframeLayer = (layerItem) => {
+        if (!map) return;
+        const center = map.getCenter();
+        const lat = center.getLat().toFixed(4);
+        const lng = center.getLng().toFixed(4);
+        const zoom = map.getLevel();
+        // Convert Kakao level to Leaflet/OSM zoom (roughly: 15 - Kakao level)
+        const leafletZoom = Math.max(3, Math.min(18, 15 - zoom));
+
+        const selectedOverlay = layerItem.getAttribute('data-overlay');
+        const extraParam = layerItem.getAttribute('data-extra') || '';
+        
+        let embedUrl = `https://embed.windy.com/embed.html?lat=${lat}&lon=${lng}&zoom=${leafletZoom}&level=surface&overlay=${selectedOverlay}&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=${lat}&detailLon=${lng}&radarRange=-1`;
+        if (extraParam) {
+            embedUrl += `&${extraParam}`;
+        }
+
+        // Only reload iframe if source changed or if it was empty
+        if (iframe.src !== embedUrl) {
+            iframe.src = embedUrl;
+        }
+        
+        // Show overlay
+        overlay.classList.remove('hidden');
+        
+        // Update active class
+        layerItems.forEach(item => item.classList.remove('active'));
+        layerItem.classList.add('active');
+    };
+
+    const closeOverlay = () => {
+        iframe.src = '';
+        overlay.classList.add('hidden');
+        layerItems.forEach(item => item.classList.remove('active'));
+    };
+
+    // Layer item click handler
+    layerItems.forEach(layerItem => {
+        layerItem.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            const isActive = layerItem.classList.contains('active');
+            if (isActive) {
+                // If clicking the active layer, close the overlay (toggle behavior)
+                closeOverlay();
+            } else {
+                updateIframeLayer(layerItem);
+            }
+        });
+    });
+
+    // Close overlay button handler
     closeBtn.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
-        toggleOverlay();
+        closeOverlay();
     });
 }
 

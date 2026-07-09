@@ -195,13 +195,75 @@
         <section id="map-view" class="view">
             <div id="kakao-map"></div>
             
-            <!-- Windy Radar Toggle Button -->
-            <button class="windy-radar-btn" id="windy-radar-btn" title="실시간 Windy 날씨 레이더 지도 오버레이" aria-label="실시간 Windy 날씨 레이더 지도 오버레이">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                </svg>
-            </button>
+            <!-- Windy Layers Panel -->
+            <div class="windy-panel-container" id="windy-layers-panel">
+                <!-- Menu Toggle Button -->
+                <div class="windy-panel-item menu-toggle-item" id="windy-menu-toggle" title="Windy 날씨 레이어 메뉴 열기/닫기">
+                    <span class="windy-label">메뉴</span>
+                    <div class="windy-icon-circle menu-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="3" y1="12" x2="21" y2="12"></line>
+                            <line x1="3" y1="6" x2="21" y2="6"></line>
+                            <line x1="3" y1="18" x2="21" y2="18"></line>
+                        </svg>
+                    </div>
+                </div>
+                
+                <!-- Expanded List of Layers -->
+                <div class="windy-layers-list collapsed" id="windy-layers-list">
+                    <!-- 1. 날씨 레이더 -->
+                    <div class="windy-panel-item layer-item" data-overlay="radar" title="실시간 날씨 레이더">
+                        <span class="windy-label">날씨 레이더</span>
+                        <div class="windy-icon-circle layer-radar">📡</div>
+                    </div>
+                    <!-- 2. 위성 -->
+                    <div class="windy-panel-item layer-item" data-overlay="satellite" title="실시간 위성 영상">
+                        <span class="windy-label">위성</span>
+                        <div class="windy-icon-circle layer-satellite">🌍</div>
+                    </div>
+                    <!-- 3. 바람 -->
+                    <div class="windy-panel-item layer-item" data-overlay="wind" title="바람 흐름 및 풍속">
+                        <span class="windy-label">바람</span>
+                        <div class="windy-icon-circle layer-wind">💨</div>
+                    </div>
+                    <!-- 4. 비, 번개 -->
+                    <div class="windy-panel-item layer-item" data-overlay="rain" title="비 및 번개 예보">
+                        <span class="windy-label">비, 번개</span>
+                        <div class="windy-icon-circle layer-rain">🌧️</div>
+                    </div>
+                    <!-- 5. 기온 -->
+                    <div class="windy-panel-item layer-item" data-overlay="temp" title="기온 분포도">
+                        <span class="windy-label">기온</span>
+                        <div class="windy-icon-circle layer-temp">🌡️</div>
+                    </div>
+                    <!-- 6. 태풍 추적기 -->
+                    <div class="windy-panel-item layer-item" data-overlay="wind" data-extra="pressure=true" title="태풍 및 저기압 추적">
+                        <span class="windy-label">태풍 추적기</span>
+                        <div class="windy-icon-circle layer-typhoon">🌀</div>
+                    </div>
+                    <!-- 7. 구름 -->
+                    <div class="windy-panel-item layer-item" data-overlay="clouds" title="구름 분포도">
+                        <span class="windy-label">구름</span>
+                        <div class="windy-icon-circle layer-clouds">☁️</div>
+                    </div>
+                    <!-- 8. 파도 -->
+                    <div class="windy-panel-item layer-item" data-overlay="waves" title="파도 높이 및 주기">
+                        <span class="windy-label">파도</span>
+                        <div class="windy-icon-circle layer-waves">🌊</div>
+                    </div>
+                    <!-- 9. 누적 강수량 -->
+                    <div class="windy-panel-item layer-item" data-overlay="rainAccu" title="누적 강수량 예측">
+                        <span class="windy-label">누적 강수량</span>
+                        <div class="windy-icon-circle layer-rain-accu">☔</div>
+                    </div>
+                    <!-- 10. 뇌우 -->
+                    <div class="windy-panel-item layer-item" data-overlay="thunder" title="대류 불안정 및 뇌우">
+                        <span class="windy-label">뇌우</span>
+                        <div class="windy-icon-circle layer-thunder">⛈️</div>
+                    </div>
+                </div>
+            </div>
             
             <!-- Windy Map Frame Overlay -->
             <div id="windy-map-overlay" class="windy-map-overlay hidden">
