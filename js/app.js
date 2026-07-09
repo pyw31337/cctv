@@ -5761,6 +5761,52 @@ function initMap() {
     // The precipitation overlay was removed from the map UI. Keep the
     // cleanup path here so cached sessions cannot leave stale controls behind.
     initKmaPrecipOverlay();
+    initWindyRadarOverlay();
+}
+
+// === Windy Weather Map Overlay Interaction ===
+function initWindyRadarOverlay() {
+    const radarBtn = document.getElementById('windy-radar-btn');
+    const overlay = document.getElementById('windy-map-overlay');
+    const closeBtn = document.getElementById('windy-overlay-close');
+    const iframe = document.getElementById('windy-radar-iframe');
+
+    if (!radarBtn || !overlay || !closeBtn || !iframe) return;
+
+    const toggleOverlay = () => {
+        const isHidden = overlay.classList.contains('hidden');
+        if (isHidden) {
+            if (!map) return;
+            const center = map.getCenter();
+            const lat = center.getLat().toFixed(4);
+            const lng = center.getLng().toFixed(4);
+            const zoom = map.getLevel();
+            // Convert Kakao level to Leaflet/OSM zoom (roughly: 15 - Kakao level)
+            const leafletZoom = Math.max(3, Math.min(18, 15 - zoom));
+
+            const embedUrl = `https://embed.windy.com/embed.html?lat=${lat}&lon=${lng}&zoom=${leafletZoom}&level=surface&overlay=radar&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=${lat}&detailLon=${lng}&radarRange=-1`;
+            
+            iframe.src = embedUrl;
+            overlay.classList.remove('hidden');
+            radarBtn.classList.add('active');
+        } else {
+            iframe.src = '';
+            overlay.classList.add('hidden');
+            radarBtn.classList.remove('active');
+        }
+    };
+
+    radarBtn.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleOverlay();
+    });
+
+    closeBtn.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleOverlay();
+    });
 }
 
 // === KMA precipitation/snow overlay (domestic Kakao map) ===
