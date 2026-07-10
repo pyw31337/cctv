@@ -480,6 +480,7 @@ const state = {
 };
 
 let map = null;
+let syncWindyMap = null;
 const SEARCH_MARKER_SRC = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png';
 const YOUTUBE_MARKER_SRC = 'https://img.icons8.com/color/48/youtube-play.png';
 const markerImageCache = new Map();
@@ -1461,6 +1462,10 @@ function selectPlace(lat, lng, name, address) {
     if (map) {
         const moveLatLon = new kakao.maps.LatLng(lat, lng);
         map.setCenter(moveLatLon);
+    }
+
+    if (syncWindyMap) {
+        syncWindyMap();
     }
 
     // Update Search Marker (Red Pin)
@@ -5829,6 +5834,15 @@ function initWindyLayersPanel() {
         }
     });
 
+    syncWindyMap = () => {
+        if (overlay && !overlay.classList.contains('hidden')) {
+            const activeLayerItem = document.querySelector('.layer-item.active');
+            if (activeLayerItem) {
+                updateIframeLayer(activeLayerItem);
+            }
+        }
+    };
+
     const updateIframeLayer = (layerItem) => {
         if (!map) return;
         const center = map.getCenter();
@@ -5933,6 +5947,9 @@ function initMapControls() {
             const currentLevel = map.getLevel();
             if (currentLevel > 1) {
                 map.setLevel(currentLevel - 1, { animate: true });
+                if (syncWindyMap) {
+                    syncWindyMap();
+                }
             }
         });
     }
@@ -5943,6 +5960,9 @@ function initMapControls() {
             const currentLevel = map.getLevel();
             if (currentLevel < 10) {
                 map.setLevel(currentLevel + 1, { animate: true });
+                if (syncWindyMap) {
+                    syncWindyMap();
+                }
             }
         });
     }
