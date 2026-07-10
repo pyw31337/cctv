@@ -5884,6 +5884,14 @@ function initWindyLayersPanel() {
         // Keep list expanded
         layersList.classList.remove('collapsed');
         menuToggle.classList.add('active');
+
+        // Disable Kakao Map navigation controls when Windy is active
+        const ctrlZoomIn = document.getElementById('map-control-zoom-in');
+        const ctrlZoomOut = document.getElementById('map-control-zoom-out');
+        const ctrlLocation = document.getElementById('map-control-location');
+        if (ctrlZoomIn) ctrlZoomIn.disabled = true;
+        if (ctrlZoomOut) ctrlZoomOut.disabled = true;
+        if (ctrlLocation) ctrlLocation.disabled = true;
     };
 
     const closeOverlay = () => {
@@ -5903,6 +5911,14 @@ function initWindyLayersPanel() {
         // Collapse menu
         layersList.classList.add('collapsed');
         menuToggle.classList.remove('active');
+
+        // Re-enable Kakao Map navigation controls
+        const ctrlZoomIn = document.getElementById('map-control-zoom-in');
+        const ctrlZoomOut = document.getElementById('map-control-zoom-out');
+        const ctrlLocation = document.getElementById('map-control-location');
+        if (ctrlZoomIn) ctrlZoomIn.disabled = false;
+        if (ctrlZoomOut) ctrlZoomOut.disabled = false;
+        if (ctrlLocation) ctrlLocation.disabled = false;
     };
 
     // Layer item click handler
