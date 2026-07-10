@@ -5855,7 +5855,7 @@ function initWindyLayersPanel() {
         const selectedOverlay = layerItem.getAttribute('data-overlay');
         const extraParam = layerItem.getAttribute('data-extra') || '';
         
-        let embedUrl = `https://embed.windy.com/embed.html?lat=${lat}&lon=${lng}&zoom=${leafletZoom}&level=surface&overlay=${selectedOverlay}&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=${lat}&detailLon=${lng}&radarRange=-1`;
+        let embedUrl = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lng}&zoom=${leafletZoom}&level=surface&overlay=${selectedOverlay}&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=${lat}&detailLon=${lng}&radarRange=-1`;
         if (extraParam) {
             embedUrl += `&${extraParam}`;
         }
