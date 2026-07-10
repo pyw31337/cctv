@@ -955,38 +955,50 @@ body {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(15, 23, 42, 0.85);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     display: flex;
     align-items: center;
     justify-content: center;
+    color: var(--accent);
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
-    font-size: 18px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
 }
 
 .windy-panel-item:hover .windy-icon-circle {
-    transform: scale(1.1) rotate(5deg);
-    border-color: rgba(255, 255, 255, 0.5);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    transform: scale(1.05);
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+    background: rgba(30, 41, 59, 0.95);
 }
 
 /* Menu Toggle Button Styling */
 .menu-toggle-item .windy-icon-circle {
-    background: #e22b2b; /* Windy Red */
-    border-color: rgba(255, 255, 255, 0.3);
-    color: #fff;
+    background: rgba(15, 23, 42, 0.85);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: var(--accent);
 }
 
 .menu-toggle-item:hover .windy-icon-circle {
-    background: #f43f5e;
-    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(30, 41, 59, 0.95);
+    border-color: var(--accent);
 }
 
 .menu-toggle-item.active .windy-icon-circle {
-    background: #1e293b;
-    border-color: #3b82f6;
+    background: rgba(15, 23, 42, 0.95);
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+}
+
+.menu-toggle-item.windy-active .windy-icon-circle {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-primary);
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
 }
 
 /* Layers List Container */
@@ -1012,48 +1024,18 @@ body {
 
 /* Layer item specific active styling */
 .layer-item.active .windy-label {
-    background: #e22b2b;
-    border-color: #ff4a4a;
-    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-primary);
     font-weight: 700;
 }
 
 .layer-item.active .windy-icon-circle {
-    border-color: #ff4a4a;
-    box-shadow: 0 0 12px rgba(226, 43, 43, 0.6);
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-primary);
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
     transform: scale(1.05);
-}
-
-/* Individual Gradient Thumbnails */
-.layer-radar {
-    background: radial-gradient(circle, #ff007f 0%, #ffea00 35%, #00ea00 65%, #0000ff 100%);
-}
-.layer-satellite {
-    background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, #1e40af 45%, #020617 100%);
-}
-.layer-wind {
-    background: linear-gradient(135deg, #10b981 0%, #064e3b 60%, #0ea5e9 100%);
-}
-.layer-rain {
-    background: radial-gradient(circle, #38bdf8 10%, #1e3a8a 60%, #0f172a 100%);
-}
-.layer-temp {
-    background: linear-gradient(to top, #3b82f6 0%, #10b981 40%, #eab308 70%, #ef4444 100%);
-}
-.layer-typhoon {
-    background: conic-gradient(from 0deg at 50% 50%, #991b1b, #ef4444, #f97316, #991b1b);
-}
-.layer-clouds {
-    background: radial-gradient(circle, #ffffff 0%, #94a3b8 60%, #334155 100%);
-}
-.layer-waves {
-    background: linear-gradient(to bottom, #a855f7 0%, #4f46e5 50%, #1e3a8a 100%);
-}
-.layer-rain-accu {
-    background: linear-gradient(to right, #60a5fa, #3b82f6, #1d4ed8, #1e3a8a);
-}
-.layer-thunder {
-    background: radial-gradient(circle, #f43f5e 0%, #d946ef 55%, #3b0764 100%);
 }
 
 /* Responsive scroll behavior for mobile viewports */
@@ -1122,6 +1104,78 @@ body {
 
 .windy-overlay-close:hover {
     background: rgba(0, 0, 0, 0.8);
+}
+
+/* === Map Controls Panel (Right Side) === */
+.map-controls-panel {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 102; /* Higher than map overlay (95) and close button (101) */
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: auto;
+}
+
+.map-control-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.map-control-btn:hover {
+    transform: scale(1.05);
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+    background: rgba(30, 41, 59, 0.95);
+}
+
+.map-control-btn:active {
+    transform: scale(0.95);
+}
+
+/* Zoom Control Group */
+.map-control-group {
+    display: flex;
+    flex-direction: column;
+    background: rgba(15, 23, 42, 0.85);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.map-control-group .map-control-btn {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    height: 38px;
+    width: 40px;
+}
+
+.map-control-group .map-control-btn:first-child {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.map-control-group .map-control-btn:hover {
+    background: rgba(30, 41, 59, 0.95);
+    transform: none;
+    box-shadow: none;
 }
 
 /* === Overlays === */

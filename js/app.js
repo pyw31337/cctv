@@ -5762,8 +5762,10 @@ function initMap() {
     // cleanup path here so cached sessions cannot leave stale controls behind.
     initKmaPrecipOverlay();
     initWindyLayersPanel();
+    initMapControls();
 }
 
+// === Windy Weather Map Overlay Interaction ===
 // === Windy Weather Map Overlay Interaction ===
 function initWindyLayersPanel() {
     const menuToggle = document.getElementById('windy-menu-toggle');
@@ -5775,17 +5777,41 @@ function initWindyLayersPanel() {
 
     if (!menuToggle || !layersList || !overlay || !closeBtn || !iframe) return;
 
-    // Toggle menu dropdown
+    const menuIconContainer = menuToggle.querySelector('.menu-icon');
+
+    const hamburgerIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+    `;
+
+    const backIcon = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+    `;
+
+    // Toggle menu dropdown / Back to Kakao Map
     menuToggle.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
-        const isCollapsed = layersList.classList.contains('collapsed');
-        if (isCollapsed) {
-            layersList.classList.remove('collapsed');
-            menuToggle.classList.add('active');
+        
+        if (menuToggle.classList.contains('windy-active')) {
+            // "다시한번 누르게 되면 윈디 지도에서 카카오지도로 원상복구하게 해줘."
+            closeOverlay();
         } else {
-            layersList.classList.add('collapsed');
-            menuToggle.classList.remove('active');
+            const isCollapsed = layersList.classList.contains('collapsed');
+            if (isCollapsed) {
+                layersList.classList.remove('collapsed');
+                menuToggle.classList.add('active');
+            } else {
+                layersList.classList.add('collapsed');
+                menuToggle.classList.remove('active');
+            }
         }
     });
 
@@ -5825,12 +5851,26 @@ function initWindyLayersPanel() {
         // Update active class
         layerItems.forEach(item => item.classList.remove('active'));
         layerItem.classList.add('active');
+
+        // Turn menuToggle button into "<" back shape
+        menuToggle.classList.add('windy-active');
+        if (menuIconContainer) {
+            menuIconContainer.innerHTML = backIcon;
+        }
+        layersList.classList.add('collapsed');
+        menuToggle.classList.remove('active');
     };
 
     const closeOverlay = () => {
         iframe.src = '';
         overlay.classList.add('hidden');
         layerItems.forEach(item => item.classList.remove('active'));
+
+        // Restore menuToggle button to hamburger menu shape
+        menuToggle.classList.remove('windy-active');
+        if (menuIconContainer) {
+            menuIconContainer.innerHTML = hamburgerIcon;
+        }
     };
 
     // Layer item click handler
@@ -5855,6 +5895,102 @@ function initWindyLayersPanel() {
         event.stopPropagation();
         closeOverlay();
     });
+}
+
+// === Map Controls (Right Side Panel) ===
+function initMapControls() {
+    const closeBtn = document.getElementById('map-control-close');
+    const zoomInBtn = document.getElementById('map-control-zoom-in');
+    const zoomOutBtn = document.getElementById('map-control-zoom-out');
+    const locationBtn = document.getElementById('map-control-location');
+    const weatherBtn = document.getElementById('map-control-weather');
+    const statusBtn = document.getElementById('map-control-status');
+
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            switchMode('video');
+        });
+    }
+
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', () => {
+            if (!map) return;
+            const currentLevel = map.getLevel();
+            if (currentLevel > 1) {
+                map.setLevel(currentLevel - 1, { animate: true });
+            }
+        });
+    }
+
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener('click', () => {
+            if (!map) return;
+            const currentLevel = map.getLevel();
+            if (currentLevel < 10) {
+                map.setLevel(currentLevel + 1, { animate: true });
+            }
+        });
+    }
+
+    if (locationBtn) {
+        locationBtn.addEventListener('click', () => {
+            handleCurrentLocation();
+        });
+    }
+
+    if (weatherBtn) {
+        weatherBtn.addEventListener('click', () => {
+            if (!map) return;
+            const center = map.getCenter();
+            const lat = center.getLat();
+            const lng = center.getLng();
+            
+            // Show address using Geocoder
+            const geocoder = new kakao.maps.services.Geocoder();
+            geocoder.coord2Address(lng, lat, (result, status) => {
+                if (status === kakao.maps.services.Status.OK) {
+                    const addr = result[0].address;
+                    const addressName = addr.address_name;
+                    openMapWeatherPanel(lat, lng, addressName);
+                } else {
+                    openMapWeatherPanel(lat, lng, '선택한 지도 중심');
+                }
+            });
+        });
+    }
+
+    if (statusBtn) {
+        statusBtn.addEventListener('click', () => {
+            window.open('https://pyw31337.github.io/cctv/quality.html', '_blank');
+        });
+    }
+}
+
+// === Map Weather Panel Rendering ===
+function openMapWeatherPanel(lat, lng, addressName) {
+    const layer = $('#weather-layer');
+    const content = layer?.querySelector('.weather-content');
+    if (!layer || !content) return;
+
+    layer.classList.remove('world-tour-layer');
+    content.classList.remove('world-tour-content');
+    document.body.classList.remove('world-tour-active');
+    
+    // Set the weather coordinates to the map center
+    state.center.lat = lat;
+    state.center.lng = lng;
+    
+    const weatherTitle = $('#weather-title');
+    if (weatherTitle) {
+        weatherTitle.innerHTML = `<span style="color: var(--accent)">${addressName}</span> 날씨 정보<div style="font-size:12px;font-weight:normal;color:var(--text-secondary);margin-top:4px;">📍 선택 지도 중심 위치</div>`;
+    }
+    
+    // Open the modal
+    layer.classList.add('active');
+    $('#weather-btn')?.classList.add('active');
+    $('#dim-overlay').classList.add('active');
+    
+    fetchWeather();
 }
 
 // === KMA precipitation/snow overlay (domestic Kakao map) ===
