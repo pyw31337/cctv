@@ -5778,6 +5778,7 @@ function initWindyLayersPanel() {
     if (!menuToggle || !layersList || !overlay || !closeBtn || !iframe) return;
 
     const menuIconContainer = menuToggle.querySelector('.menu-icon');
+    const menuLabel = menuToggle.querySelector('.windy-label');
 
     const hamburgerIcon = `
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -5795,6 +5796,11 @@ function initWindyLayersPanel() {
         </svg>
     `;
 
+    // Find the 3rd layer (Wind)
+    const windLayerItem = Array.from(layerItems).find(item => 
+        item.getAttribute('data-overlay') === 'wind' && !item.getAttribute('data-extra')
+    );
+
     // Toggle menu dropdown / Back to Kakao Map
     menuToggle.addEventListener('click', event => {
         event.preventDefault();
@@ -5802,15 +5808,12 @@ function initWindyLayersPanel() {
         
         if (menuToggle.classList.contains('windy-active')) {
             // "다시한번 누르게 되면 윈디 지도에서 카카오지도로 원상복구하게 해줘."
+            // "뒤로를 눌렀을때 하위메뉴를 없애주는거야." -> closeOverlay will collapse the menu
             closeOverlay();
         } else {
-            const isCollapsed = layersList.classList.contains('collapsed');
-            if (isCollapsed) {
-                layersList.classList.remove('collapsed');
-                menuToggle.classList.add('active');
-            } else {
-                layersList.classList.add('collapsed');
-                menuToggle.classList.remove('active');
+            // "메뉴버튼을 누르면 바로 3번째 메뉴인 '바람' 화면으로 전환해주고, 펼쳐진 메뉴는 펼쳐진채로 유지해줘."
+            if (windLayerItem) {
+                updateIframeLayer(windLayerItem);
             }
         }
     });
@@ -5818,8 +5821,11 @@ function initWindyLayersPanel() {
     // Close menu when clicking outside of the panel
     document.addEventListener('click', event => {
         if (!event.target.closest('#windy-layers-panel')) {
-            layersList.classList.add('collapsed');
-            menuToggle.classList.remove('active');
+            // If Windy is active, keep it expanded, don't collapse on outside click
+            if (!menuToggle.classList.contains('windy-active')) {
+                layersList.classList.add('collapsed');
+                menuToggle.classList.remove('active');
+            }
         }
     });
 
@@ -5852,13 +5858,18 @@ function initWindyLayersPanel() {
         layerItems.forEach(item => item.classList.remove('active'));
         layerItem.classList.add('active');
 
-        // Turn menuToggle button into "<" back shape
+        // Turn menuToggle button into "<" back shape and change label to "뒤로"
         menuToggle.classList.add('windy-active');
         if (menuIconContainer) {
             menuIconContainer.innerHTML = backIcon;
         }
-        layersList.classList.add('collapsed');
-        menuToggle.classList.remove('active');
+        if (menuLabel) {
+            menuLabel.textContent = '뒤로';
+        }
+        
+        // Keep list expanded
+        layersList.classList.remove('collapsed');
+        menuToggle.classList.add('active');
     };
 
     const closeOverlay = () => {
@@ -5866,11 +5877,18 @@ function initWindyLayersPanel() {
         overlay.classList.add('hidden');
         layerItems.forEach(item => item.classList.remove('active'));
 
-        // Restore menuToggle button to hamburger menu shape
+        // Restore menuToggle button to hamburger menu shape and change label back to "메뉴"
         menuToggle.classList.remove('windy-active');
         if (menuIconContainer) {
             menuIconContainer.innerHTML = hamburgerIcon;
         }
+        if (menuLabel) {
+            menuLabel.textContent = '메뉴';
+        }
+
+        // Collapse menu
+        layersList.classList.add('collapsed');
+        menuToggle.classList.remove('active');
     };
 
     // Layer item click handler
@@ -5880,10 +5898,7 @@ function initWindyLayersPanel() {
             event.stopPropagation();
             
             const isActive = layerItem.classList.contains('active');
-            if (isActive) {
-                // If clicking the active layer, close the overlay (toggle behavior)
-                closeOverlay();
-            } else {
+            if (!isActive) {
                 updateIframeLayer(layerItem);
             }
         });
