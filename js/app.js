@@ -5803,8 +5803,8 @@ function initWindyLayersPanel() {
         const lat = center.getLat().toFixed(4);
         const lng = center.getLng().toFixed(4);
         const zoom = map.getLevel();
-        // Convert Kakao level to Leaflet/OSM zoom (roughly: 15 - Kakao level)
-        const leafletZoom = Math.max(3, Math.min(18, 15 - zoom));
+        // Convert Kakao level to Leaflet/OSM zoom (19 - Kakao level for identical area size match)
+        const leafletZoom = Math.max(3, Math.min(18, 19 - zoom));
 
         const selectedOverlay = layerItem.getAttribute('data-overlay');
         const extraParam = layerItem.getAttribute('data-extra') || '';
