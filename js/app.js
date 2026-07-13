@@ -7883,7 +7883,42 @@ function getNearbyDistanceText(cam1, cam2) {
     return d < 1 ? `${Math.round(d * 1000)}m` : `${d.toFixed(1)}km`;
 }
 
-function showOutageAlternativeSuggestions(videoElement, selectedCam) {
+async function probeWorldTourStreamLive(cam) {
+    const embedUrl = getWorldTourEmbedUrl(cam);
+    const isDirect = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl);
+    const streamUrl = isDirect ? embedUrl : (cam.playUrl || embedUrl);
+
+    if (!streamUrl) return false;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 seconds fast timeout
+
+    try {
+        if (isDirect || streamUrl.includes('.m3u8') || streamUrl.includes('.mp4')) {
+            // HLS streams must support CORS
+            const response = await fetch(streamUrl, {
+                method: 'GET',
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return response.ok;
+        } else {
+            // General website / YouTube embeds - use no-cors to test host responsiveness
+            await fetch(streamUrl, {
+                method: 'GET',
+                mode: 'no-cors',
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return true;
+        }
+    } catch (err) {
+        clearTimeout(timeoutId);
+        return false;
+    }
+}
+
+async function showOutageAlternativeSuggestions(videoElement, selectedCam) {
     const wrapper = videoElement.parentElement;
     if (!wrapper || !selectedCam) return;
     if (wrapper.querySelector('.world-tour-alternative-suggestions')) return;
@@ -7903,8 +7938,22 @@ function showOutageAlternativeSuggestions(videoElement, selectedCam) {
     }
     if (!candidates.length) return;
 
-    const nearby = getWorldTourNearbyCams(selectedCam, candidates, 3);
-    if (!nearby.length) return;
+    // Fetch nearest 12 candidates to probe in parallel
+    const nearestCandidates = getWorldTourNearbyCams(selectedCam, candidates, 12);
+    if (!nearestCandidates.length) return;
+
+    const probePromises = nearestCandidates.map(async (cam) => {
+        const ok = await probeWorldTourStreamLive(cam);
+        return { cam, ok };
+    });
+
+    const probeResults = await Promise.all(probePromises);
+    let verifiedNearby = probeResults.filter(r => r.ok).map(r => r.cam).slice(0, 3);
+
+    // Fallback to closest if none of them passed the fast probe
+    if (!verifiedNearby.length) {
+        verifiedNearby = nearestCandidates.slice(0, 3);
+    }
 
     const container = document.createElement('div');
     container.className = 'world-tour-alternative-suggestions';
@@ -7914,7 +7963,7 @@ function showOutageAlternativeSuggestions(videoElement, selectedCam) {
         <div class="world-tour-suggestion-list">
     `;
 
-    nearby.forEach(cam => {
+    verifiedNearby.forEach(cam => {
         const title = escapeWorldTourHtml(cam.title);
         const distText = getNearbyDistanceText(selectedCam, cam);
         html += `
@@ -7947,6 +7996,12 @@ function showOutageAlternativeSuggestions(videoElement, selectedCam) {
         });
     });
 
+    // Reset error loading state label
+    const loading = wrapper.querySelector('.world-tour-video-loading');
+    if (loading) {
+        loading.innerHTML = '영상을 재생할 수 없습니다.<br>아래 추천 카메라로 이동해 보세요.';
+    }
+
     wrapper.appendChild(container);
 }
 
@@ -7968,7 +8023,7 @@ function initWorldTourVideoPlayback() {
     const triggerOutageSuggestions = () => {
         if (loading) {
             loading.classList.add('is-error');
-            loading.innerHTML = '영상을 재생할 수 없습니다.<br>아래 추천 카메라로 이동해 보세요.';
+            loading.innerHTML = '영상을 재생할 수 없습니다.<br>근처의 정상 송출 추천 카메라를 검색 중...';
         }
         showOutageAlternativeSuggestions(video, selected);
     };
