@@ -7887,10 +7887,19 @@ function showOutageAlternativeSuggestions(videoElement, selectedCam) {
     if (!wrapper || !selectedCam) return;
     if (wrapper.querySelector('.world-tour-alternative-suggestions')) return;
 
-    const cams = state.worldTourCams || [];
+    const cams = (state.worldTourCams && state.worldTourCams.items)
+        || (Array.isArray(state.worldTourCams) ? state.worldTourCams : []);
     if (!cams.length) return;
 
-    const candidates = cams.filter(c => c.id !== selectedCam.id && canPlayWorldTourInApp(c));
+    let candidates = cams.filter(c => 
+        c.id !== selectedCam.id && 
+        c.playbackStatus === 'verified' && 
+        !c.sourceOnly &&
+        !c.sourceOnlyReason
+    );
+    if (!candidates.length) {
+        candidates = cams.filter(c => c.id !== selectedCam.id && canPlayWorldTourInApp(c));
+    }
     if (!candidates.length) return;
 
     const nearby = getWorldTourNearbyCams(selectedCam, candidates, 3);
@@ -7923,9 +7932,15 @@ function showOutageAlternativeSuggestions(videoElement, selectedCam) {
             const targetId = btn.dataset.suggestionId;
             const targetCam = cams.find(c => c.id === targetId);
             if (targetCam) {
+                // Clear any active search query and set region so the recommended cam is visible in results
+                state.worldTourListSearch = '';
+                state.worldTourRegion = targetCam.region || 'All';
+                state.worldTourListCountry = 'All';
+
                 renderWorldTourCams(targetId, {
-                    viewMode: state.worldTourViewMode,
-                    focusSelected: true
+                    viewMode: 'video',
+                    focusSelected: true,
+                    listScrollToSelected: true
                 });
             }
         });
@@ -8458,7 +8473,7 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                     selectWorldTourCam(item.dataset.id, 'card');
                 } else {
                     renderWorldTourCams(item.dataset.id, {
-                        viewMode: 'map',
+                        viewMode: state.worldTourViewMode || 'map',
                         focusSelected: true,
                         listScrollToSelected: true
                     });
