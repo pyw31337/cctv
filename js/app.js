@@ -8340,14 +8340,18 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
 
         list.querySelectorAll('.world-tour-card').forEach(card => {
             const selectCard = () => {
-                const cardRail = list.querySelector('.world-tour-card-rail');
-                const regionTabs = list.querySelector('.world-tour-region-tabs');
-                renderWorldTourCams(card.dataset.id, {
-                    viewMode: state.worldTourViewMode,
-                    cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
-                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
-                    focusSelected: true
-                });
+                if (state.worldTourViewMode === 'map' && worldTourLeafletMap) {
+                    selectWorldTourCam(card.dataset.id, 'card');
+                } else {
+                    const cardRail = list.querySelector('.world-tour-card-rail');
+                    const regionTabs = list.querySelector('.world-tour-region-tabs');
+                    renderWorldTourCams(card.dataset.id, {
+                        viewMode: state.worldTourViewMode,
+                        cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+                        regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+                        focusSelected: true
+                    });
+                }
             };
             card.addEventListener('click', event => {
                 if (event.target.closest('.world-tour-favorite-btn, .world-tour-share-card-btn')) return;
@@ -8375,14 +8379,18 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         });
         list.querySelectorAll('.world-tour-title-nav-btn').forEach(button => {
             button.addEventListener('click', () => {
-                const cardRail = list.querySelector('.world-tour-card-rail');
-                const regionTabs = list.querySelector('.world-tour-region-tabs');
-                renderWorldTourCams(button.dataset.worldTourNeighbor, {
-                    viewMode: state.worldTourViewMode,
-                    cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
-                    regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
-                    focusSelected: true
-                });
+                if (state.worldTourViewMode === 'map' && worldTourLeafletMap) {
+                    selectWorldTourCam(button.dataset.worldTourNeighbor, 'card');
+                } else {
+                    const cardRail = list.querySelector('.world-tour-card-rail');
+                    const regionTabs = list.querySelector('.world-tour-region-tabs');
+                    renderWorldTourCams(button.dataset.worldTourNeighbor, {
+                        viewMode: state.worldTourViewMode,
+                        cardScrollLeft: cardRail?.scrollLeft ?? state.worldTourCardScrollLeft,
+                        regionScrollLeft: regionTabs?.scrollLeft ?? state.worldTourRegionScrollLeft,
+                        focusSelected: true
+                    });
+                }
             });
         });
         list.querySelectorAll('.world-tour-region-tab').forEach(tab => {
@@ -8433,11 +8441,17 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
             });
         });
         list.querySelectorAll('.world-tour-nearby-item').forEach(item => {
-            item.addEventListener('click', () => renderWorldTourCams(item.dataset.id, {
-                viewMode: 'map',
-                focusSelected: true,
-                listScrollToSelected: true
-            }));
+            item.addEventListener('click', () => {
+                if (state.worldTourViewMode === 'map' && worldTourLeafletMap) {
+                    selectWorldTourCam(item.dataset.id, 'card');
+                } else {
+                    renderWorldTourCams(item.dataset.id, {
+                        viewMode: 'map',
+                        focusSelected: true,
+                        listScrollToSelected: true
+                    });
+                }
+            });
         });
 
         const cardRail = list.querySelector('.world-tour-card-rail');
@@ -8605,7 +8619,7 @@ async function initWorldTourMap(selected, visibleCams) {
                 })
                 .on('click', () => {
                     marker.openPopup();
-                    selectWorldTourCamFromMap(cam.id);
+                    selectWorldTourCam(cam.id, 'map');
                 });
 
             worldTourLeafletMarkers.push(marker);
@@ -8633,45 +8647,66 @@ async function initWorldTourMap(selected, visibleCams) {
     }
 }
 
-function selectWorldTourCamFromMap(camId) {
+function selectWorldTourCam(camId, source = 'card') {
     if (state.selectedWorldTourId === camId) return;
     const oldId = state.selectedWorldTourId;
     state.selectedWorldTourId = camId;
 
-    // 1. Update card active classes in the bottom rail
     const list = $('#weather-list');
-    if (list) {
-        const cards = list.querySelectorAll('.world-tour-card');
-        cards.forEach(card => {
-            if (card.dataset.id === camId) {
-                card.classList.add('active');
-            } else {
-                card.classList.remove('active');
-            }
-        });
-        const cardRail = list.querySelector('.world-tour-card-rail');
-        if (cardRail) {
-            scrollWorldTourCardToSelected(cardRail, camId, { forceCenter: true, behavior: 'smooth' });
+    if (!list) return;
+
+    // 1. Update card active classes in the bottom rail
+    const cards = list.querySelectorAll('.world-tour-card');
+    cards.forEach(card => {
+        if (card.dataset.id === camId) {
+            card.classList.add('active');
+        } else {
+            card.classList.remove('active');
         }
+    });
+
+    const cardRail = list.querySelector('.world-tour-card-rail');
+    if (cardRail) {
+        scrollWorldTourCardToSelected(cardRail, camId, { forceCenter: true, behavior: 'smooth' });
     }
 
-    // 2. Update marker styles on the map
+    // 2. Find camera data
+    const cams = (state.worldTourCams && state.worldTourCams.items)
+        || (Array.isArray(state.worldTourCams) ? state.worldTourCams : []);
+    const selectedCam = cams.find(cam => cam.id === camId);
+
+    // 3. Update marker styles and map viewport
+    let targetMarker = null;
     worldTourLeafletMarkers.forEach(marker => {
         if (marker.worldTourCamId === camId) {
             marker.setStyle(getWorldTourMarkerStyle(marker.worldTourCam, true));
             marker.bringToFront?.();
+            targetMarker = marker;
         } else if (marker.worldTourCamId === oldId) {
             marker.setStyle(getWorldTourMarkerStyle(marker.worldTourCam, false));
         }
     });
 
-    // 3. Update the left details panel / header switch if needed
-    const cams = (state.worldTourCams && state.worldTourCams.items)
-        || (Array.isArray(state.worldTourCams) ? state.worldTourCams : []);
-    const selectedCam = cams.find(cam => cam.id === camId);
+    if (worldTourLeafletMap && selectedCam) {
+        const lat = Number(selectedCam.lat);
+        const lng = Number(selectedCam.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            if (source === 'card') {
+                worldTourLeafletMap.setView([lat, lng], Math.max(worldTourLeafletMap.getZoom(), state.worldTourRegion === 'All' ? 4 : 5), {
+                    animate: true,
+                    duration: 0.25
+                });
+                if (targetMarker) {
+                    targetMarker.openPopup();
+                }
+            }
+        }
+    }
+
+    // 4. Update the left details panel / header switch if needed
     if (selectedCam) {
         updateWorldTourHeaderSwitch(selectedCam);
-        syncWorldTourUrlState(selectedCam, { viewMode: 'map' });
+        syncWorldTourUrlState(selectedCam, { viewMode: state.worldTourViewMode });
     }
 }
 

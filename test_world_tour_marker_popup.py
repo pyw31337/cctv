@@ -17,7 +17,7 @@ def test_world_tour_circle_marker_popup_opens_on_click_only():
     assert marker_block, "world tour marker block not found"
     marker_code = marker_block.group(0)
     assert "marker.openPopup()" in marker_code
-    assert "selectWorldTourCamFromMap(cam.id)" in marker_code
+    assert "selectWorldTourCam(cam.id, 'map')" in marker_code
     assert ".on('mouseover'" not in marker_code
     assert ".on('mouseenter'" not in marker_code
     assert "setTimeout(() => {" in app_js
