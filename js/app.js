@@ -6686,6 +6686,10 @@ function getWorldTourSourceLabel(cam) {
 function isWorldTourEmbedBlocked(cam, url) {
     const sourceType = String(cam?.sourceType || '').toLowerCase();
     const embedUrl = String(url || '');
+
+    // Block timeanddate clock widgets from hijacking the player
+    if (embedUrl.includes('timeanddate.com/clock')) return true;
+
     // Live Beaches often wraps third-party live channels. The channel-level
     // YouTube live embed can flip to "owner disabled external playback" while
     // the source page still works, so keep it as source-site-only instead of
@@ -7564,7 +7568,10 @@ function renderWorldTourVideoHero(selected) {
                     data-world-tour-title="${escapeWorldTourHtml(selected.title)}"
                     autoplay muted playsinline controls
                 ></video>
-                <div class="world-tour-video-loading">영상을 불러오는 중...</div>
+                <div class="world-tour-video-loading">
+                    <div class="world-tour-spinner"></div>
+                    <div class="world-tour-loading-text">영상을 불러오는 중...</div>
+                </div>
             </div>`;
     } else if (embedUrl) {
         mediaHtml = `
@@ -7575,7 +7582,10 @@ function renderWorldTourVideoHero(selected) {
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowfullscreen
                 ></iframe>
-                <div class="world-tour-video-loading">영상을 불러오는 중...</div>
+                <div class="world-tour-video-loading">
+                    <div class="world-tour-spinner"></div>
+                    <div class="world-tour-loading-text">영상을 불러오는 중...</div>
+                </div>
             </div>`;
     } else if (snapshotUrl) {
 
