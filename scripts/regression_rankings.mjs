@@ -140,7 +140,7 @@ if (gitsSample) {
 const guri = {
   label: '제이헤어 / 경기 구리시 수택동 437-48',
   center: { lat: 37.5959910402814, lng: 127.138034918802 },
-  expectedNearby: ['세무서4', '중앙예식장사거리', '돌다리사거리', '삼육고등학교앞', '교문사거리'],
+  expectedNearby: ['수택동4', '중앙예식장사거리', '돌다리사거리', '삼육고등학교앞', '왕숙교입구'],
 };
 
 for (const sortMode of ['nearest', 'urban']) {

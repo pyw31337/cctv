@@ -191,7 +191,7 @@ const WORLD_TOUR_SOURCE_LABELS = {
     external: 'External'
 };
 const URBAN_CONTEXT_PATTERN = /(시청|구청|군청|읍사무소|면사무소|동부출장소|행정복지|주민센터|세무서|법원|경찰서|소방서|보건소|사거리|삼거리|네거리|교차로|로터리|터미널|역|아파트|시장|학교|초교|초등|중학교|고교|병원|마트|상가|대로변|단지내|시내|중앙|읍내)/;
-const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권제|국도|IC|JC|TG|영업소|터널|램프|휴게소|졸음쉼터|분기점|진입로|외부|하이패스)/i;
+const OUTSKIRT_CONTEXT_PATTERN = /(고속|고속도로|서울양양선|수도권제|순환선|도시고속|자동차전용|국도|지방도|IC|JC|TG|영업소|터널|램프|휴게소|졸음쉼터|분기점|진입로|외부|하이패스|대교|고가도로|외곽)/i;
 const TRAFFIC_CONTEXT_PATTERN = /(고속|고속도로|도시고속|자동차전용|국도|지방도|IC|JC|TG|영업소|나들목|분기점|램프|터널|휴게소|졸음쉼터|하이패스|외곽|순환|우회|간선|산업도로|대교|교량|지하차도|고가도로)/i;
 const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오름|산책|관광|해수욕장|방파제|등대|섬|계곡|정자|캠핑|휴양|하천|강변|왕숙천|중랑천|탄천|한강|호수)/;
 const BLOCKED_YOUTUBE_VIDEO_IDS = new Set([
