@@ -7885,20 +7885,37 @@ function getNearbyDistanceText(cam1, cam2) {
     return d < 1 ? `${Math.round(d * 1000)}m` : `${d.toFixed(1)}km`;
 }
 
-async function probeWorldTourStreamLive(cam) {
+async function probeWorldTourStreamLive(cam, timeoutMs = 1000) {
     const embedUrl = getWorldTourEmbedUrl(cam);
-    const isDirect = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl);
-    const streamUrl = isDirect ? embedUrl : (cam.playUrl || embedUrl);
+    let streamUrl = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl) ? embedUrl : (cam.playUrl || embedUrl);
 
     if (!streamUrl) return false;
 
+    // Special case: scrape dynamic corolive stream URLs
+    if (streamUrl.includes('corolive.nz')) {
+        try {
+            const proxiedEmbed = proxyWithOracle(streamUrl);
+            const res = await fetch(proxiedEmbed);
+            const text = await res.text();
+            const match = text.match(/source:\s*['"](https?:\/\/[^'"]+\.m3u8)['"]/i);
+            if (match && match[1]) {
+                streamUrl = match[1];
+            } else {
+                return false;
+            }
+        } catch (e) {
+            return false;
+        }
+    }
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1000); // 1 second fast timeout
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        if (isDirect || streamUrl.includes('.m3u8') || streamUrl.includes('.mp4')) {
-            // HLS streams must support CORS
-            const response = await fetch(streamUrl, {
+        if (streamUrl.includes('.m3u8') || streamUrl.includes('.mp4')) {
+            // Use oracle proxy for reliable client-side probing without CORS blocks
+            const proxiedStream = proxyWithOracle(streamUrl);
+            const response = await fetch(proxiedStream, {
                 method: 'GET',
                 signal: controller.signal
             });
@@ -8016,6 +8033,30 @@ function initWorldTourVideoPlayback() {
         iframe.addEventListener('load', () => {
             loading?.classList.add('hidden');
         });
+
+        // Run background liveness probe on the iframe's underlying stream
+        const selected = state.worldTourCams?.find(c => c.id === state.selectedWorldTourId);
+        if (selected) {
+            probeWorldTourStreamLive(selected, 3000).then(ok => {
+                // Only modify DOM if user hasn't switched to another camera in the meantime
+                if (!ok && state.selectedWorldTourId === selected.id) {
+                    console.warn(`[WorldTour] background iframe probe failed for ${selected.title}. Triggering outage UI.`);
+                    const parent = iframe.parentElement;
+                    if (parent) {
+                        parent.innerHTML = `
+                            <div class="world-tour-outage-content">
+                                <div class="world-tour-outage-title">⚠️ 임시 점검 중</div>
+                                <div class="world-tour-outage-text">현재 해당 스트림에 일시적인 연결 장애가 발생했습니다.<br>우측 상단의 나침반 버튼 또는 아래 링크를 통해 원본 사이트에서 직접 확인하실 수 있습니다.</div>
+                                <a class="world-tour-action-btn" href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">원본 사이트에서 시청</a>
+                            </div>
+                        `;
+                        parent.classList.add('world-tour-outage-hero');
+                        showOutageAlternativeSuggestions(parent, selected);
+                    }
+                }
+            });
+        }
+
         // 8 seconds absolute timeout fallback in case of load event issues
         setTimeout(() => {
             loading?.classList.add('hidden');
