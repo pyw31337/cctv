@@ -8135,11 +8135,15 @@ function bindWorldTourListPanel(root, cams, selected) {
             event.preventDefault();
             event.stopPropagation();
             state.worldTourListScrollTop = panel.querySelector('[data-world-tour-list-results]')?.scrollTop ?? state.worldTourListScrollTop;
-            renderWorldTourCams(mapButton.dataset.worldTourListMap, {
-                viewMode: 'map',
-                focusSelected: true,
-                listScrollToSelected: true
-            });
+            if (state.worldTourViewMode === 'map' && worldTourLeafletMap) {
+                selectWorldTourCam(mapButton.dataset.worldTourListMap, 'card');
+            } else {
+                renderWorldTourCams(mapButton.dataset.worldTourListMap, {
+                    viewMode: 'map',
+                    focusSelected: true,
+                    listScrollToSelected: true
+                });
+            }
             return;
         }
 
@@ -8154,11 +8158,15 @@ function bindWorldTourListPanel(root, cams, selected) {
         const item = event.target.closest('[data-world-tour-list-item]');
         if (item) {
             state.worldTourListScrollTop = panel.querySelector('[data-world-tour-list-results]')?.scrollTop ?? state.worldTourListScrollTop;
-            renderWorldTourCams(item.dataset.worldTourListItem, {
-                viewMode: state.worldTourViewMode,
-                focusSelected: true,
-                listScrollToSelected: true
-            });
+            if (state.worldTourViewMode === 'map' && worldTourLeafletMap) {
+                selectWorldTourCam(item.dataset.worldTourListItem, 'card');
+            } else {
+                renderWorldTourCams(item.dataset.worldTourListItem, {
+                    viewMode: state.worldTourViewMode,
+                    focusSelected: true,
+                    listScrollToSelected: true
+                });
+            }
         }
     });
 
@@ -8167,11 +8175,15 @@ function bindWorldTourListPanel(root, cams, selected) {
         const item = event.target.closest('[data-world-tour-list-item]');
         if (!item) return;
         event.preventDefault();
-        renderWorldTourCams(item.dataset.worldTourListItem, {
-            viewMode: state.worldTourViewMode,
-            focusSelected: true,
-            listScrollToSelected: true
-        });
+        if (state.worldTourViewMode === 'map' && worldTourLeafletMap) {
+            selectWorldTourCam(item.dataset.worldTourListItem, 'card');
+        } else {
+            renderWorldTourCams(item.dataset.worldTourListItem, {
+                viewMode: state.worldTourViewMode,
+                focusSelected: true,
+                listScrollToSelected: true
+            });
+        }
     });
 
     const results = panel.querySelector('[data-world-tour-list-results]');
@@ -8668,6 +8680,20 @@ function selectWorldTourCam(camId, source = 'card') {
     const cardRail = list.querySelector('.world-tour-card-rail');
     if (cardRail) {
         scrollWorldTourCardToSelected(cardRail, camId, { forceCenter: true, behavior: 'smooth' });
+    }
+
+    // Update active class in the search list panel
+    const results = list.querySelector('[data-world-tour-list-results]');
+    if (results) {
+        const listItems = results.querySelectorAll('.world-tour-list-item');
+        listItems.forEach(item => {
+            if (item.dataset.worldTourListItem === camId) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        });
+        scrollWorldTourListToSelected(results, camId, { center: false });
     }
 
     // 2. Find camera data
