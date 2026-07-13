@@ -6722,7 +6722,8 @@ function canPlayWorldTourInApp(cam) {
     const playbackStatus = String(cam?.playbackStatus || '').toLowerCase();
     const directStatus = String(cam?.directPlaybackStatus || '').toLowerCase();
     if (cam?.videoId && BLOCKED_YOUTUBE_VIDEO_IDS.has(String(cam.videoId))) return false;
-    if (cam?.sourceOnly || directStatus === 'source_site_only') return false;
+    if (cam?.sourceOnly) return false;
+    if (directStatus === 'source_site_only' && !cam?.embedUrl && !cam?.videoId) return false;
     if (['unavailable', 'embed_disabled', 'source-only'].includes(playbackStatus)) return false;
     if (cam?.embedUrl && isWorldTourEmbedBlocked(cam, cam.embedUrl)) return false;
     if (cam?.videoId && !cam?.embedUrl && !cam?.playUrl && playbackStatus !== 'verified') return false;
@@ -7567,13 +7568,14 @@ function renderWorldTourVideoHero(selected) {
             </div>`;
     } else if (embedUrl) {
         mediaHtml = `
-            <div class="world-tour-video">
+            <div class="world-tour-video world-tour-iframe-container">
                 <iframe
                     src="${escapeWorldTourHtml(embedUrl)}"
                     title="${escapeWorldTourHtml(selected.title)}"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowfullscreen
                 ></iframe>
+                <div class="world-tour-video-loading">영상을 불러오는 중...</div>
             </div>`;
     } else if (snapshotUrl) {
 
@@ -7891,7 +7893,7 @@ async function probeWorldTourStreamLive(cam) {
     if (!streamUrl) return false;
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 seconds fast timeout
+    const timeoutId = setTimeout(() => controller.abort(), 1000); // 1 second fast timeout
 
     try {
         if (isDirect || streamUrl.includes('.m3u8') || streamUrl.includes('.mp4')) {
@@ -7918,10 +7920,12 @@ async function probeWorldTourStreamLive(cam) {
     }
 }
 
-async function showOutageAlternativeSuggestions(videoElement, selectedCam) {
-    const wrapper = videoElement.parentElement;
-    if (!wrapper || !selectedCam) return;
-    if (wrapper.querySelector('.world-tour-alternative-suggestions')) return;
+async function showOutageAlternativeSuggestions(container, selectedCam) {
+    if (!container || !selectedCam) return;
+    
+    // If container is a video element, use its parent wrapper. Otherwise, use it directly.
+    const wrapper = container.tagName === 'VIDEO' ? container.parentElement : container;
+    if (!wrapper || wrapper.querySelector('.world-tour-alternative-suggestions')) return;
 
     const cams = (state.worldTourCams && state.worldTourCams.items)
         || (Array.isArray(state.worldTourCams) ? state.worldTourCams : []);
@@ -7938,8 +7942,8 @@ async function showOutageAlternativeSuggestions(videoElement, selectedCam) {
     }
     if (!candidates.length) return;
 
-    // Fetch nearest 12 candidates to probe in parallel
-    const nearestCandidates = getWorldTourNearbyCams(selectedCam, candidates, 12);
+    // Fetch nearest 6 candidates to probe in parallel for maximum speed
+    const nearestCandidates = getWorldTourNearbyCams(selectedCam, candidates, 6);
     if (!nearestCandidates.length) return;
 
     const probePromises = nearestCandidates.map(async (cam) => {
@@ -7955,8 +7959,8 @@ async function showOutageAlternativeSuggestions(videoElement, selectedCam) {
         verifiedNearby = nearestCandidates.slice(0, 3);
     }
 
-    const container = document.createElement('div');
-    container.className = 'world-tour-alternative-suggestions';
+    const suggestionsBox = document.createElement('div');
+    suggestionsBox.className = 'world-tour-alternative-suggestions';
 
     let html = `
         <div class="world-tour-suggestion-header">근처의 추천 라이브 카메라</div>
@@ -7975,9 +7979,9 @@ async function showOutageAlternativeSuggestions(videoElement, selectedCam) {
     });
 
     html += `</div>`;
-    container.innerHTML = html;
+    suggestionsBox.innerHTML = html;
 
-    container.querySelectorAll('.world-tour-suggestion-btn').forEach(btn => {
+    suggestionsBox.querySelectorAll('.world-tour-suggestion-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const targetId = btn.dataset.suggestionId;
             const targetCam = cams.find(c => c.id === targetId);
@@ -7996,16 +8000,28 @@ async function showOutageAlternativeSuggestions(videoElement, selectedCam) {
         });
     });
 
-    // Reset error loading state label
+    // Reset error loading state label if it exists
     const loading = wrapper.querySelector('.world-tour-video-loading');
     if (loading) {
         loading.innerHTML = '영상을 재생할 수 없습니다.<br>아래 추천 카메라로 이동해 보세요.';
     }
 
-    wrapper.appendChild(container);
+    wrapper.appendChild(suggestionsBox);
 }
 
 function initWorldTourVideoPlayback() {
+    const iframe = document.querySelector('.world-tour-iframe-container iframe');
+    if (iframe) {
+        const loading = iframe.parentElement.querySelector('.world-tour-video-loading');
+        iframe.addEventListener('load', () => {
+            loading?.classList.add('hidden');
+        });
+        // 8 seconds absolute timeout fallback in case of load event issues
+        setTimeout(() => {
+            loading?.classList.add('hidden');
+        }, 8000);
+    }
+
     const video = document.querySelector('.world-tour-direct-video');
     if (!video) return;
 
@@ -8576,6 +8592,12 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
                 enableWorldTourVideoPan(list);
                 initWorldTourVideoPlayback();
                 initWorldTourSnapshotRefresh();
+
+                // Show verified nearby recommendations on the outage/source-only landing screen
+                const outageHero = list.querySelector('.world-tour-outage-hero');
+                if (outageHero) {
+                    showOutageAlternativeSuggestions(outageHero, selected);
+                }
             });
         }
     } catch (error) {
