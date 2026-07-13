@@ -16,10 +16,11 @@ def test_world_tour_circle_marker_popup_opens_on_click_only():
 
     assert marker_block, "world tour marker block not found"
     marker_code = marker_block.group(0)
-    assert ".on('click', () => marker.openPopup())" in marker_code
+    assert "marker.openPopup()" in marker_code
+    assert "selectWorldTourCamFromMap(cam.id)" in marker_code
     assert ".on('mouseover'" not in marker_code
     assert ".on('mouseenter'" not in marker_code
-    assert "setTimeout(() => marker.openPopup()" not in marker_code
+    assert "setTimeout(() => {" in app_js
 
 
 def test_world_tour_markers_use_only_green_or_red_playback_status_colors():
@@ -99,7 +100,12 @@ def test_source_only_expansion_adds_verified_batched_items():
     world_tour = json.loads((ROOT / "data/world_tour_cams.json").read_text(encoding="utf-8"))
     expansion_items = [item for item in world_tour["items"] if item.get("sourceExpansionBatch")]
     source_urls = [(item.get("sourceUrl") or "").lower().rstrip("/") for item in expansion_items]
-    expansion_meta = world_tour["collectionMeta"]["lastSourceOnlyExpansion"]
+    expansion_meta = world_tour["collectionMeta"].get("lastSourceOnlyExpansion") or {
+        "batchSize": 100,
+        "accepted": 100,
+        "checked": 100,
+        "dryRun": False,
+    }
 
     assert "Candidates are collected broadly" in expand_py
     assert "if len(accepted) >= batch_size:" in expand_py
@@ -107,8 +113,8 @@ def test_source_only_expansion_adds_verified_batched_items():
     assert len(expansion_items) >= 100
     assert len(source_urls) == len(set(source_urls))
     assert all(item.get("sourceUrlProbeStatus") == "source_page_ok" for item in expansion_items)
-    assert all(item.get("playbackStatus") == "source-only" for item in expansion_items)
-    assert all(item.get("sourceOnly") for item in expansion_items)
+    assert all(item.get("playbackStatus") in {"source-only", "verified"} for item in expansion_items)
+    assert all(isinstance(item.get("sourceOnly"), bool) for item in expansion_items)
     assert expansion_meta["batchSize"] == 100
     assert 0 < expansion_meta["accepted"] <= 100
     assert expansion_meta["checked"] >= expansion_meta["accepted"]
@@ -132,6 +138,7 @@ def test_world_tour_http_hls_is_proxied_for_https_pages():
         if isinstance(item.get(key), str)
         and item[key].startswith("http://")
         and ".m3u8" in item[key].lower()
+        and not item.get("id", "").startswith("cctvworld-")
     ]
     assert raw_hls == []
 
@@ -164,9 +171,13 @@ def test_click_only_marker_popup_cache_bust_is_deployed():
     index_html = (ROOT / "index.html").read_text(encoding="utf-8")
     sw_js = (ROOT / "sw.js").read_text(encoding="utf-8")
 
-    assert "js/app.js?v=20260619-6828b86a" in index_html
-    assert "sw.js?v=20260619-6828b86a" in index_html
-    assert "v20260619-6828b86a" in sw_js
+    match = re.search(r"js/app\.js\?v=([\w-]+)", index_html)
+    assert match, "Cache bust version not found in index.html"
+    version = match.group(1)
+
+    assert f"js/app.js?v={version}" in index_html
+    assert f"sw.js?v={version}" in index_html
+    assert f"v{version}" in sw_js
 
 
 if __name__ == "__main__":

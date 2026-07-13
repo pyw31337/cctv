@@ -8212,8 +8212,12 @@ function scrollWorldTourCardToSelected(scroller, id, options = {}) {
         0,
         cardLeft - Math.max(0, (scroller.clientWidth - card.offsetWidth) / 2)
     );
-    scroller.scrollLeft = target;
-    state.worldTourCardScrollLeft = scroller.scrollLeft;
+    if (options.behavior === 'smooth') {
+        scroller.scrollTo({ left: target, behavior: 'smooth' });
+    } else {
+        scroller.scrollLeft = target;
+    }
+    state.worldTourCardScrollLeft = target;
     return true;
 }
 
@@ -8589,6 +8593,9 @@ async function initWorldTourMap(selected, visibleCams) {
             const isSelected = cam.id === selected.id;
             const marker = L.circleMarker([lat, lng], getWorldTourMarkerStyle(cam, isSelected)).addTo(worldTourLeafletMap);
 
+            marker.worldTourCamId = cam.id;
+            marker.worldTourCam = cam;
+
             marker
                 .bindPopup(createWorldTourMarkerPopup(cam), {
                     closeButton: false,
@@ -8596,7 +8603,10 @@ async function initWorldTourMap(selected, visibleCams) {
                     offset: [0, -6],
                     className: 'world-tour-leaflet-popup'
                 })
-                .on('click', () => marker.openPopup());
+                .on('click', () => {
+                    marker.openPopup();
+                    selectWorldTourCamFromMap(cam.id);
+                });
 
             worldTourLeafletMarkers.push(marker);
 
@@ -8604,6 +8614,12 @@ async function initWorldTourMap(selected, visibleCams) {
                 worldTourLeafletMap.setView([lat, lng], Math.max(worldTourLeafletMap.getZoom(), state.worldTourRegion === 'All' ? 4 : 5), {
                     animate: false
                 });
+                setTimeout(() => {
+                    if (worldTourLeafletMap && marker) {
+                        marker.openPopup();
+                        marker.bringToFront?.();
+                    }
+                }, 100);
             }
         });
 
@@ -8614,6 +8630,48 @@ async function initWorldTourMap(selected, visibleCams) {
         if (mapEl) {
             mapEl.innerHTML = '<div class="world-tour-map-loading">지도를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>';
         }
+    }
+}
+
+function selectWorldTourCamFromMap(camId) {
+    if (state.selectedWorldTourId === camId) return;
+    const oldId = state.selectedWorldTourId;
+    state.selectedWorldTourId = camId;
+
+    // 1. Update card active classes in the bottom rail
+    const list = $('#weather-list');
+    if (list) {
+        const cards = list.querySelectorAll('.world-tour-card');
+        cards.forEach(card => {
+            if (card.dataset.id === camId) {
+                card.classList.add('active');
+            } else {
+                card.classList.remove('active');
+            }
+        });
+        const cardRail = list.querySelector('.world-tour-card-rail');
+        if (cardRail) {
+            scrollWorldTourCardToSelected(cardRail, camId, { forceCenter: true, behavior: 'smooth' });
+        }
+    }
+
+    // 2. Update marker styles on the map
+    worldTourLeafletMarkers.forEach(marker => {
+        if (marker.worldTourCamId === camId) {
+            marker.setStyle(getWorldTourMarkerStyle(marker.worldTourCam, true));
+            marker.bringToFront?.();
+        } else if (marker.worldTourCamId === oldId) {
+            marker.setStyle(getWorldTourMarkerStyle(marker.worldTourCam, false));
+        }
+    });
+
+    // 3. Update the left details panel / header switch if needed
+    const cams = (state.worldTourCams && state.worldTourCams.items)
+        || (Array.isArray(state.worldTourCams) ? state.worldTourCams : []);
+    const selectedCam = cams.find(cam => cam.id === camId);
+    if (selectedCam) {
+        updateWorldTourHeaderSwitch(selectedCam);
+        syncWorldTourUrlState(selectedCam, { viewMode: 'map' });
     }
 }
 

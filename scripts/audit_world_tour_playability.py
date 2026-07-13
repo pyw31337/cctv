@@ -13,6 +13,8 @@ import concurrent.futures
 import datetime as dt
 import json
 import sys
+import urllib.request
+import urllib.error
 from collections import Counter
 from pathlib import Path
 
@@ -88,6 +90,30 @@ def probe_direct_stream(url: str) -> tuple[bool, str]:
     return True, 'direct_url_present'
 
 
+def probe_embed_url(url: str) -> tuple[bool, str]:
+    value = str(url or '').strip()
+    if not value:
+        return False, 'missing_url'
+    try:
+        req = urllib.request.Request(value, headers=world.HEADERS)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                status = response.getcode()
+        except urllib.error.URLError as error:
+            if 'CERTIFICATE_VERIFY_FAILED' not in str(error):
+                raise
+            with urllib.request.urlopen(req, timeout=10, context=world.UNVERIFIED_SSL_CONTEXT) as response:
+                status = response.getcode()
+        
+        if 200 <= status < 400:
+            return True, f'http_{status}_ok'
+        return False, f'http_status_{status}'
+    except urllib.error.HTTPError as error:
+        return False, f'HTTPError_{error.code}'
+    except Exception as error:
+        return False, f'{type(error).__name__}: {error}'
+
+
 def audit_item(item: dict) -> dict | None:
     item = normalize_world_tour_playback_item(item)
     if world.is_snapshot_only_item(item):
@@ -112,8 +138,16 @@ def audit_item(item: dict) -> dict | None:
                 item['directPlaybackStatus'] = 'source_site_only'
                 item['sourceOnlyReason'] = 'direct_stream_probe_failed'
         elif world.is_valid_embed_url(item.get('embedUrl')):
-            item['playbackStatus'] = 'verified'
-            item['sourceOnly'] = False
+            ok, reason = probe_embed_url(item.get('embedUrl'))
+            item['embedProbeStatus'] = reason
+            item['playbackStatus'] = 'verified' if ok else 'source-only'
+            item['sourceOnly'] = not ok
+            if ok:
+                item['directPlaybackStatus'] = item.get('directPlaybackStatus') or 'trusted_provider_embed'
+                item.pop('sourceOnlyReason', None)
+            else:
+                item['directPlaybackStatus'] = 'source_site_only'
+                item['sourceOnlyReason'] = 'embed_url_probe_failed'
         elif item.get('sourceUrl'):
             item['playbackStatus'] = 'source-only'
             item['sourceOnly'] = True
