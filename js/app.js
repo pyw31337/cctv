@@ -7821,6 +7821,7 @@ function enableWorldTourVideoPan(root = document) {
         };
 
         container.addEventListener('pointerdown', event => {
+            if (event.target.closest('.world-tour-alternative-suggestions')) return;
             if (event.button !== 0 && event.pointerType !== 'touch') return;
             refreshMetrics();
             if (maxPan <= 8) return;
