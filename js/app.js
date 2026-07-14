@@ -1935,7 +1935,22 @@ function buildCameraFailureMap(failures) {
 
 function getCameraFailureRecord(cctv) {
     if (!cctv || !cctv.id || !state.cameraFailures) return null;
-    const record = state.cameraFailures.get(cctv.id);
+    let record = state.cameraFailures.get(cctv.id);
+
+    // If no direct match, check if there is an overlapping scene that failed
+    if (!record) {
+        const mySceneKey = getCctvSceneKey(cctv);
+        if (mySceneKey) {
+            for (const [failedId, failedRecord] of state.cameraFailures.entries()) {
+                const failedCctv = state.cctvById?.get(failedId);
+                if (failedCctv && getCctvSceneKey(failedCctv) === mySceneKey) {
+                    record = failedRecord;
+                    break;
+                }
+            }
+        }
+    }
+
     if (!record) return null;
 
     const lastFailedAt = Date.parse(record.last_failed_at || record.lastFailedAt || '');
@@ -3972,7 +3987,7 @@ function getCanarySuccessfulCamerasForRegion(regionKey, lat = state.center?.lat,
     return passedIds
         .map(id => findCctvById(id))
         .filter(Boolean)
-        .filter(cctv => !isUnsupportedBrowserStream(cctv))
+        .filter(cctv => !isUnsupportedBrowserStream(cctv) && !isKnownUnavailableCamera(cctv) && !shouldIsolateProblemCamera(cctv))
         .map(cctv => decorateNearestCandidate(cctv, lat, lng))
         .sort((a, b) => {
             const aCanary = getCanaryCameraRecord(a);
@@ -5856,24 +5871,27 @@ function initMap() {
     }
     state.mapInitialized = true;
 
-    // Map Move Event handler
+    // Map Move Event handler (Debounced to prevent mobile lag)
+    let mapMoveTimer = null;
     const handleMapMove = () => {
-        // Belt-and-braces: even with setMaxLevel above, clamp on every
-        // zoom event so any code path that bypasses the cap (mobile
-        // pinch gesture, programmatic setLevel, history restore) can't
-        // leave the user staring at the blank watermark grid.
-        if (map.getLevel() > KAKAO_MAX_OUT_LEVEL) {
-            map.setLevel(KAKAO_MAX_OUT_LEVEL);
-            return;
+        if (mapMoveTimer) {
+            clearTimeout(mapMoveTimer);
         }
-        const center = map.getCenter();
-        state.center = { lat: center.getLat(), lng: center.getLng() };
-        updateNearestCctvs();
-        renderServiceStatusBanner();
-        renderMapMarkers();
-        // Also update video grid so it stays in sync when switching back
-        renderVideoGrid();
-        syncUrlState();
+        mapMoveTimer = setTimeout(() => {
+            mapMoveTimer = null;
+            if (map.getLevel() > KAKAO_MAX_OUT_LEVEL) {
+                map.setLevel(KAKAO_MAX_OUT_LEVEL);
+                return;
+            }
+            const center = map.getCenter();
+            state.center = { lat: center.getLat(), lng: center.getLng() };
+            updateNearestCctvs();
+            renderServiceStatusBanner();
+            renderMapMarkers();
+            // Also update video grid so it stays in sync when switching back
+            renderVideoGrid();
+            syncUrlState();
+        }, 250);
     };
 
     kakao.maps.event.addListener(map, 'dragend', handleMapMove);
@@ -5961,13 +5979,20 @@ function initWindyLayersPanel() {
         }
     });
 
+    let syncWindyTimer = null;
     syncWindyMap = () => {
-        if (overlay && !overlay.classList.contains('hidden')) {
-            const activeLayerItem = document.querySelector('.layer-item.active');
-            if (activeLayerItem) {
-                updateIframeLayer(activeLayerItem);
-            }
+        if (syncWindyTimer) {
+            clearTimeout(syncWindyTimer);
         }
+        syncWindyTimer = setTimeout(() => {
+            syncWindyTimer = null;
+            if (overlay && !overlay.classList.contains('hidden')) {
+                const activeLayerItem = document.querySelector('.layer-item.active');
+                if (activeLayerItem) {
+                    updateIframeLayer(activeLayerItem);
+                }
+            }
+        }, 600); // 600ms debounce to prevent constant iframe reloading
     };
 
     const updateIframeLayer = (layerItem) => {
