@@ -5014,3 +5014,36 @@ body.world-tour-active #pwa-install-prompt {
     font-weight: 700;
     letter-spacing: 0.03em;
 }
+
+/* ================================================================
+   Performance Optimizations
+   ================================================================ */
+
+/*
+ * 1. Mobile devices: disable backdrop-filter (blur) globally.
+ *    blur() triggers a full off-screen composite on every frame —
+ *    on mobile CPUs this causes visible stutter.
+ */
+body.is-mobile .service-status-banner,
+body.is-mobile .search-box input,
+body.is-mobile .video-panel,
+body.is-mobile .windy-layers-panel,
+body.is-mobile .video-layer,
+body.is-mobile .search-dropdown,
+body.is-mobile .bottom-panel {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/*
+ * 2. During map drag / zoom: suppress ALL transitions and GPU-heavy
+ *    effects so Kakao Map tiles can render at full frame rate.
+ */
+body.map-moving *,
+body.map-moving *::before,
+body.map-moving *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    transition: none !important;
+    animation: none !important;
+}

@@ -539,6 +539,11 @@ const $$ = (sel) => document.querySelectorAll(sel);
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('CCTV Viewer 2.0 Initializing...');
 
+    // Detect mobile browser and mark body — used for CSS perf rules
+    if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        document.body.classList.add('is-mobile');
+    }
+
     await Promise.all([loadCctvData(), loadHealthStatus()]);
     restoreInitialViewState();
     restoreQualityPreferences();
@@ -5894,8 +5899,14 @@ function initMap() {
         }, 250);
     };
 
-    kakao.maps.event.addListener(map, 'dragend', handleMapMove);
-    kakao.maps.event.addListener(map, 'zoom_changed', handleMapMove);
+    // Toggle 'map-moving' class so CSS can suppress expensive effects (blur etc.) during interaction
+    const onMoveStart = () => document.body.classList.add('map-moving');
+    const onMoveEnd   = () => { document.body.classList.remove('map-moving'); handleMapMove(); };
+
+    kakao.maps.event.addListener(map, 'dragstart',    onMoveStart);
+    kakao.maps.event.addListener(map, 'dragend',      onMoveEnd);
+    kakao.maps.event.addListener(map, 'zoom_start',   onMoveStart);
+    kakao.maps.event.addListener(map, 'zoom_changed', onMoveEnd);
 
     // Add Markers for nearest CCTVs
     renderMapMarkers();
