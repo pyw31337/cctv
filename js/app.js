@@ -5,6 +5,7 @@
 
 // === Z3 Cache (its.go.kr snapshot via Oracle first, static GitHub fallback) ===
 let z3CacheData = null;
+let _lastKnownBandwidth = null;
 let z3CachePromise = null;
 let z3CacheAgeMs = Infinity; // 캐시가 fetch된 이후 경과 시간 (ms)
 let z3CacheFetchedAt = null;
@@ -79,11 +80,53 @@ const STABILITY_MODE_PRIMARY_TARGET = 4;
 const STABILITY_MODE_EXPANDED_RADIUS_KM = 24;
 const STABILITY_MODE_EMERGENCY_RADIUS_KM = 45;
 const DYNAMIC_BACKUP_RADIUS_KM = 8;
-const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
-const ORACLE_PROXY_BASE = `${ORACLE_BASE}/proxy`;
-const JEJU_PROXY_BASE = 'https://158.179.194.163.sslip.io/jeju';
-const KB_PROXY_BASE = `${ORACLE_BASE}/kb`;
-const LIVE_HEALTH_STATUS_URL = QUALITY_CONFIG.healthStatusUrl || `${ORACLE_BASE}/health-status`;
+const ORACLE_CANDIDATES = [
+    'https://158.179.194.163.sslip.io',
+    'https://cctv-proxy.pyw213.workers.dev'
+];
+let _activeOracleIndex = 0;
+try {
+    const savedOracleIndex = sessionStorage.getItem('_activeOracleIndex');
+    if (savedOracleIndex !== null) {
+        const idx = parseInt(savedOracleIndex, 10);
+        if (idx >= 0 && idx < ORACLE_CANDIDATES.length) {
+            _activeOracleIndex = idx;
+        }
+    }
+} catch (e) {}
+
+function switchActiveOracle() {
+    _activeOracleIndex = (_activeOracleIndex + 1) % ORACLE_CANDIDATES.length;
+    console.warn(`[Proxy] Switched active proxy base to: ${ORACLE_CANDIDATES[_activeOracleIndex]}`);
+    try {
+        sessionStorage.setItem('_activeOracleIndex', String(_activeOracleIndex));
+    } catch (e) {}
+}
+
+Object.defineProperty(window, 'ORACLE_BASE', {
+    get: () => ORACLE_CANDIDATES[_activeOracleIndex],
+    configurable: true
+});
+
+Object.defineProperty(window, 'ORACLE_PROXY_BASE', {
+    get: () => `${window.ORACLE_BASE}/proxy`,
+    configurable: true
+});
+
+Object.defineProperty(window, 'JEJU_PROXY_BASE', {
+    get: () => `${window.ORACLE_BASE}/jeju`,
+    configurable: true
+});
+
+Object.defineProperty(window, 'KB_PROXY_BASE', {
+    get: () => `${window.ORACLE_BASE}/kb`,
+    configurable: true
+});
+
+Object.defineProperty(window, 'LIVE_HEALTH_STATUS_URL', {
+    get: () => QUALITY_CONFIG.healthStatusUrl || `${window.ORACLE_BASE}/health-status`,
+    configurable: true
+});
 const MARKER_DANGER_FILTER = 'hue-rotate(145deg) saturate(1.85) contrast(1.08)';
 const MARKER_WARN_FILTER = 'hue-rotate(185deg) saturate(1.55) contrast(1.05)';
 const DEFAULT_QUALITY_SORT_MODE = 'nearest';
@@ -568,19 +611,47 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadCctvData() {
     try {
         const cacheBucket = Math.floor(Date.now() / CCTV_DATA_BUCKET_MS);
-        const response = await fetch(`cctv_data.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
+        const response = await fetch(`data/cctv_core.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         const rawData = await response.json();
         state.cctvData = rawData.filter(cctv => !shouldExcludeCctv(cctv));
         buildGeoIndex(state.cctvData);
-        console.log(`Loaded ${state.cctvData.length} CCTV entries.`, rawData.length !== state.cctvData.length ? `(excluded ${rawData.length - state.cctvData.length})` : '');
+        console.log(`Loaded ${state.cctvData.length} core CCTV entries.`, rawData.length !== state.cctvData.length ? `(excluded ${rawData.length - state.cctvData.length})` : '');
+        
+        // Lazy load extended data in background
+        loadCctvExtendedData(cacheBucket);
     } catch (error) {
         console.error('Failed to load CCTV data:', error);
         state.cctvData = [];
         state.cctvById = new Map();
         state.geoIndex = new Map();
+    }
+}
+
+async function loadCctvExtendedData(cacheBucket) {
+    try {
+        const response = await fetch(`data/cctv_extended.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const extendedMap = await response.json();
+        
+        let mergedCount = 0;
+        state.cctvData.forEach(cctv => {
+            const ext = extendedMap[cctv.id];
+            if (ext) {
+                Object.assign(cctv, ext);
+                mergedCount++;
+            }
+        });
+        console.log(`Merged ${mergedCount} extended CCTV entries in background.`);
+        
+        // Update nearest lists and fallback candidates once background data merges
+        updateNearestCctvs();
+    } catch (error) {
+        console.warn('Failed to load CCTV extended data in background:', error);
     }
 }
 
@@ -604,6 +675,9 @@ async function loadHealthStatus() {
             return;
         } catch (error) {
             console.debug('[Health] Status load skipped:', url, error.message || error);
+            if (url.includes(ORACLE_CANDIDATES[_activeOracleIndex])) {
+                switchActiveOracle();
+            }
         }
     }
 
@@ -3302,6 +3376,8 @@ function recordQualityEvent(cctv, eventType, details = {}) {
         stall_count: Number.isFinite(Number(details.stallCount)) ? Math.max(0, Math.round(Number(details.stallCount))) : 0,
         video_width: Number.isFinite(Number(details.videoWidth)) ? Math.round(Number(details.videoWidth)) : null,
         video_height: Number.isFinite(Number(details.videoHeight)) ? Math.round(Number(details.videoHeight)) : null,
+        bandwidth_kbps: Number.isFinite(Number(details.bandwidthEstimateKbps)) ? Math.round(Number(details.bandwidthEstimateKbps)) : null,
+        hls_level: Number.isFinite(Number(details.currentLevel)) ? Math.round(Number(details.currentLevel)) : null,
         reason: sanitizeTelemetryText(details.reason || '', 48),
         ts: new Date().toISOString()
     };
@@ -3364,13 +3440,19 @@ function recordVideoQualitySuccess(video, cctv) {
 
     video._qualityReported = true;
     const firstFrameMs = performance.now() - Number(video._qualityStartedAt || performance.now());
+    const hls = video.hls || video._hlsInstance;
+    const bandwidth = hls && hls.bandwidthEstimate > 0 ? Math.round(hls.bandwidthEstimate / 1000) : null;
+    const currentLevel = hls ? hls.currentLevel : null;
+
     recordQualityEvent(cctv, firstFrameMs > QUALITY_SLOW_FIRST_FRAME_MS ? 'slow' : 'success', {
         firstFrameMs,
         stallCount: Number(video._qualityStallCount || 0),
         videoWidth: video.videoWidth,
         videoHeight: video.videoHeight,
         sourceIndex: Number(video._qualitySourceIndex || 0),
-        usedFallback: Number(video._qualitySourceIndex || 0) > 0
+        usedFallback: Number(video._qualitySourceIndex || 0) > 0,
+        bandwidthEstimateKbps: bandwidth,
+        currentLevel: currentLevel
     });
 }
 
@@ -4045,28 +4127,36 @@ function renderVideoGrid() {
         }
 
         // Clear wrapper content
+        if (panel._loadingTimer) {
+            clearTimeout(panel._loadingTimer);
+            panel._loadingTimer = null;
+        }
         cleanupVideo(wrapper);
         panel.classList.remove('panel-suspended');
         resetPanelRetryState(panel);
 
         if (cctv) {
-            // Create and insert video element
-            const video = createVideoElement(cctv);
-            wrapper.appendChild(video);
-            if (video.tagName === 'VIDEO') {
-                video.dataset.activeCctvId = cctv.id;
-                video.dataset.sourceIndex = '0';
-                video._activeCctv = cctv;
-            }
-            const loadingCopy = getStreamLoadingCopy(cctv);
-            const loadingIndicator = showStreamLoadingIndicator(wrapper, loadingCopy.title, loadingCopy.detail);
-            bindStreamLoadingIndicator(wrapper, video, loadingIndicator);
+            const delay = index === 0 ? 0 : 200 + (index * 250); // 0ms, 450ms, 700ms, 950ms
+            panel._loadingTimer = setTimeout(() => {
+                panel._loadingTimer = null;
+                // Create and insert video element
+                const video = createVideoElement(cctv);
+                wrapper.appendChild(video);
+                if (video.tagName === 'VIDEO') {
+                    video.dataset.activeCctvId = cctv.id;
+                    video.dataset.sourceIndex = '0';
+                    video._activeCctv = cctv;
+                }
+                const loadingCopy = getStreamLoadingCopy(cctv);
+                const loadingIndicator = showStreamLoadingIndicator(wrapper, loadingCopy.title, loadingCopy.detail);
+                bindStreamLoadingIndicator(wrapper, video, loadingIndicator);
 
-            panel.dataset.cctvId = cctv.id;
-            panel.dataset.slotIndex = index;
-            panel.dataset.cctvIndex = index;
-            scheduleVideoHealthProbe(panel, cctv, video);
-            prepareManualRetryFallback(panel, cctv);
+                panel.dataset.cctvId = cctv.id;
+                panel.dataset.slotIndex = index;
+                panel.dataset.cctvIndex = index;
+                scheduleVideoHealthProbe(panel, cctv, video);
+                prepareManualRetryFallback(panel, cctv);
+            }, delay);
 
             // Update dropdown trigger with compact status dot instead of status text.
             renderSelectTrigger(panel, cctv, `CCTV ${index + 1}`);
@@ -4864,6 +4954,12 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 fragLoadingMaxRetry: 2,
                 fragLoadingRetryDelay: 700,
                 fragLoadingMaxRetryTimeout: 4000,
+                abrEwmaDefaultEstimate: _lastKnownBandwidth || 1500000,
+            });
+            hls.on(Hls.Events.FRAG_LOADED, function () {
+                if (hls.bandwidthEstimate > 0) {
+                    _lastKnownBandwidth = hls.bandwidthEstimate;
+                }
             });
             hls.on(Hls.Events.MANIFEST_PARSED, function () {
                 video.play().catch(() => {});
@@ -4941,6 +5037,12 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 manifestLoadingMaxRetry: 2,
                 levelLoadingMaxRetry: 2,
                 fragLoadingMaxRetry: 2,
+                abrEwmaDefaultEstimate: _lastKnownBandwidth || 1500000,
+            });
+            hls.on(Hls.Events.FRAG_LOADED, function () {
+                if (hls.bandwidthEstimate > 0) {
+                    _lastKnownBandwidth = hls.bandwidthEstimate;
+                }
             });
             hls.on(Hls.Events.MANIFEST_PARSED, function () {
                 video.play().catch(() => {});
@@ -5020,6 +5122,12 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 manifestLoadingMaxRetry: 1,
                 levelLoadingMaxRetry: 1,
                 fragLoadingMaxRetry: 1,
+                abrEwmaDefaultEstimate: _lastKnownBandwidth || 1500000,
+            });
+            hls.on(Hls.Events.FRAG_LOADED, function () {
+                if (hls.bandwidthEstimate > 0) {
+                    _lastKnownBandwidth = hls.bandwidthEstimate;
+                }
             });
             hls.on(Hls.Events.MANIFEST_PARSED, function () {
                 video.play().catch(() => {});
@@ -5155,6 +5263,12 @@ function createVideoElement(cctv, sourceIndex = 0) {
                         manifestLoadingMaxRetry: isZ3 ? 2 : 2,
                         levelLoadingMaxRetry: isZ3 ? 2 : 2,
                         fragLoadingMaxRetry: isZ3 ? 3 : 4,
+                        abrEwmaDefaultEstimate: _lastKnownBandwidth || 1500000,
+                    });
+                    hls.on(Hls.Events.FRAG_LOADED, function () {
+                        if (hls.bandwidthEstimate > 0) {
+                            _lastKnownBandwidth = hls.bandwidthEstimate;
+                        }
                     });
                     hls.loadSource(streamUrl);
                     hls.attachMedia(video);
@@ -5231,6 +5345,13 @@ function createVideoElement(cctv, sourceIndex = 0) {
             fragLoadingRetryDelay: 700,
             fragLoadingMaxRetryTimeout: failFastHlsSource ? 4000 : 8000,
             maxBufferSize: 30 * 1000 * 1000,
+            abrEwmaDefaultEstimate: _lastKnownBandwidth || 1500000,
+        });
+
+        hls.on(Hls.Events.FRAG_LOADED, function () {
+            if (hls.bandwidthEstimate > 0) {
+                _lastKnownBandwidth = hls.bandwidthEstimate;
+            }
         });
 
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
@@ -5664,6 +5785,12 @@ function createErrorPlaceholder(options, legacyRetryFn) {
 
 function cleanupVideo(container) {
     if (!container) return;
+
+    const panel = container.parentElement;
+    if (panel && panel._loadingTimer) {
+        clearTimeout(panel._loadingTimer);
+        panel._loadingTimer = null;
+    }
 
     const video = container.querySelector('video');
     if (video) {
@@ -7895,7 +8022,36 @@ function getNearbyDistanceText(cam1, cam2) {
     return d < 1 ? `${Math.round(d * 1000)}m` : `${d.toFixed(1)}km`;
 }
 
-async function probeWorldTourStreamLive(cam, timeoutMs = 1000) {
+function getProbeTimeoutForCam(cam) {
+    if (!cam) return 2000;
+    const region = cam.region || '';
+    switch (region) {
+        case 'Asia': return 1500;
+        case 'Europe': return 2500;
+        case 'North America': return 2000;
+        case 'South America': return 3000;
+        case 'Oceania': return 2500;
+        case 'Africa': return 3500;
+        default: return 2000;
+    }
+}
+
+const _worldTourProbeCache = new Map();
+const PROBE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+async function probeWorldTourStreamLive(cam, timeoutMs = null) {
+    if (!cam || !cam.id) return false;
+    const cached = _worldTourProbeCache.get(cam.id);
+    if (cached && (Date.now() - cached.ts < PROBE_CACHE_TTL_MS)) {
+        return cached.result;
+    }
+    const result = await _probeWorldTourStreamLiveInternal(cam, timeoutMs);
+    _worldTourProbeCache.set(cam.id, { result, ts: Date.now() });
+    return result;
+}
+
+async function _probeWorldTourStreamLiveInternal(cam, timeoutMs = null) {
+    const finalTimeout = (timeoutMs === null || timeoutMs === 1000) ? getProbeTimeoutForCam(cam) : timeoutMs;
     const embedUrl = getWorldTourEmbedUrl(cam);
     let streamUrl = isWorldTourHlsUrl(embedUrl) || isWorldTourDirectVideoUrl(embedUrl) ? embedUrl : (cam.playUrl || embedUrl);
 
@@ -7919,7 +8075,7 @@ async function probeWorldTourStreamLive(cam, timeoutMs = 1000) {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), finalTimeout);
 
     try {
         if (streamUrl.includes('.m3u8') || streamUrl.includes('.mp4')) {
@@ -8081,38 +8237,61 @@ function initWorldTourVideoPlayback() {
 
     const selected = state.worldTourCams?.find(c => c.id === state.selectedWorldTourId);
     const loading = video.parentElement?.querySelector('.world-tour-video-loading');
+    
+    if (selected) {
+        initVideoQualityTelemetry(null, selected, video);
+    }
+
     const markReady = () => {
         video.classList.add('is-ready');
         loading?.classList.add('hidden');
+        if (selected) recordVideoQualitySuccess(video, selected);
     };
     const playSafely = () => video.play().then(markReady).catch(() => markReady());
     
-    const triggerOutageSuggestions = () => {
+    const triggerOutageSuggestions = (reason = 'playback_error') => {
         if (loading) {
             loading.classList.add('is-error');
             loading.innerHTML = '영상을 재생할 수 없습니다.<br>근처의 정상 송출 추천 카메라를 검색 중...';
         }
+        if (selected) recordVideoQualityFailure(video, selected, reason);
         showOutageAlternativeSuggestions(video, selected);
     };
 
-    video.addEventListener('error', triggerOutageSuggestions);
+    video.addEventListener('error', () => triggerOutageSuggestions('video_element_error'));
 
     if (isWorldTourHlsUrl(streamUrl)) {
         if (window.Hls && window.Hls.isSupported()) {
             const hls = new window.Hls({
                 enableWorker: true,
                 lowLatencyMode: true,
+                capLevelToPlayerSize: true,
+                maxBufferLength: 20,
+                maxMaxBufferLength: 45,
+                maxBufferSize: 20 * 1000 * 1000,
+                backBufferLength: 0,
                 manifestLoadingTimeOut: 12000,
                 levelLoadingTimeOut: 12000,
                 fragLoadingTimeOut: 16000,
                 manifestLoadingMaxRetry: 3,
                 levelLoadingMaxRetry: 3,
-                fragLoadingMaxRetry: 3
+                fragLoadingMaxRetry: 3,
+                fragLoadingRetryDelay: 700,
+                fragLoadingMaxRetryTimeout: 6000,
+                abrEwmaDefaultEstimate: _lastKnownBandwidth || 1500000,
+            });
+            hls.on(window.Hls.Events.FRAG_LOADED, function () {
+                if (hls.bandwidthEstimate > 0) {
+                    _lastKnownBandwidth = hls.bandwidthEstimate;
+                }
             });
             hls.on(window.Hls.Events.MANIFEST_PARSED, playSafely);
             hls.on(window.Hls.Events.ERROR, (event, data) => {
                 if (!data?.fatal) return;
-                triggerOutageSuggestions();
+                if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR) {
+                    switchActiveOracle();
+                }
+                triggerOutageSuggestions(data.details || 'hls_fatal_error');
                 if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR && typeof hls.recoverMediaError === 'function') {
                     hls.recoverMediaError();
                     return;

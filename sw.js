@@ -36,6 +36,8 @@ const SHELL_ASSETS = [
 // background. New body replaces the cache entry; next page load sees the
 // fresh data without blocking the current request.
 const STALE_WHILE_REVALIDATE_PATTERNS = [
+    /\/data\/cctv_core\.json/,
+    /\/data\/cctv_extended\.json/,
     /\/data\/world_tour_cams\.json/,
     /\/data\/quality_summary\.json/,
     /\/data\/canary_status\.json/,

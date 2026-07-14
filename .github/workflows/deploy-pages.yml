@@ -21,8 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Prepare deploy directory
         run: |
+          python scripts/split_cctv_data.py
           mkdir -p _site
           # Copy only web-serving files (HTML, JS, CSS, JSON data, images, manifests)
           rsync -av --include='*.html' --include='*.js' --include='*.css' \
