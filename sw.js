@@ -12,7 +12,7 @@
 // The CACHE_VERSION is hot-swapped by the deploy GHA so a new release purges
 // all prior caches even when a long-lived tab still holds the old SW.
 
-const CACHE_VERSION = 'v20260713-01227ad3';
+const CACHE_VERSION = 'v20260714-18e4c347';
 const SHELL_CACHE = `cctv-shell-${CACHE_VERSION}`;
 const DATA_CACHE = `cctv-data-${CACHE_VERSION}`;
 const IMG_CACHE = `cctv-img-${CACHE_VERSION}`;
