@@ -5758,9 +5758,16 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
                 prepareManualRetryFallback(activePanel, cctv);
 
                 if (nextRetryCount > MANUAL_RETRY_PRIMARY_ATTEMPTS) {
-                    const switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
+                    let switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
                     if (!switched) {
-                        showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
+                        switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: false });
+                    }
+                    if (!switched) {
+                        const next = findAnotherNearbyCctv(cctv);
+                        if (next) {
+                            const nextIndex = state.nearestCctvs.findIndex(item => item.id === next.id);
+                            attachStreamToPanel(activePanel, next, nextIndex !== -1 ? nextIndex : 0);
+                        }
                     }
                     return;
                 }
@@ -5768,9 +5775,18 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
             },
             onTryAnother: async () => {
                 const activePanel = panel || wrapper.closest('.video-panel');
-                const switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
+                let switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
                 if (!switched) {
-                    showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
+                    switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: false });
+                }
+                if (!switched) {
+                    const next = findAnotherNearbyCctv(cctv);
+                    if (next) {
+                        const nextIndex = state.nearestCctvs.findIndex(item => item.id === next.id);
+                        attachStreamToPanel(activePanel, next, nextIndex !== -1 ? nextIndex : 0);
+                    } else {
+                        showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
+                    }
                 }
             },
             cctv
