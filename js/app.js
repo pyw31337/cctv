@@ -6775,7 +6775,7 @@ function renderMapMarkers() {
             marker = new kakao.maps.Marker(markerOptions);
             kakao.maps.event.addListener(marker, 'click', () => {
                 if (marker.cctvData) {
-                    showMapCctvPreview(marker.cctvData, marker.getPosition());
+                    openVideoLayer(marker.cctvData);
                 }
             });
             pool.push(marker);
@@ -10509,60 +10509,5 @@ function renderRecentCctvSearchItem(cctv) {
     `;
 }
 
-// 10. Map CCTV Click Inline Custom Overlay Card
-function showMapCctvPreview(cctv, position) {
-    if (activeMapOverlay) {
-        activeMapOverlay.setMap(null);
-        activeMapOverlay = null;
-    }
 
-    const health = cctv._health || getCameraHealthMeta(cctv);
-    const confidence = getCameraPlaybackConfidence(cctv, health);
-    const sourceMeta = getSourceMeta(cctv);
-    const parsed = parseCctvLabel(cctv.name);
-
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'map-cctv-preview-card';
-    contentDiv.innerHTML = `
-        <div class="preview-card-header">
-            <span class="preview-card-title">${parsed.main}</span>
-            <button class="preview-card-close">&times;</button>
-        </div>
-        <div class="preview-card-body">
-            <span class="source-dot" style="background:${sourceMeta.color}"></span>
-            <span class="preview-source">${sourceMeta.label}</span>
-            <span class="preview-sep">·</span>
-            <span class="tone-${confidence.tone}">${confidence.label}</span>
-        </div>
-        <div class="preview-card-actions">
-            <button class="preview-view-btn">CCTV 크게 보기</button>
-        </div>
-    `;
-
-    contentDiv.querySelector('.preview-card-close').addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (activeMapOverlay) {
-            activeMapOverlay.setMap(null);
-            activeMapOverlay = null;
-        }
-    });
-
-    contentDiv.querySelector('.preview-view-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (activeMapOverlay) {
-            activeMapOverlay.setMap(null);
-            activeMapOverlay = null;
-        }
-        openVideoLayer(cctv);
-    });
-
-    activeMapOverlay = new kakao.maps.CustomOverlay({
-        position: position,
-        content: contentDiv,
-        yAnchor: 1.16,
-        zIndex: 200
-    });
-
-    activeMapOverlay.setMap(map);
-}
 
