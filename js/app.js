@@ -558,7 +558,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initial State
     updateNearestCctvs();
+    restoreInitialCams();
     renderServiceStatusBanner();
+
+    // Initialize Split screen mode & Swipe gestures
+    initSplitMode();
+    setupPanelSwipe();
+    setupVideoLayerSwipe();
+
+    // Bind event handlers for new Header & Map buttons
+    const shareGridBtn = document.getElementById('share-grid-btn');
+    if (shareGridBtn) {
+        shareGridBtn.addEventListener('click', copyGridShareUrl);
+    }
+    const precipCctvBtn = document.getElementById('precip-cctv-btn');
+    if (precipCctvBtn) {
+        precipCctvBtn.addEventListener('click', showPrecipitationCctvs);
+    }
+    const kmaPrecipToggle = document.getElementById('kma-precip-toggle');
+    if (kmaPrecipToggle) {
+        kmaPrecipToggle.addEventListener('click', () => {
+            setKmaPrecipVisible(!kmaPrecipVisible);
+        });
+        try {
+            const savedVisible = localStorage.getItem('cctv_kma_precip_visible') === '1';
+            setKmaPrecipVisible(savedVisible);
+        } catch (_) {}
+    }
+
+    // Check if rain/snow exists across points to add pulse animation on header button
+    loadKmaPrecipData().then(data => {
+        if (data && Array.isArray(data.points)) {
+            const hasRain = data.points.some(p => p.pty && p.pty !== 'none');
+            if (hasRain) {
+                const btn = document.getElementById('precip-cctv-btn');
+                if (btn) btn.classList.add('has-rain');
+            }
+        }
+    }).catch(() => {});
+
     const isInitialWorldTour = !!state.initialWorldTourId || new URLSearchParams(window.location.search).get('mode') === 'world';
     if (!isInitialWorldTour) {
         renderVideoGrid();
@@ -820,6 +858,11 @@ function restoreInitialViewState() {
     }
 
     $('#search-input').value = state.keyword;
+
+    const splitParam = params.get('split');
+    if (['1', '2', '4'].includes(splitParam)) {
+        try { localStorage.setItem('cctv_split_mode', splitParam); } catch(_) {}
+    }
 }
 
 function restoreQualityPreferences() {
@@ -954,6 +997,24 @@ function setupEventListeners() {
 
     // Search Results Click (Delegation for items, share, bookmark, delete, cctv favorite, open compare)
     $('#search-results').addEventListener('click', (e) => {
+        const recentItem = e.target.closest('.recent-cctv-item');
+        if (recentItem) {
+            const deleteBtn = e.target.closest('[data-action="delete-recent-cctv"]');
+            if (deleteBtn) {
+                e.stopPropagation();
+                deleteRecentCctv(recentItem.dataset.cctvId);
+                return;
+            }
+            const id = recentItem.dataset.cctvId;
+            const cctv = id ? findCctvById(id) : null;
+            if (cctv) {
+                $('#search-results').classList.remove('active');
+                $('#dim-overlay').classList.remove('active');
+                openVideoLayer(cctv);
+            }
+            return;
+        }
+
         const favItem = e.target.closest('.cctv-favorite-item');
         if (favItem) {
             const isWorld = favItem.classList.contains('cctv-favorite-item--world');
@@ -1237,6 +1298,22 @@ function showSearchHistory() {
         html += '<div class="search-section-empty">아직 즐겨찾기한 항목이 없습니다 — 검색 결과의 별 아이콘을 눌러 추가하세요.</div>';
     }
 
+    // Recently Viewed CCTVs Section
+    let recentCctvs = [];
+    try {
+        recentCctvs = JSON.parse(localStorage.getItem(RECENT_CCTVS_STORAGE_KEY) || '[]');
+    } catch (_) {}
+    
+    html += `<div class="search-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:2px;vertical-align:middle;"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+        <span>최근 본 CCTV</span>
+        ${recentCctvs.length > 0 ? `<span class="search-section-count">${recentCctvs.length}</span>` : ''}
+    </div>`;
+    if (recentCctvs.length > 0) {
+        html += recentCctvs.map(cctv => renderRecentCctvSearchItem(cctv)).join('');
+    } else {
+        html += '<div class="search-section-empty">최근에 시청한 CCTV 기록이 없습니다</div>';
+    }
 
     // History Section (always show) — 별(즐겨찾기 토글) + X(목록에서 제거) 둘 다 노출.
     html += `<div class="search-section-title">최근 검색</div>`;
@@ -1282,6 +1359,8 @@ function renderWorldTourFavoriteSearchItem(cam) {
 function renderCctvFavoriteSearchItem(cctv) {
     const parsed = parseCctvLabel(cctv.name || 'CCTV');
     const sourceMeta = getSourceMeta(cctv);
+    const health = getCameraHealthMeta(cctv);
+    const confidence = getCameraPlaybackConfidence(cctv, health);
     const directionHtml = parsed.direction
         ? `<span class="cctv-favorite-direction"> (${parsed.direction})</span>`
         : '';
@@ -1291,6 +1370,7 @@ function renderCctvFavoriteSearchItem(cctv) {
                 <div class="search-result-name">
                     <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
                     ${parsed.main}${directionHtml}
+                    <span class="cctv-status-dot tone-${confidence.tone}" style="display:inline-block; margin-left:6px; vertical-align:middle;" title="${confidence.label} · ${confidence.title}"></span>
                 </div>
                 <div class="search-result-address">${sourceMeta.label}</div>
             </div>
@@ -3651,7 +3731,7 @@ function handlePanelVideoHealthEvent(event) {
         recordVideoQualitySuccess(video, cctv);
         setPlaybackHealth(cctv, {
             status: 'PLAYING',
-            shortLabel: '재생 정상',
+            shortLabel: '✅ 재생 확인됨',
             longLabel: `${cctv.name || 'CCTV'} 현재 브라우저에서 재생 확인`,
             tone: 'ok',
             penalty: 0
@@ -3659,6 +3739,7 @@ function handlePanelVideoHealthEvent(event) {
     }
 
     updatePanelHealthUi(panel, cctv);
+    updateVideoLayerHealthUi(cctv);
 }
 
 function scheduleVideoHealthProbe(panel, cctv, video) {
@@ -4703,6 +4784,7 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
         panel.appendChild(wrapper);
     }
 
+    addRecentlyViewedCctv(cctv);
     cleanupVideo(wrapper);
 
     // Create new video element
@@ -5012,6 +5094,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             });
 
             hls.attachMedia(video);
+            bindHlsLiveCheck(hls, video);
             resolveJejuPlaybackUrl(jejuUrl)
                 .then((resolvedUrl) => {
                     hls.loadSource(resolvedUrl);
@@ -5073,6 +5156,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 }
             });
             hls.attachMedia(video);
+            bindHlsLiveCheck(hls, video);
             hls.loadSource(kbUrl);
             video.hls = hls;
         } else {
@@ -5159,6 +5243,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 }
             });
             hls.attachMedia(video);
+            bindHlsLiveCheck(hls, video);
             hls.loadSource(gitsUrl);
             video.hls = hls;
         } else {
@@ -5292,6 +5377,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                     });
                     hls.loadSource(streamUrl);
                     hls.attachMedia(video);
+                    bindHlsLiveCheck(hls, video);
                     hls.on(Hls.Events.ERROR, function(ev, data) {
                         if (data.fatal) {
                             hls.destroy();
@@ -5860,10 +5946,29 @@ function cleanupDomesticVideoGrid() {
 function initMap() {
     if (state.mapInitialized) return;
 
+    // Restore last map position and zoom level from sessionStorage if not overridden by URL parameters
+    const params = new URLSearchParams(window.location.search);
+    const hasUrlCoords = Number.isFinite(parseFloat(params.get('lat'))) && Number.isFinite(parseFloat(params.get('lng')));
+    let startLevel = 5;
+
+    if (!hasUrlCoords) {
+        try {
+            const savedLat = sessionStorage.getItem('cctv_map_lat');
+            const savedLng = sessionStorage.getItem('cctv_map_lng');
+            const savedLevel = sessionStorage.getItem('cctv_map_level');
+            if (savedLat && savedLng) {
+                state.center = { lat: parseFloat(savedLat), lng: parseFloat(savedLng) };
+            }
+            if (savedLevel) {
+                startLevel = parseInt(savedLevel, 10);
+            }
+        } catch (_) {}
+    }
+
     const container = $('#kakao-map');
     const options = {
         center: new kakao.maps.LatLng(state.center.lat, state.center.lng),
-        level: 5
+        level: startLevel
     };
 
     map = new kakao.maps.Map(container, options);
@@ -5890,6 +5995,11 @@ function initMap() {
             }
             const center = map.getCenter();
             state.center = { lat: center.getLat(), lng: center.getLng() };
+            try {
+                sessionStorage.setItem('cctv_map_lat', state.center.lat.toString());
+                sessionStorage.setItem('cctv_map_lng', state.center.lng.toString());
+                sessionStorage.setItem('cctv_map_level', map.getLevel().toString());
+            } catch (_) {}
             updateNearestCctvs();
             renderServiceStatusBanner();
             renderMapMarkers();
@@ -6510,7 +6620,9 @@ function renderMapMarkers() {
 
     // Reuse markers from state.markers as a pool
     const pool = state.markers;
-    const targets = state.nearestCctvs.slice(0, MAP_MARKER_LIMIT);
+    const isMobile = document.body.classList.contains('is-mobile');
+    const markerLimit = isMobile ? 20 : MAP_MARKER_LIMIT;
+    const targets = state.nearestCctvs.slice(0, markerLimit);
     const placedPositions = []; // To track overlaps: {lat, lng, count}
 
     targets.forEach((cctv, idx) => {
@@ -6568,7 +6680,7 @@ function renderMapMarkers() {
             marker = new kakao.maps.Marker(markerOptions);
             kakao.maps.event.addListener(marker, 'click', () => {
                 if (marker.cctvData) {
-                    openVideoLayer(marker.cctvData);
+                    showMapCctvPreview(marker.cctvData, marker.getPosition());
                 }
             });
             pool.push(marker);
@@ -9202,6 +9314,7 @@ function openVideoLayer(cctv) {
     };
 
     // Cleanup previous video
+    addRecentlyViewedCctv(cctv);
     cleanupVideo(frame);
     state.activeCctvId = cctv.id;
 
@@ -9916,6 +10029,438 @@ function enableIframeDrag(iframe) {
 
 // Bind events
 window.addEventListener('resize', updateUticLayout);
-// Call periodically or on hooks? 
-// We'll call checking visibility in animation loops or mutation observers?
-// Simplest is to call whenever we expand/collapse.
+
+// ================================================================
+// 13가지 개선사항 도우미 및 핵심 로직 구현
+// ================================================================
+
+let activeMapOverlay = null;
+const RECENT_CCTVS_STORAGE_KEY = 'cctv_recently_viewed_v1';
+
+// 1. Swipe Navigation Helper
+function bindSwipeNavigation(element, onSwipeLeft, onSwipeRight, shouldIgnoreFunc) {
+    let startX = 0;
+    let startY = 0;
+    let isMouseDown = false;
+
+    const handleStart = (clientX, clientY) => {
+        if (shouldIgnoreFunc && shouldIgnoreFunc()) return;
+        startX = clientX;
+        startY = clientY;
+    };
+
+    const handleEnd = (clientX, clientY) => {
+        if (shouldIgnoreFunc && shouldIgnoreFunc()) return;
+        const diffX = clientX - startX;
+        const diffY = clientY - startY;
+
+        // Swipe threshold: 60px horizontal, vertical must be less than 1.5 * horizontal
+        if (Math.abs(diffX) > 60 && Math.abs(diffY) < Math.abs(diffX) * 1.5) {
+            if (diffX < 0) {
+                if (typeof onSwipeLeft === 'function') onSwipeLeft();
+            } else {
+                if (typeof onSwipeRight === 'function') onSwipeRight();
+            }
+        }
+    };
+
+    element.addEventListener('touchstart', (e) => {
+        if (e.touches && e.touches.length === 1) {
+            handleStart(e.touches[0].clientX, e.touches[0].clientY);
+        }
+    }, { passive: true });
+
+    element.addEventListener('touchend', (e) => {
+        if (e.changedTouches && e.changedTouches.length === 1) {
+            handleEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+        }
+    }, { passive: true });
+
+    element.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.panel-controls') || e.target.closest('.cctv-select-container') || e.target.closest('button') || e.target.closest('a')) return;
+        isMouseDown = true;
+        handleStart(e.clientX, e.clientY);
+    });
+
+    element.addEventListener('mouseup', (e) => {
+        if (!isMouseDown) return;
+        isMouseDown = false;
+        handleEnd(e.clientX, e.clientY);
+    });
+
+    element.addEventListener('mouseleave', () => {
+        isMouseDown = false;
+    });
+}
+
+// 2. Setup Panel Swipe Navigation (PC & Mobile)
+function setupPanelSwipe() {
+    const panels = document.querySelectorAll('.video-panel');
+    panels.forEach(panel => {
+        bindSwipeNavigation(
+            panel,
+            // Swipe Left -> Next CCTV
+            () => {
+                const currentIndex = parseInt(panel.dataset.cctvIndex);
+                if (Number.isFinite(currentIndex) && currentIndex + 1 < state.nearestCctvs.length) {
+                    const nextCctv = state.nearestCctvs[currentIndex + 1];
+                    attachStreamToPanel(panel, nextCctv, currentIndex + 1);
+                }
+            },
+            // Swipe Right -> Prev CCTV
+            () => {
+                const currentIndex = parseInt(panel.dataset.cctvIndex);
+                if (Number.isFinite(currentIndex) && currentIndex - 1 >= 0) {
+                    const prevCctv = state.nearestCctvs[currentIndex - 1];
+                    attachStreamToPanel(panel, prevCctv, currentIndex - 1);
+                }
+            },
+            // Ignore during expanded state or active dropdowns
+            () => {
+                return panel.classList.contains('expanded') || !!panel.querySelector('.cctv-select-options.active');
+            }
+        );
+    });
+}
+
+// 3. Setup Video Layer Swipe Navigation
+function setupVideoLayerSwipe() {
+    const layer = document.getElementById('video-layer');
+    if (!layer) return;
+    
+    bindSwipeNavigation(
+        layer,
+        // Swipe Left -> Next
+        () => {
+            const currentCctv = findCctvById(state.activeCctvId);
+            if (!currentCctv) return;
+            const currentIndex = state.nearestCctvs.findIndex(item => item.id === currentCctv.id);
+            if (currentIndex !== -1 && currentIndex + 1 < state.nearestCctvs.length) {
+                openVideoLayer(state.nearestCctvs[currentIndex + 1]);
+            }
+        },
+        // Swipe Right -> Prev
+        () => {
+            const currentCctv = findCctvById(state.activeCctvId);
+            if (!currentCctv) return;
+            const currentIndex = state.nearestCctvs.findIndex(item => item.id === currentCctv.id);
+            if (currentIndex !== -1 && currentIndex - 1 >= 0) {
+                openVideoLayer(state.nearestCctvs[currentIndex - 1]);
+            }
+        },
+        // Ignore during maximized state
+        () => {
+            return !layer.classList.contains('active') || $('.video-layer-content')?.classList.contains('maximized');
+        }
+    );
+}
+
+// 4. Hls Live Check & Live Badge Rendering
+function bindHlsLiveCheck(hls, video) {
+    if (!hls || !video) return;
+    hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+        const isLive = data && data.details && data.details.live;
+        if (isLive) {
+            video.controls = false;
+            video.dataset.isLive = 'true';
+            ensureLiveBadge(video);
+        }
+    });
+}
+
+function ensureLiveBadge(element) {
+    const parent = element.parentElement;
+    if (!parent) return;
+    let badge = parent.querySelector('.live-badge');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'live-badge';
+        badge.innerHTML = '<span class="live-dot"></span>LIVE';
+        parent.appendChild(badge);
+    }
+}
+
+// 5. Split Screens Mode Toggle (1/2/4 layouts)
+function initSplitMode() {
+    const splitControls = document.getElementById('split-controls');
+    if (!splitControls) return;
+
+    const grid = document.getElementById('video-grid');
+    const buttons = splitControls.querySelectorAll('.split-btn');
+
+    let savedSplit = '4';
+    try {
+        savedSplit = localStorage.getItem('cctv_split_mode') || '4';
+    } catch (_) {}
+
+    const setSplitMode = (mode) => {
+        grid.setAttribute('data-split', mode);
+        buttons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.split === mode);
+        });
+        try {
+            localStorage.setItem('cctv_split_mode', mode);
+        } catch (_) {}
+    };
+
+    setSplitMode(savedSplit);
+
+    splitControls.addEventListener('click', (e) => {
+        const btn = e.target.closest('.split-btn');
+        if (btn) {
+            setSplitMode(btn.dataset.split);
+        }
+    });
+}
+
+// 6. Share Grid URL copy
+function buildGridShareUrl() {
+    const panels = document.querySelectorAll('.video-panel');
+    const ids = [];
+    panels.forEach(p => {
+        const id = p.dataset.cctvId;
+        if (id) ids.push(id);
+    });
+
+    const params = new URLSearchParams();
+    params.set('lat', state.center.lat.toFixed(6));
+    params.set('lng', state.center.lng.toFixed(6));
+    params.set('name', state.keyword);
+    params.set('mode', 'video');
+    if (ids.length > 0) {
+        params.set('cams', ids.join(','));
+    }
+    
+    const savedSplit = localStorage.getItem('cctv_split_mode') || '4';
+    params.set('split', savedSplit);
+
+    return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+async function copyGridShareUrl() {
+    const url = buildGridShareUrl();
+    await copyShareUrl(url, {
+        successMessage: '4분할 CCTV 화면 공유 링크가 복사되었습니다.'
+    });
+}
+
+// 7. Restore Initial Cams on URL Load
+function restoreInitialCams() {
+    const params = new URLSearchParams(window.location.search);
+    const camsStr = params.get('cams');
+    if (!camsStr) return;
+
+    const ids = camsStr.split(',').map(s => s.trim()).filter(Boolean);
+    const targetCctvs = [];
+    const seenIds = new Set();
+
+    for (const id of ids) {
+        const cctv = findCctvById(id);
+        if (cctv && !seenIds.has(cctv.id)) {
+            seenIds.add(cctv.id);
+            targetCctvs.push(cctv);
+        }
+    }
+
+    if (targetCctvs.length > 0) {
+        state.nearestCctvs = [...targetCctvs, ...state.nearestCctvs.filter(c => !seenIds.has(c.id))];
+    }
+}
+
+// 8. Rain (Precipitation) CCTV Auto play
+async function showPrecipitationCctvs() {
+    const data = await loadKmaPrecipData();
+    if (!data || !Array.isArray(data.points)) {
+        alert('기상청 강수 데이터를 불러오지 못했습니다.');
+        return;
+    }
+
+    let rainPoints = data.points.filter(p => p.pty && p.pty !== 'none');
+    rainPoints.sort((a, b) => (b.rainMm6h || b.snowCm6h || 0) - (a.rainMm6h || a.snowCm6h || 0));
+
+    if (rainPoints.length === 0) {
+        alert('현재 전국 기상 관측 지점 중 비/눈이 내리는 지역이 없습니다. ☀');
+        return;
+    }
+
+    const selectedPoints = rainPoints.slice(0, 4);
+    const targetCctvs = [];
+    const seenIds = new Set();
+    
+    for (const pt of selectedPoints) {
+        const candidates = getNearbyCandidates(pt.lat, pt.lng, 30);
+        const best = candidates.find(c => 
+            c && 
+            !seenIds.has(c.id) &&
+            !isKnownUnavailableCamera(c) && 
+            !shouldIsolateProblemCamera(c) && 
+            !isUnsupportedBrowserStream(c)
+        );
+        if (best) {
+            seenIds.add(best.id);
+            targetCctvs.push(best);
+        }
+    }
+
+    if (targetCctvs.length === 0) {
+        alert('비가 내리는 지역 근처의 정상 작동하는 CCTV를 찾지 못했습니다.');
+        return;
+    }
+
+    if (!state.backupNearestCctvs) {
+        state.backupNearestCctvs = [...state.nearestCctvs];
+    }
+
+    state.nearestCctvs = [...targetCctvs, ...state.nearestCctvs.filter(c => !seenIds.has(c.id))];
+    showPrecipitationBanner(selectedPoints);
+    renderVideoGrid();
+}
+
+function showPrecipitationBanner(points) {
+    let banner = document.getElementById('precip-restore-banner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'precip-restore-banner';
+        banner.className = 'precip-restore-banner';
+        document.body.appendChild(banner);
+    }
+    const names = points.map(p => p.name).join(', ');
+    banner.innerHTML = `
+        <div class="precip-banner-content" style="display:flex;align-items:center;gap:12px;">
+            <span>🌧 실시간 강수 지역 (<strong>${names}</strong>) CCTV 재생 중</span>
+            <button class="precip-restore-btn" onclick="restoreOriginalCctvs()">원래 위치로 복귀</button>
+        </div>
+    `;
+    banner.classList.add('active');
+}
+
+function restoreOriginalCctvs() {
+    if (state.backupNearestCctvs) {
+        state.nearestCctvs = [...state.backupNearestCctvs];
+        state.backupNearestCctvs = null;
+    }
+    const banner = document.getElementById('precip-restore-banner');
+    if (banner) {
+        banner.classList.remove('active');
+    }
+    updateNearestCctvs();
+    renderVideoGrid();
+}
+window.restoreOriginalCctvs = restoreOriginalCctvs;
+
+// 9. Recently Viewed CCTV Tracking
+function addRecentlyViewedCctv(cctv) {
+    if (!cctv || !cctv.id) return;
+    try {
+        let list = JSON.parse(localStorage.getItem(RECENT_CCTVS_STORAGE_KEY) || '[]');
+        list = list.filter(item => item.id !== cctv.id);
+        list.unshift({
+            id: cctv.id,
+            name: cctv.name,
+            source: cctv.source,
+            lat: cctv.lat,
+            lng: cctv.lng
+        });
+        list = list.slice(0, 10);
+        localStorage.setItem(RECENT_CCTVS_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {
+        console.warn('Failed to save recently viewed CCTV:', e);
+    }
+}
+
+function deleteRecentCctv(cctvId) {
+    try {
+        let list = JSON.parse(localStorage.getItem(RECENT_CCTVS_STORAGE_KEY) || '[]');
+        list = list.filter(item => item.id !== cctvId);
+        localStorage.setItem(RECENT_CCTVS_STORAGE_KEY, JSON.stringify(list));
+    } catch (_) {}
+    showSearchHistory();
+}
+
+function renderRecentCctvSearchItem(cctv) {
+    const parsed = parseCctvLabel(cctv.name || 'CCTV');
+    const sourceMeta = getSourceMeta(cctv);
+    const health = getCameraHealthMeta(cctv);
+    const confidence = getCameraPlaybackConfidence(cctv, health);
+    const directionHtml = parsed.direction
+        ? `<span class="cctv-favorite-direction"> (${parsed.direction})</span>`
+        : '';
+    const escape = s => String(s ?? '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+    return `
+        <div class="search-result-item recent-cctv-item" data-cctv-id="${cctv.id}">
+            <div class="search-result-info">
+                <div class="search-result-name">
+                    <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
+                    ${parsed.main}${directionHtml}
+                    <span class="cctv-status-dot tone-${confidence.tone}" style="display:inline-block; margin-left:6px; vertical-align:middle;" title="${confidence.label} · ${confidence.title}"></span>
+                </div>
+                <div class="search-result-address">${sourceMeta.label}</div>
+            </div>
+            <div class="search-result-actions">
+                <button class="btn-delete" data-action="delete-recent-cctv" title="삭제">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// 10. Map CCTV Click Inline Custom Overlay Card
+function showMapCctvPreview(cctv, position) {
+    if (activeMapOverlay) {
+        activeMapOverlay.setMap(null);
+        activeMapOverlay = null;
+    }
+
+    const health = cctv._health || getCameraHealthMeta(cctv);
+    const confidence = getCameraPlaybackConfidence(cctv, health);
+    const sourceMeta = getSourceMeta(cctv);
+    const parsed = parseCctvLabel(cctv.name);
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'map-cctv-preview-card';
+    contentDiv.innerHTML = `
+        <div class="preview-card-header">
+            <span class="preview-card-title">${parsed.main}</span>
+            <button class="preview-card-close">&times;</button>
+        </div>
+        <div class="preview-card-body">
+            <span class="source-dot" style="background:${sourceMeta.color}"></span>
+            <span class="preview-source">${sourceMeta.label}</span>
+            <span class="preview-sep">·</span>
+            <span class="tone-${confidence.tone}">${confidence.label}</span>
+        </div>
+        <div class="preview-card-actions">
+            <button class="preview-view-btn">CCTV 크게 보기</button>
+        </div>
+    `;
+
+    contentDiv.querySelector('.preview-card-close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (activeMapOverlay) {
+            activeMapOverlay.setMap(null);
+            activeMapOverlay = null;
+        }
+    });
+
+    contentDiv.querySelector('.preview-view-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (activeMapOverlay) {
+            activeMapOverlay.setMap(null);
+            activeMapOverlay = null;
+        }
+        openVideoLayer(cctv);
+    });
+
+    activeMapOverlay = new kakao.maps.CustomOverlay({
+        position: position,
+        content: contentDiv,
+        yAnchor: 1.16,
+        zIndex: 200
+    });
+
+    activeMapOverlay.setMap(map);
+}
+

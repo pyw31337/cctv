@@ -70,6 +70,13 @@
                 </button>
             </div>
 
+            <!-- Split Controls (1/2/4 screens layout) -->
+            <div class="split-controls" id="split-controls">
+                <button class="split-btn" data-split="1" title="1화면 전체 보기">1</button>
+                <button class="split-btn" data-split="2" title="2화면 분할 보기">2</button>
+                <button class="split-btn active" data-split="4" title="4화면 분할 보기">4</button>
+            </div>
+
             <!-- Search -->
             <div class="search-box">
                 <input type="text" id="search-input" placeholder="서울역" autocomplete="off">
@@ -96,6 +103,26 @@
                     <option value="stability">안정우선</option>
                 </select>
             </div>
+
+            <!-- Share Grid Button -->
+            <button class="share-grid-btn" id="share-grid-btn" title="현재 4분할 CCTV 공유 링크 복사" aria-label="현재 4분할 CCTV 공유 링크 복사">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+            </button>
+
+            <!-- Precipitation CCTV Button -->
+            <button class="precip-cctv-btn" id="precip-cctv-btn" title="실시간 강수 지역 CCTV 바로보기" aria-label="실시간 강수 지역 CCTV 바로보기">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+                    <path d="M16 14v6" />
+                    <path d="M8 14v6" />
+                    <path d="M12 16v6" />
+                </svg>
+            </button>
 
             <!-- Weather Button -->
             <button class="weather-btn" id="weather-btn" title="주간 날씨" aria-label="주간 날씨">
@@ -243,6 +270,20 @@
                         stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
                     </svg>
+                </button>
+                
+                <button class="map-control-btn status-btn" id="kma-precip-toggle" title="KMA 강수/적설 오버레이 토글">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" />
+                        <line x1="8" y1="16" x2="8.01" y2="16" />
+                        <line x1="8" y1="20" x2="8.01" y2="20" />
+                        <line x1="12" y1="18" x2="12.01" y2="18" />
+                        <line x1="12" y1="22" x2="12.01" y2="22" />
+                        <line x1="16" y1="16" x2="16.01" y2="16" />
+                        <line x1="16" y1="20" x2="16.01" y2="20" />
+                    </svg>
+                    <span class="kma-precip-toggle-label" style="display:none;">강수</span>
                 </button>
                 
                 <button class="map-control-btn status-btn" id="map-control-status" title="시스템 상태 (CCTV 점검 결과)">
