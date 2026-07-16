@@ -4518,6 +4518,10 @@ function buildManualRetryFallbackCandidates(sourceCctv, reservedKeys = new Set()
     });
 
     return merged
+        .filter(candidate => {
+            if (!state.failedSessionCams) state.failedSessionCams = new Set();
+            return !state.failedSessionCams.has(candidate.id);
+        })
         .filter(candidate => isManualRetryFallbackCandidate(candidate, sourceCctv))
         .filter(candidate => !hasReservedCctvKey(candidate, reservedKeys))
         .filter(candidate => getCctvSceneKey(candidate) !== getCctvSceneKey(sourceCctv))
@@ -5793,14 +5797,52 @@ function findAnotherNearbyCctv(currentCctv) {
     if (!currentCctv || !Array.isArray(state.nearestCctvs)) return null;
     const list = state.nearestCctvs;
     const idx = list.findIndex(item => item && item.id === currentCctv.id);
-    if (idx === -1) {
-        return list.find(item => item && item.id !== currentCctv.id) || null;
+    
+    if (!state.failedSessionCams) {
+        state.failedSessionCams = new Set();
     }
-    for (let offset = 1; offset < list.length; offset += 1) {
-        const candidate = list[(idx + offset) % list.length];
-        if (candidate && candidate.id !== currentCctv.id) return candidate;
+    const isFailed = (id) => state.failedSessionCams.has(id);
+
+    // 1st stage: search within nearest list for any candidate not failed yet
+    if (idx !== -1) {
+        for (let offset = 1; offset < list.length; offset += 1) {
+            const candidate = list[(idx + offset) % list.length];
+            if (candidate && candidate.id !== currentCctv.id && !isFailed(candidate.id)) {
+                return candidate;
+            }
+        }
+    } else {
+        const found = list.find(item => item && item.id !== currentCctv.id && !isFailed(item.id));
+        if (found) return found;
     }
-    return null;
+
+    // 2nd stage: if all nearest candidates failed, find nearest non-failed from state.cctvData
+    if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
+        const sourceLat = Number(currentCctv.lat);
+        const sourceLng = Number(currentCctv.lng);
+        const candidates = state.cctvData
+            .filter(item => item && item.id !== currentCctv.id && !isFailed(item.id))
+            .map(item => {
+                const dy = Number(item.lat) - sourceLat;
+                const dx = Number(item.lng) - sourceLng;
+                return { item, distSq: dy * dy + dx * dx };
+            })
+            .sort((a, b) => a.distSq - b.distSq);
+
+        if (candidates.length > 0) {
+            return candidates[0].item;
+        }
+    }
+
+    // 3rd stage: if everything has failed, clear historical cache and cycle back
+    state.failedSessionCams.clear();
+    if (idx !== -1) {
+        for (let offset = 1; offset < list.length; offset += 1) {
+            const candidate = list[(idx + offset) % list.length];
+            if (candidate && candidate.id !== currentCctv.id) return candidate;
+        }
+    }
+    return list.find(item => item && item.id !== currentCctv.id) || null;
 }
 
 function createErrorPlaceholder(options, legacyRetryFn) {
@@ -5934,6 +5976,10 @@ function createErrorPlaceholder(options, legacyRetryFn) {
             tryBtn.onclick = (e) => {
                 if (e) e.stopPropagation();
                 clearTimers();
+                if (cctv && cctv.id) {
+                    if (!state.failedSessionCams) state.failedSessionCams = new Set();
+                    state.failedSessionCams.add(cctv.id);
+                }
                 tryBtn.classList.add('pressed');
                 setTimeout(() => tryBtn.classList.remove('pressed'), 120);
                 try {
@@ -5954,6 +6000,10 @@ function createErrorPlaceholder(options, legacyRetryFn) {
 
             // If we already failed 2 times, automatically click "Try Another" after 1.5s
             if (currentAttempt >= 2) {
+                if (cctv && cctv.id) {
+                    if (!state.failedSessionCams) state.failedSessionCams = new Set();
+                    state.failedSessionCams.add(cctv.id);
+                }
                 autoTimer = setTimeout(() => {
                     clearTimers();
                     tryBtn.click();
