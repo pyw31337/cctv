@@ -10182,16 +10182,20 @@ function ensureLiveBadge(element) {
 
 // 5. Split Screens Mode Toggle (1/2/4 layouts)
 function initSplitMode() {
-    const splitControls = document.getElementById('split-controls');
-    if (!splitControls) return;
-
     const grid = document.getElementById('video-grid');
-    const buttons = splitControls.querySelectorAll('.split-btn');
+    if (!grid) return;
 
     let savedSplit = '4';
     try {
         savedSplit = localStorage.getItem('cctv_split_mode') || '4';
     } catch (_) {}
+
+    grid.setAttribute('data-split', savedSplit);
+
+    const splitControls = document.getElementById('split-controls');
+    if (!splitControls) return;
+
+    const buttons = splitControls.querySelectorAll('.split-btn');
 
     const setSplitMode = (mode) => {
         grid.setAttribute('data-split', mode);
