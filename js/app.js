@@ -3728,6 +3728,9 @@ function handlePanelVideoHealthEvent(event) {
             penalty: 6
         });
     } else {
+        if (state.autoRetryCounts && cctv.id) {
+            state.autoRetryCounts[cctv.id] = 0;
+        }
         recordVideoQualitySuccess(video, cctv);
         setPlaybackHealth(cctv, {
             status: 'PLAYING',
@@ -4785,6 +4788,8 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     }
 
     addRecentlyViewedCctv(cctv);
+    if (!state.autoRetryCounts) state.autoRetryCounts = {};
+    state.autoRetryCounts[cctv.id] = 0;
     cleanupVideo(wrapper);
 
     // Create new video element
@@ -5817,6 +5822,27 @@ function createErrorPlaceholder(options, legacyRetryFn) {
     const cleanDetail = sanitizeErrorMessage(detail);
     const friendlyDetail = cleanDetail || '잠시 후 다시 시도하거나 다른 카메라를 골라 보세요.';
 
+    // Get current retry attempt count for this specific CCTV
+    let currentAttempt = 0;
+    if (cctv && cctv.id) {
+        if (!state.autoRetryCounts) {
+            state.autoRetryCounts = {};
+        }
+        currentAttempt = state.autoRetryCounts[cctv.id] || 0;
+    }
+
+    // Determine retry label text (e.g. 다시 시도 (1/2))
+    let activeRetryLabel = retryLabel;
+    if (retryFn && cctv) {
+        if (currentAttempt === 0) {
+            activeRetryLabel = '다시 시도 (1/2)';
+        } else if (currentAttempt === 1) {
+            activeRetryLabel = '다시 시도 (2/2)';
+        } else {
+            activeRetryLabel = '재시도';
+        }
+    }
+
     const ph = document.createElement('div');
     ph.className = 'video-placeholder error';
     let html = `
@@ -5830,7 +5856,10 @@ function createErrorPlaceholder(options, legacyRetryFn) {
 
     const actions = [];
     if (retryFn) {
-        actions.push(`<button class="retry-btn" type="button">${retryLabel}</button>`);
+        // Only render retry button if we haven't failed 2 times yet
+        if (currentAttempt < 2) {
+            actions.push(`<button class="retry-btn" type="button">${activeRetryLabel}</button>`);
+        }
     }
     const allowTryAnother = showTryAnother && cctv && (typeof onTryAnother === 'function' || findAnotherNearbyCctv(cctv));
     if (allowTryAnother) {
@@ -5844,53 +5873,119 @@ function createErrorPlaceholder(options, legacyRetryFn) {
     }
     ph.innerHTML = html;
 
-    if (retryFn) {
+    let autoTimer = null;
+    let countdownInterval = null;
+
+    // Function to clear any active timers
+    const clearTimers = () => {
+        if (autoTimer) {
+            clearTimeout(autoTimer);
+            autoTimer = null;
+        }
+        if (countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+        }
+    };
+
+    if (retryFn && currentAttempt < 2) {
         const btn = ph.querySelector('.retry-btn');
-        btn.onclick = (e) => {
-            e.stopPropagation();
-            btn.classList.add('pressed');
-            setTimeout(() => {
-                btn.classList.remove('pressed');
-                Promise.resolve(retryFn()).catch(err => {
-                    console.warn('[error-placeholder] retry failed:', err);
-                });
-            }, 100);
-        };
+        if (btn) {
+            let secondsLeft = 5;
+            btn.innerHTML = `${activeRetryLabel} (${secondsLeft}초)`;
+
+            countdownInterval = setInterval(() => {
+                secondsLeft--;
+                if (secondsLeft > 0) {
+                    btn.innerHTML = `${activeRetryLabel} (${secondsLeft}초)`;
+                } else {
+                    clearInterval(countdownInterval);
+                }
+            }, 1000);
+
+            autoTimer = setTimeout(() => {
+                clearTimers();
+                if (cctv && state.autoRetryCounts) {
+                    state.autoRetryCounts[cctv.id] = currentAttempt + 1;
+                }
+                btn.click();
+            }, 5000);
+
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                clearTimers();
+                btn.classList.add('pressed');
+                setTimeout(() => {
+                    btn.classList.remove('pressed');
+                    if (cctv && state.autoRetryCounts) {
+                        state.autoRetryCounts[cctv.id] = currentAttempt + 1;
+                    }
+                    Promise.resolve(retryFn()).catch(err => {
+                        console.warn('[error-placeholder] retry failed:', err);
+                    });
+                }, 100);
+            };
+        }
     }
+
     if (allowTryAnother) {
         const tryBtn = ph.querySelector('.try-another-btn');
-        tryBtn.onclick = (e) => {
-            e.stopPropagation();
-            tryBtn.classList.add('pressed');
-            setTimeout(() => tryBtn.classList.remove('pressed'), 120);
-            try {
-                if (typeof onTryAnother === 'function') {
-                    Promise.resolve(onTryAnother()).catch(err => {
-                        console.warn('[error-placeholder] tryAnother async failed:', err);
-                    });
-                } else {
-                    const next = findAnotherNearbyCctv(cctv);
-                    if (next && typeof openVideoLayer === 'function') {
-                        openVideoLayer(next);
+        if (tryBtn) {
+            tryBtn.onclick = (e) => {
+                if (e) e.stopPropagation();
+                clearTimers();
+                tryBtn.classList.add('pressed');
+                setTimeout(() => tryBtn.classList.remove('pressed'), 120);
+                try {
+                    if (typeof onTryAnother === 'function') {
+                        Promise.resolve(onTryAnother()).catch(err => {
+                            console.warn('[error-placeholder] tryAnother async failed:', err);
+                        });
+                    } else {
+                        const next = findAnotherNearbyCctv(cctv);
+                        if (next && typeof openVideoLayer === 'function') {
+                            openVideoLayer(next);
+                        }
                     }
+                } catch (err) {
+                    console.warn('[error-placeholder] tryAnother failed:', err);
                 }
-            } catch (err) {
-                console.warn('[error-placeholder] tryAnother failed:', err);
+            };
+
+            // If we already failed 2 times, automatically click "Try Another" after 1.5s
+            if (currentAttempt >= 2) {
+                autoTimer = setTimeout(() => {
+                    clearTimers();
+                    tryBtn.click();
+                }, 1500);
             }
-        };
+        }
     }
+
     if (cctv) {
         const reportBtn = ph.querySelector('.report-btn');
-        reportBtn.onclick = (e) => {
-            e.stopPropagation();
-            openIssueReporter(cctv);
-        };
+        if (reportBtn) {
+            reportBtn.onclick = (e) => {
+                e.stopPropagation();
+                clearTimers();
+                openIssueReporter(cctv);
+            };
+        }
     }
+
+    // Attach unload safety to clear any timers if this element is removed from DOM
+    ph._cleanupTimers = clearTimers;
+
     return ph;
 }
 
 function cleanupVideo(container) {
     if (!container) return;
+
+    const existingPlaceholder = container.querySelector('.video-placeholder.error');
+    if (existingPlaceholder && typeof existingPlaceholder._cleanupTimers === 'function') {
+        existingPlaceholder._cleanupTimers();
+    }
 
     const panel = container.parentElement;
     if (panel && panel._loadingTimer) {
@@ -9314,7 +9409,10 @@ function openVideoLayer(cctv) {
     };
 
     // Cleanup previous video
+    // Cleanup previous video
     addRecentlyViewedCctv(cctv);
+    if (!state.autoRetryCounts) state.autoRetryCounts = {};
+    state.autoRetryCounts[cctv.id] = 0;
     cleanupVideo(frame);
     state.activeCctvId = cctv.id;
 
