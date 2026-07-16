@@ -10273,7 +10273,7 @@ function ensureLiveBadge(element) {
     if (!badge) {
         badge = document.createElement('div');
         badge.className = 'live-badge';
-        badge.innerHTML = '<span class="live-dot"></span>LIVE';
+        badge.innerHTML = '<span class="live-dot"></span>STREAMING';
         parent.appendChild(badge);
     }
 }
