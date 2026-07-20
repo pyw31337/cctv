@@ -3599,6 +3599,7 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
         video.removeEventListener('waiting', markStall);
         video.removeEventListener('stalled', markStall);
         video.removeEventListener('error', failFast);
+        video.removeEventListener('ended', handleEnded);
     };
 
     const fail = (reason) => {
@@ -3662,6 +3663,13 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
         fail('video-error');
     }
 
+    function handleEnded() {
+        if (options.ignoreTransientErrors && video.dataset.allowTransientErrors === 'true') {
+            return;
+        }
+        fail('stream-ended');
+    }
+
     video.addEventListener('loadeddata', markHealthy);
     video.addEventListener('playing', markHealthy);
     video.addEventListener('canplay', markHealthy);
@@ -3669,6 +3677,7 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
     video.addEventListener('waiting', markStall);
     video.addEventListener('stalled', markStall);
     video.addEventListener('error', failFast);
+    video.addEventListener('ended', handleEnded);
 
     timers.push(setTimeout(() => {
         if (!hasStarted && (video.readyState < 2 || video.videoWidth === 0)) {
@@ -3691,7 +3700,7 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
                 lastCurrentTime = currentTime;
                 return;
             }
-            if (!video.paused && Date.now() - lastProgressAt > stallTimeoutMs) {
+            if ((!video.paused || video.ended) && Date.now() - lastProgressAt > Math.min(stallTimeoutMs, 3500)) {
                 if (!recoverStall('playback-stalled')) {
                     fail('playback-stalled');
                 }
@@ -3701,7 +3710,7 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
                 fail('network-stalled');
             }
         }
-    }, 1800);
+    }, 1200);
 
     video._watchdogCleanup = cleanup;
 }
@@ -5226,6 +5235,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
             if (video.parentElement) triggerFailover(video.parentElement);
         };
 
+        video.onended = failGits;
         if (window.Hls && Hls.isSupported()) {
             const hls = new Hls({
                 enableWorker: true,
@@ -5246,7 +5256,7 @@ function createVideoElement(cctv, sourceIndex = 0) {
                 video.play().catch(() => {});
             });
             hls.on(Hls.Events.ERROR, function (event, data) {
-                if (data && data.fatal) {
+                if (data && (data.fatal || data.type === Hls.ErrorTypes.MEDIA_ERROR)) {
                     hls.destroy();
                     failGits();
                 }
@@ -5526,7 +5536,6 @@ function createVideoElement(cctv, sourceIndex = 0) {
             }
 
             if (data.fatal || shouldFailFast) {
-                // NOWJEJU sometimes publishes stale variant playlists. Do not make users wait through HLS retries.
                 failoverFromHls();
             }
         });
@@ -5705,88 +5714,63 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
         }, isRetryingPrimary ? 160 : 180);
     } else {
         const panel = wrapper.closest('.video-panel');
-        const retryCount = getManualRetryCount(panel);
-        const preparedFallback = panel ? prepareManualRetryFallback(panel, cctv) : null;
+        if (!state.autoRetryCounts) state.autoRetryCounts = {};
+        const currentCount = state.autoRetryCounts[cctv.id] || 0;
+        
         setPlaybackHealth(cctv, {
             status: 'PLAYBACK_ERROR',
             shortLabel: '재생 불안정',
-            longLabel: preparedFallback
-                ? `${cctv.name || 'CCTV'} 연결 실패, ${preparedFallback.name || '대체 CCTV'} 대체 후보 준비`
-                : `${cctv.name || 'CCTV'} 연결 가능한 대체 영상 없음`,
+            longLabel: `${cctv.name || 'CCTV'} 연결 실패, 다른 정상 송출 카메라로 전환 시도 중`,
             tone: 'danger',
             penalty: 6
         });
         if (panel) updatePanelHealthUi(panel, cctv);
 
-        const autoFallbackAlreadyAttempted = panel?.dataset.autoFallbackAttemptedFor === cctv.id;
-        if (panel && preparedFallback && !autoFallbackAlreadyAttempted) {
-            panel.dataset.autoFallbackAttemptedFor = cctv.id;
-            const loadingCopy = getStreamLoadingCopy(preparedFallback, true, nextIndex, backupCount);
-            showStreamLoadingIndicator(wrapper, '정상 카메라로 자동 전환 중', loadingCopy.detail);
-            switchToPreparedRetryFallback(panel, cctv, { requireVerified: true })
-                .then(switched => {
-                    if (!switched && wrapper.isConnected && panel.dataset.cctvId === cctv.id) {
-                        handleStreamFailover(wrapper, cctv, nextIndex);
-                    }
-                })
-                .catch(error => {
-                    console.warn('[Failover] automatic camera switch failed:', error);
-                    if (wrapper.isConnected && panel.dataset.cctvId === cctv.id) {
-                        handleStreamFailover(wrapper, cctv, nextIndex);
-                    }
-                });
+        // Record failure in failedSessionCams
+        if (cctv && cctv.id) {
+            if (!state.failedSessionCams) state.failedSessionCams = new Set();
+            state.failedSessionCams.add(cctv.id);
+        }
+
+        // If failed 2 times (currentCount >= 2), DO NOT freeze on error placeholder!
+        // Automatically switch to next healthy camera until a working stream is found!
+        if (currentCount >= 2) {
+            showStreamLoadingIndicator(wrapper, '정상 송출 카메라로 자동 전환 중', `${cctv.name || 'CCTV'} 연결 불안정. 주변의 정상 화면을 찾는 중입니다...`);
+            setTimeout(() => {
+                const next = findAnotherNearbyCctv(cctv);
+                if (next) {
+                    console.log(`[Auto-Failover Loop] Switching from ${cctv.name} to next candidate ${next.name}`);
+                    switchCctvTarget(wrapper, next);
+                } else {
+                    const errPh = createErrorPlaceholder({
+                        message: '지금은 연결이 불안정합니다',
+                        detail: '주변의 모든 대체 카메라 연결을 시도했습니다. 잠시 후 다시 시도해 주세요.',
+                        cctv
+                    });
+                    wrapper.appendChild(errPh);
+                }
+            }, 500);
             return;
         }
 
-        const nextRetryNumber = Math.min(MANUAL_RETRY_PRIMARY_ATTEMPTS, retryCount + 1);
-        const retryLabel = retryCount >= MANUAL_RETRY_PRIMARY_ATTEMPTS && preparedFallback
-            ? '다른 영상 보기'
-            : `다시 시도 (${nextRetryNumber}/${MANUAL_RETRY_PRIMARY_ATTEMPTS})`;
-        const retryDetail = preparedFallback
-            ? (retryCount >= MANUAL_RETRY_PRIMARY_ATTEMPTS
-                ? `${preparedFallback.name || '대체 CCTV'} 영상으로 전환합니다.`
-                : `${MANUAL_RETRY_PRIMARY_ATTEMPTS}회 재시도 후에도 안되면 ${preparedFallback.name || '대체 CCTV'} 영상으로 바로 전환합니다.`)
-            : '잠시 후 다시 시도하거나, 문제가 계속되면 바로 제보할 수 있습니다.';
+        const nextRetryNumber = Math.min(MANUAL_RETRY_PRIMARY_ATTEMPTS, currentCount + 1);
+        const retryLabel = `다시 시도 (${nextRetryNumber}/${MANUAL_RETRY_PRIMARY_ATTEMPTS})`;
+        const retryDetail = '잠시 후 다시 시도하거나, 다른 카메라 시도 버튼을 선택하세요.';
+
         const errPh = createErrorPlaceholder({
             message: '지금은 연결이 불안정합니다',
             detail: retryDetail,
             retryLabel,
             retryFn: async () => {
-                const activePanel = panel || wrapper.closest('.video-panel');
-                const nextRetryCount = getManualRetryCount(activePanel) + 1;
-                setManualRetryCount(activePanel, nextRetryCount);
-                prepareManualRetryFallback(activePanel, cctv);
-
-                if (nextRetryCount > MANUAL_RETRY_PRIMARY_ATTEMPTS) {
-                    let switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
-                    if (!switched) {
-                        switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: false });
-                    }
-                    if (!switched) {
-                        const next = findAnotherNearbyCctv(cctv);
-                        if (next) {
-                            const nextIndex = state.nearestCctvs.findIndex(item => item.id === next.id);
-                            attachStreamToPanel(activePanel, next, nextIndex !== -1 ? nextIndex : 0);
-                        }
-                    }
-                    return;
-                }
+                state.autoRetryCounts[cctv.id] = currentCount + 1;
                 handleStreamFailover(wrapper, cctv, 0);
             },
             onTryAnother: async () => {
-                const activePanel = panel || wrapper.closest('.video-panel');
-                let switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: true });
-                if (!switched) {
-                    switched = await switchToPreparedRetryFallback(activePanel, cctv, { requireVerified: false });
-                }
-                if (!switched) {
-                    const next = findAnotherNearbyCctv(cctv);
-                    if (next) {
-                        const nextIndex = state.nearestCctvs.findIndex(item => item.id === next.id);
-                        attachStreamToPanel(activePanel, next, nextIndex !== -1 ? nextIndex : 0);
-                    } else {
-                        showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
-                    }
+                const next = findAnotherNearbyCctv(cctv);
+                if (next) {
+                    switchCctvTarget(wrapper, next);
+                } else {
+                    showShareFeedback('재생 가능한 대체 카메라를 확인 중입니다. 잠시 후 다시 시도해 주세요.', 'warn');
                 }
             },
             cctv
@@ -5795,9 +5779,7 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
     }
 }
 
-// Strip raw playback IDs / hash-like tokens that some embedded players (YouTube/HLS)
-// surface in their error text so we never expose stuff like
-// "재생 ID는 rTlVQwEQfepKr_Dy입니다" to the user.
+// Strip raw playback IDs / hash-like tokens that some embedded players surface
 function sanitizeErrorMessage(text) {
     if (text == null) return '';
     let s = String(text);
@@ -5809,35 +5791,67 @@ function sanitizeErrorMessage(text) {
     return s;
 }
 
+function switchCctvTarget(container, nextCctv) {
+    if (!nextCctv) return false;
+
+    const isModal = container && (
+        container.closest('#video-layer') ||
+        container.closest('#video-frame') ||
+        container.id === 'video-frame' ||
+        container.id === 'video-layer'
+    );
+
+    if (isModal || (typeof openVideoLayer === 'function' && (!container || !container.closest('.video-panel')))) {
+        openVideoLayer(nextCctv);
+        return true;
+    }
+
+    const panel = container ? container.closest('.video-panel') : null;
+    if (panel && typeof attachStreamToPanel === 'function') {
+        const nextIndex = Array.isArray(state.nearestCctvs)
+            ? state.nearestCctvs.findIndex(item => item && item.id === nextCctv.id)
+            : -1;
+        attachStreamToPanel(panel, nextCctv, nextIndex !== -1 ? nextIndex : 0);
+        return true;
+    }
+
+    if (typeof openVideoLayer === 'function') {
+        openVideoLayer(nextCctv);
+        return true;
+    }
+    return false;
+}
+
 function findAnotherNearbyCctv(currentCctv) {
-    if (!currentCctv || !Array.isArray(state.nearestCctvs)) return null;
-    const list = state.nearestCctvs;
+    if (!currentCctv) return null;
+    const list = Array.isArray(state.nearestCctvs) ? state.nearestCctvs : [];
     const idx = list.findIndex(item => item && item.id === currentCctv.id);
     
     if (!state.failedSessionCams) {
         state.failedSessionCams = new Set();
     }
     const isFailed = (id) => state.failedSessionCams.has(id);
+    const isHealthy = (item) => item && !isKnownUnavailableCamera(item) && !isUnsupportedBrowserStream(item);
 
     // 1st stage: search within nearest list for any candidate not failed yet
     if (idx !== -1) {
         for (let offset = 1; offset < list.length; offset += 1) {
             const candidate = list[(idx + offset) % list.length];
-            if (candidate && candidate.id !== currentCctv.id && !isFailed(candidate.id)) {
+            if (candidate && candidate.id !== currentCctv.id && !isFailed(candidate.id) && isHealthy(candidate)) {
                 return candidate;
             }
         }
     } else {
-        const found = list.find(item => item && item.id !== currentCctv.id && !isFailed(item.id));
+        const found = list.find(item => item && item.id !== currentCctv.id && !isFailed(item.id) && isHealthy(item));
         if (found) return found;
     }
 
-    // 2nd stage: if all nearest candidates failed, find nearest non-failed from state.cctvData
+    // 2nd stage: search from state.cctvData for closest healthy candidate not failed yet
     if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
-        const sourceLat = Number(currentCctv.lat);
-        const sourceLng = Number(currentCctv.lng);
+        const sourceLat = Number(currentCctv.lat) || Number(state.center?.lat) || 37.5665;
+        const sourceLng = Number(currentCctv.lng) || Number(state.center?.lng) || 126.9780;
         const candidates = state.cctvData
-            .filter(item => item && item.id !== currentCctv.id && !isFailed(item.id))
+            .filter(item => item && item.id !== currentCctv.id && !isFailed(item.id) && isHealthy(item))
             .map(item => {
                 const dy = Number(item.lat) - sourceLat;
                 const dx = Number(item.lng) - sourceLng;
@@ -5855,10 +5869,10 @@ function findAnotherNearbyCctv(currentCctv) {
     if (idx !== -1) {
         for (let offset = 1; offset < list.length; offset += 1) {
             const candidate = list[(idx + offset) % list.length];
-            if (candidate && candidate.id !== currentCctv.id) return candidate;
+            if (candidate && candidate.id !== currentCctv.id && isHealthy(candidate)) return candidate;
         }
     }
-    return list.find(item => item && item.id !== currentCctv.id) || null;
+    return list.find(item => item && item.id !== currentCctv.id && isHealthy(item)) || null;
 }
 
 function createErrorPlaceholder(options, legacyRetryFn) {
@@ -6002,15 +6016,19 @@ function createErrorPlaceholder(options, legacyRetryFn) {
                     if (typeof onTryAnother === 'function') {
                         Promise.resolve(onTryAnother()).catch(err => {
                             console.warn('[error-placeholder] tryAnother async failed:', err);
+                            const next = findAnotherNearbyCctv(cctv);
+                            if (next) switchCctvTarget(ph, next);
                         });
                     } else {
                         const next = findAnotherNearbyCctv(cctv);
-                        if (next && typeof openVideoLayer === 'function') {
-                            openVideoLayer(next);
+                        if (next) {
+                            switchCctvTarget(ph, next);
                         }
                     }
                 } catch (err) {
                     console.warn('[error-placeholder] tryAnother failed:', err);
+                    const next = findAnotherNearbyCctv(cctv);
+                    if (next) switchCctvTarget(ph, next);
                 }
             };
 
