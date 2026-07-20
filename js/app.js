@@ -6220,12 +6220,14 @@ function initWindyLayersPanel() {
     const layersList = document.getElementById('windy-layers-list');
     const overlay = document.getElementById('windy-map-overlay');
     const closeBtn = document.getElementById('windy-overlay-close');
-    const iframe = document.getElementById('windy-radar-iframe');
+    const container = document.querySelector('.windy-iframe-container');
+    const initialIframe = document.getElementById('windy-radar-iframe');
     const layerItems = document.querySelectorAll('.layer-item');
 
-    if (!menuToggle || !layersList || !overlay || !closeBtn || !iframe) return;
+    if (!menuToggle || !layersList || !overlay || !closeBtn || !container) return;
 
     let lastWindyState = null;
+    const windyIframesMap = new Map();
 
     function extractWindyData(obj) {
         if (!obj || typeof obj !== 'object') return null;
@@ -6297,11 +6299,8 @@ function initWindyLayersPanel() {
         event.stopPropagation();
         
         if (menuToggle.classList.contains('windy-active')) {
-            // "다시한번 누르게 되면 윈디 지도에서 카카오지도로 원상복구하게 해줘."
-            // "뒤로를 눌렀을때 하위메뉴를 없애주는거야." -> closeOverlay will collapse the menu
             closeOverlay();
         } else {
-            // "메뉴버튼을 누르면 바로 3번째 메뉴인 '바람' 화면으로 전환해주고, 펼쳐진 메뉴는 펼쳐진채로 유지해줘."
             if (windLayerItem) {
                 updateIframeLayer(windLayerItem);
             }
@@ -6357,15 +6356,34 @@ function initWindyLayersPanel() {
 
         const selectedOverlay = layerItem.getAttribute('data-overlay');
         const extraParam = layerItem.getAttribute('data-extra') || '';
+        const layerKey = extraParam ? `${selectedOverlay}_${extraParam}` : selectedOverlay;
         
         let embedUrl = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&zoom=${leafletZoom}&level=surface&overlay=${selectedOverlay}&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=${lat}&detailLon=${lon}&radarRange=-1`;
         if (extraParam) {
             embedUrl += `&${extraParam}`;
         }
 
-        // Only reload iframe if source changed or if it was empty
-        if (iframe.src !== embedUrl) {
-            iframe.src = embedUrl;
+        // Hide all existing cached iframes
+        const allIframes = container.querySelectorAll('.windy-layer-iframe, #windy-radar-iframe');
+        allIframes.forEach(el => {
+            el.style.display = 'none';
+        });
+
+        // Get or create Persistent IFrame for this layer
+        let targetIframe = windyIframesMap.get(layerKey);
+        if (!targetIframe) {
+            if (initialIframe && initialIframe.parentNode === container) {
+                initialIframe.style.display = 'none';
+            }
+            targetIframe = document.createElement('iframe');
+            targetIframe.className = 'windy-layer-iframe';
+            targetIframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+            targetIframe.src = embedUrl;
+            container.appendChild(targetIframe);
+            windyIframesMap.set(layerKey, targetIframe);
+        } else {
+            // Show existing cached iframe without reloading! Zoom & position remain 100% untouched!
+            targetIframe.style.display = 'block';
         }
         
         // Show overlay
@@ -6398,7 +6416,14 @@ function initWindyLayersPanel() {
     };
 
     const closeOverlay = () => {
-        iframe.src = '';
+        windyIframesMap.forEach(iframeEl => {
+            if (iframeEl && iframeEl.parentNode) {
+                iframeEl.parentNode.removeChild(iframeEl);
+            }
+        });
+        windyIframesMap.clear();
+        if (initialIframe) initialIframe.src = '';
+        lastWindyState = null;
         overlay.classList.add('hidden');
         layerItems.forEach(item => item.classList.remove('active'));
 
