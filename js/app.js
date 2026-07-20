@@ -4859,9 +4859,14 @@ function togglePanelExpand(panel, btn) {
 
 function createVideoElement(cctv, sourceIndex = 0) {
     if (sourceIndex === 0 && isUnsupportedBrowserStream(cctv)) {
+        const next = findAnotherNearbyCctv(cctv);
+        if (next && next.id !== cctv.id) {
+            console.log(`[Auto-Bypass] Skipping unsupported stream ${cctv.name}, auto-switching to healthy candidate ${next.name}`);
+            return createVideoElement(next, 0);
+        }
         return createErrorPlaceholder({
             message: '이 카메라는 원본 제공처가 구형 전용 플레이어만 지원합니다',
-            detail: '현재 웹 앱에서는 바로 재생할 수 없어, 제주권 대체 카메라를 우선 추천합니다.',
+            detail: '현재 웹 앱에서는 바로 재생할 수 없어, 대체 카메라를 우선 추천합니다.',
             cctv
         });
     }
@@ -5397,8 +5402,21 @@ function createVideoElement(cctv, sourceIndex = 0) {
                     hls.loadSource(streamUrl);
                     hls.attachMedia(video);
                     bindHlsLiveCheck(hls, video);
+                    let z3RetryCount = 0;
                     hls.on(Hls.Events.ERROR, function(ev, data) {
                         if (data.fatal) {
+                            if ((data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) && z3RetryCount < 2) {
+                                z3RetryCount++;
+                                console.log(`[UTIC Z3] Self-healing retry for fatal error (${z3RetryCount}/2)...`);
+                                setTimeout(() => {
+                                    if (!video.parentElement) return;
+                                    if (data.type === Hls.ErrorTypes.MEDIA_ERROR && typeof hls.recoverMediaError === 'function') {
+                                        hls.recoverMediaError();
+                                    }
+                                    hls.startLoad(-1);
+                                }, 700 * z3RetryCount);
+                                return;
+                            }
                             hls.destroy();
                             if (video.parentElement) fallbackToDirectAlternative(video.parentElement);
                         }
