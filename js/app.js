@@ -6032,7 +6032,6 @@ function createErrorPlaceholder(options, legacyRetryFn) {
                 }
             };
 
-            // If we already failed 2 times, automatically click "Try Another" after 1.5s
             if (currentAttempt >= 2) {
                 if (cctv && cctv.id) {
                     if (!state.failedSessionCams) state.failedSessionCams = new Set();
@@ -6216,7 +6215,6 @@ function initMap() {
 }
 
 // === Windy Weather Map Overlay Interaction ===
-// === Windy Weather Map Overlay Interaction ===
 function initWindyLayersPanel() {
     const menuToggle = document.getElementById('windy-menu-toggle');
     const layersList = document.getElementById('windy-layers-list');
@@ -6226,6 +6224,48 @@ function initWindyLayersPanel() {
     const layerItems = document.querySelectorAll('.layer-item');
 
     if (!menuToggle || !layersList || !overlay || !closeBtn || !iframe) return;
+
+    let lastWindyState = null;
+
+    function extractWindyData(obj) {
+        if (!obj || typeof obj !== 'object') return null;
+        let lat = obj.lat ?? obj.latitude ?? obj.detailLat ?? (Array.isArray(obj.center) ? obj.center[0] : null);
+        let lon = obj.lon ?? obj.lng ?? obj.longitude ?? obj.detailLon ?? (Array.isArray(obj.center) ? obj.center[1] : null);
+        let zoom = obj.zoom ?? obj.level;
+
+        if (lat !== undefined && lon !== undefined && zoom !== undefined && lat !== null && lon !== null && zoom !== null) {
+            lat = Number(lat);
+            lon = Number(lon);
+            zoom = Number(zoom);
+            if (Number.isFinite(lat) && Number.isFinite(lon) && Number.isFinite(zoom)) {
+                return {
+                    lat: lat.toFixed(4),
+                    lon: lon.toFixed(4),
+                    zoom: Math.max(2, Math.min(18, Math.round(zoom)))
+                };
+            }
+        }
+
+        for (const key of Object.keys(obj)) {
+            if (typeof obj[key] === 'object' && obj[key] !== null) {
+                const res = extractWindyData(obj[key]);
+                if (res) return res;
+            }
+        }
+        return null;
+    }
+
+    // Listen to postMessage from Windy iframe to track user pan/zoom
+    window.addEventListener('message', event => {
+        if (!event.data) return;
+        try {
+            const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+            const extracted = extractWindyData(data);
+            if (extracted) {
+                lastWindyState = extracted;
+            }
+        } catch (_) {}
+    });
 
     const menuIconContainer = menuToggle.querySelector('.menu-icon');
     const menuLabel = menuToggle.querySelector('.windy-label');
@@ -6297,17 +6337,28 @@ function initWindyLayersPanel() {
 
     const updateIframeLayer = (layerItem) => {
         if (!map) return;
-        const center = map.getCenter();
-        const lat = center.getLat().toFixed(4);
-        const lng = center.getLng().toFixed(4);
-        const zoom = map.getLevel();
-        // Convert Kakao level to Leaflet/OSM zoom (19 - Kakao level for identical area size match)
-        const leafletZoom = Math.max(3, Math.min(18, 19 - zoom));
+
+        let lat, lon, leafletZoom;
+
+        // 1. If lastWindyState exists (user zoomed/panned or already initialized), lock it strictly!
+        if (lastWindyState && lastWindyState.lat && lastWindyState.lon && lastWindyState.zoom) {
+            lat = lastWindyState.lat;
+            lon = lastWindyState.lon;
+            leafletZoom = lastWindyState.zoom;
+        } else {
+            // 2. Initialize from Kakao Map center & level on first open only
+            const center = map.getCenter();
+            lat = center.getLat().toFixed(4);
+            lon = center.getLng().toFixed(4);
+            const zoom = map.getLevel();
+            leafletZoom = Math.max(3, Math.min(18, 19 - zoom));
+            lastWindyState = { lat, lon, zoom: leafletZoom };
+        }
 
         const selectedOverlay = layerItem.getAttribute('data-overlay');
         const extraParam = layerItem.getAttribute('data-extra') || '';
         
-        let embedUrl = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lng}&zoom=${leafletZoom}&level=surface&overlay=${selectedOverlay}&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=${lat}&detailLon=${lng}&radarRange=-1`;
+        let embedUrl = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&zoom=${leafletZoom}&level=surface&overlay=${selectedOverlay}&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&detailLat=${lat}&detailLon=${lon}&radarRange=-1`;
         if (extraParam) {
             embedUrl += `&${extraParam}`;
         }
