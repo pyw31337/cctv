@@ -2112,11 +2112,11 @@ function getDatasetReviewHealthMeta(cctv, regionKey, lastUpdated) {
 function isKnownUnavailableCamera(cctv) {
     if (!cctv) return false;
     const status = String(cctv.status || '').toLowerCase();
+    const reason = String(cctv.health_reason || cctv.disabled_reason || cctv.status_note || '').toLowerCase();
     if (status === 'disabled') return true;
+    if (status !== 'manual_check') return false;
 
-    // manual_check 나 일시적 점검 상태인 카메라도 일방적으로 숨기지 않고 
-    // 지도에 마커로 남겨두어 자가 복구 Failover 우회 로직이 작동하도록 false 반환
-    return false;
+    return /(?:http[_ -]?(?:404|410)|maintenance|점검|no[_ -]?stream|stream[_ -]?missing|not[_ -]?found|invalid[_ -]?(?:url|stream))/.test(reason);
 }
 
 function getCameraQualitySummary(cctv) {
@@ -4027,9 +4027,9 @@ function updateNearestCctvs() {
         .map(cctv => decorateNearestCandidate(cctv, lat, lng))
         .sort((a, b) => a._priorityScore - b._priorityScore || a.distance - b.distance);
 
-    const selectable = ranked.filter(cctv => !isKnownUnavailableCamera(cctv));
-    const preferred = selectable.filter(cctv => !shouldIsolateProblemCamera(cctv));
-    const isolated = selectable.filter(cctv => shouldIsolateProblemCamera(cctv));
+    const selectable = ranked.filter(cctv => cctv && String(cctv.status).toLowerCase() !== 'disabled');
+    const preferred = selectable.filter(cctv => !shouldIsolateProblemCamera(cctv) && !isKnownUnavailableCamera(cctv));
+    const isolated = selectable.filter(cctv => shouldIsolateProblemCamera(cctv) || isKnownUnavailableCamera(cctv));
     const ordered = state.sortMode === 'stability'
         ? buildStabilityModeOrdering(selectable, lat, lng)
         : preferred.length >= 4
@@ -5866,12 +5866,24 @@ function findAnotherNearbyCctv(currentCctv) {
         state.failedSessionCams = new Set();
     }
     
+    // 최대 우회 거리 지오펜스: 4.5km (위경도 거리 제곱 기준 대략 0.045 * 0.045 = 0.002025)
+    const MAX_FAILOVER_DISTANCE_SQ = 0.045 * 0.045;
+    const currentLat = Number(currentCctv.lat) || Number(state.center?.lat) || 37.5665;
+    const currentLng = Number(currentCctv.lng) || Number(state.center?.lng) || 126.9780;
+    
+    const isWithinGeofence = (item) => {
+        if (!item || !Number.isFinite(Number(item.lat)) || !Number.isFinite(Number(item.lng))) return false;
+        const dy = Number(item.lat) - currentLat;
+        const dx = Number(item.lng) - currentLng;
+        return (dy * dy + dx * dx) <= MAX_FAILOVER_DISTANCE_SQ;
+    };
+    
     const activeGridIds = getActiveGridCctvIds();
     const isFailed = (id) => state.failedSessionCams.has(id);
-    const isHealthy = (item) => item && !isKnownUnavailableCamera(item) && !isUnsupportedBrowserStream(item);
+    const isHealthy = (item) => item && !isKnownUnavailableCamera(item) && !isUnsupportedBrowserStream(item) && isWithinGeofence(item);
     const isNotDuplicate = (id) => id !== currentCctv.id && !activeGridIds.has(id);
 
-    // 1st stage: search within nearest list for any candidate not failed yet and not active on screen
+    // 1st stage: search within nearest list for any candidate not failed yet, not active on screen, and within geofence
     if (idx !== -1) {
         for (let offset = 1; offset < list.length; offset += 1) {
             const candidate = list[(idx + offset) % list.length];
@@ -5884,15 +5896,13 @@ function findAnotherNearbyCctv(currentCctv) {
         if (found) return found;
     }
 
-    // 2nd stage: search from state.cctvData for closest healthy candidate not failed yet and not active on screen
+    // 2nd stage: search from state.cctvData for closest healthy candidate not failed yet, not active on screen, and within geofence
     if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
-        const sourceLat = Number(currentCctv.lat) || Number(state.center?.lat) || 37.5665;
-        const sourceLng = Number(currentCctv.lng) || Number(state.center?.lng) || 126.9780;
         const candidates = state.cctvData
             .filter(item => item && !isFailed(item.id) && isHealthy(item) && isNotDuplicate(item.id))
             .map(item => {
-                const dy = Number(item.lat) - sourceLat;
-                const dx = Number(item.lng) - sourceLng;
+                const dy = Number(item.lat) - currentLat;
+                const dx = Number(item.lng) - currentLng;
                 return { item, distSq: dy * dy + dx * dx };
             })
             .sort((a, b) => a.distSq - b.distSq);
@@ -5902,7 +5912,7 @@ function findAnotherNearbyCctv(currentCctv) {
         }
     }
 
-    // 3rd stage: if no candidate fits strict de-duplication, relax de-duplication filter and find any healthy non-failed camera
+    // 3rd stage: if no candidate fits strict de-duplication, relax de-duplication filter but keep geofence
     if (idx !== -1) {
         for (let offset = 1; offset < list.length; offset += 1) {
             const candidate = list[(idx + offset) % list.length];
@@ -5915,7 +5925,7 @@ function findAnotherNearbyCctv(currentCctv) {
         if (found) return found;
     }
 
-    // 4th stage: if everything has failed, clear historical cache and cycle back
+    // 4th stage: if everything has failed, clear historical cache and cycle back within geofence
     state.failedSessionCams.clear();
     if (idx !== -1) {
         for (let offset = 1; offset < list.length; offset += 1) {
