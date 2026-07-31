@@ -2109,14 +2109,46 @@ function getDatasetReviewHealthMeta(cctv, regionKey, lastUpdated) {
     };
 }
 
-function isKnownUnavailableCamera(cctv) {
-    if (!cctv) return false;
-    const status = String(cctv.status || '').toLowerCase();
-    const reason = String(cctv.health_reason || cctv.disabled_reason || cctv.status_note || '').toLowerCase();
-    if (status === 'disabled') return true;
-    if (status !== 'manual_check') return false;
+// ============================================================================
+// === ARCHITECTURE MODULE 1: Visibility & Playability Decoupled Engines ===
+// ============================================================================
+const CctvVisibilityEngine = {
+    /**
+     * Determines whether a CCTV item is valid to be rendered as a map marker or search item.
+     * Never hides manual_check or temporary 404 cameras from the map.
+     */
+    isVisibleOnMap(cctv) {
+        if (!cctv) return false;
+        const status = String(cctv.status || '').toLowerCase();
+        return status !== 'disabled';
+    }
+};
 
-    return /(?:http[_ -]?(?:404|410)|maintenance|점검|no[_ -]?stream|stream[_ -]?missing|not[_ -]?found|invalid[_ -]?(?:url|stream))/.test(reason);
+const CctvPlayabilityEngine = {
+    /**
+     * Determines whether a CCTV stream is genuinely playable for failover candidate selection.
+     */
+    isPlayableCandidate(cctv) {
+        if (!cctv) return false;
+        if (!CctvVisibilityEngine.isVisibleOnMap(cctv)) return false;
+
+        const status = String(cctv.status || '').toLowerCase();
+        const reason = String(cctv.health_reason || cctv.disabled_reason || cctv.status_note || '').toLowerCase();
+
+        if (status === 'manual_check' && /(?:http[_ -]?(?:404|410)|maintenance|점검|no[_ -]?stream|stream[_ -]?missing|not[_ -]?found|invalid[_ -]?(?:url|stream))/.test(reason)) {
+            return false;
+        }
+
+        if (typeof isUnsupportedBrowserStream === 'function' && isUnsupportedBrowserStream(cctv)) {
+            return false;
+        }
+
+        return true;
+    }
+};
+
+function isKnownUnavailableCamera(cctv) {
+    return !CctvPlayabilityEngine.isPlayableCandidate(cctv);
 }
 
 function getCameraQualitySummary(cctv) {
@@ -4027,9 +4059,9 @@ function updateNearestCctvs() {
         .map(cctv => decorateNearestCandidate(cctv, lat, lng))
         .sort((a, b) => a._priorityScore - b._priorityScore || a.distance - b.distance);
 
-    const selectable = ranked.filter(cctv => cctv && String(cctv.status).toLowerCase() !== 'disabled');
-    const preferred = selectable.filter(cctv => !shouldIsolateProblemCamera(cctv) && !isKnownUnavailableCamera(cctv));
-    const isolated = selectable.filter(cctv => shouldIsolateProblemCamera(cctv) || isKnownUnavailableCamera(cctv));
+    const selectable = ranked.filter(cctv => CctvVisibilityEngine.isVisibleOnMap(cctv));
+    const preferred = selectable.filter(cctv => !shouldIsolateProblemCamera(cctv) && CctvPlayabilityEngine.isPlayableCandidate(cctv));
+    const isolated = selectable.filter(cctv => shouldIsolateProblemCamera(cctv) || !CctvPlayabilityEngine.isPlayableCandidate(cctv));
     const ordered = state.sortMode === 'stability'
         ? buildStabilityModeOrdering(selectable, lat, lng)
         : preferred.length >= 4
@@ -5810,8 +5842,133 @@ function sanitizeErrorMessage(text) {
     return s;
 }
 
+// ============================================================================
+// === ARCHITECTURE MODULE 2: Centralized Geofenced Grid Failover Controller ===
+// ============================================================================
+const GridFailoverController = {
+    MAX_GEODISTANCE_KM: 4.5,
+
+    getActiveGridCctvIds() {
+        const activeIds = new Set();
+        const videos = document.querySelectorAll('.video-panel video, #video-frame video');
+        videos.forEach(video => {
+            const id = video.dataset.activeCctvId || (video._activeCctv && video._activeCctv.id);
+            if (id) activeIds.add(id);
+        });
+        const panels = document.querySelectorAll('.video-panel');
+        panels.forEach(panel => {
+            if (panel._activeCctv && panel._activeCctv.id) {
+                activeIds.add(panel._activeCctv.id);
+            }
+        });
+        return activeIds;
+    },
+
+    findFailoverCandidate(currentCctv) {
+        if (!currentCctv) return null;
+
+        if (!state.failedSessionCams) {
+            state.failedSessionCams = new Set();
+        }
+
+        const list = Array.isArray(state.nearestCctvs) ? state.nearestCctvs : [];
+        const idx = list.findIndex(item => item && item.id === currentCctv.id);
+        const activeGridIds = this.getActiveGridCctvIds();
+
+        const currentLat = Number(currentCctv.lat) || Number(state.center?.lat) || 37.5665;
+        const currentLng = Number(currentCctv.lng) || Number(state.center?.lng) || 126.9780;
+
+        const isFailed = (id) => state.failedSessionCams.has(id);
+        const isNotDuplicate = (id) => id !== currentCctv.id && !activeGridIds.has(id);
+
+        const isGeofencedAndPlayable = (item) => {
+            if (!item || !CctvPlayabilityEngine.isPlayableCandidate(item)) return false;
+            const itemLat = Number(item.lat);
+            const itemLng = Number(item.lng);
+            if (!Number.isFinite(itemLat) || !Number.isFinite(itemLng)) return false;
+
+            const distKm = getDistance(currentLat, currentLng, itemLat, itemLng);
+            return distKm <= this.MAX_GEODISTANCE_KM;
+        };
+
+        // 1st stage: search in nearest list for non-duplicate, geofenced, playable candidate
+        if (idx !== -1) {
+            for (let offset = 1; offset < list.length; offset += 1) {
+                const candidate = list[(idx + offset) % list.length];
+                if (candidate && !isFailed(candidate.id) && isNotDuplicate(candidate.id) && isGeofencedAndPlayable(candidate)) {
+                    return candidate;
+                }
+            }
+        } else {
+            const found = list.find(item => item && !isFailed(item.id) && isNotDuplicate(item.id) && isGeofencedAndPlayable(item));
+            if (found) return found;
+        }
+
+        // 2nd stage: search in full cctvData for closest geofenced, playable candidate
+        if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
+            const candidates = state.cctvData
+                .filter(item => item && !isFailed(item.id) && isNotDuplicate(item.id) && isGeofencedAndPlayable(item))
+                .map(item => ({ item, distKm: getDistance(currentLat, currentLng, Number(item.lat), Number(item.lng)) }))
+                .sort((a, b) => a.distKm - b.distKm);
+
+            if (candidates.length > 0) {
+                return candidates[0].item;
+            }
+        }
+
+        // 3rd stage: relax de-duplication filter within geofence if grid is full
+        if (idx !== -1) {
+            for (let offset = 1; offset < list.length; offset += 1) {
+                const candidate = list[(idx + offset) % list.length];
+                if (candidate && candidate.id !== currentCctv.id && !isFailed(candidate.id) && isGeofencedAndPlayable(candidate)) {
+                    return candidate;
+                }
+            }
+        } else {
+            const found = list.find(item => item && item.id !== currentCctv.id && !isFailed(item.id) && isGeofencedAndPlayable(item));
+            if (found) return found;
+        }
+
+        // 4th stage: cycle back within geofence after clearing session failures
+        state.failedSessionCams.clear();
+        if (idx !== -1) {
+            for (let offset = 1; offset < list.length; offset += 1) {
+                const candidate = list[(idx + offset) % list.length];
+                if (candidate && candidate.id !== currentCctv.id && isGeofencedAndPlayable(candidate)) return candidate;
+            }
+        }
+        return list.find(item => item && item.id !== currentCctv.id && isGeofencedAndPlayable(item)) || null;
+    }
+};
+
+function showFailoverNoticeToast(panel, nextCctv, prevCctv) {
+    if (!panel || !nextCctv) return;
+    const existing = panel.querySelector('.failover-notice-toast');
+    if (existing) existing.remove();
+
+    let distStr = '';
+    if (prevCctv && prevCctv.lat && prevCctv.lng && nextCctv.lat && nextCctv.lng) {
+        const distM = Math.round(getDistance(prevCctv.lat, prevCctv.lng, nextCctv.lat, nextCctv.lng) * 1000);
+        if (distM > 0) distStr = `${distM}m `;
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'failover-notice-toast';
+    toast.style.cssText = 'position:absolute; bottom:12px; left:50%; transform:translateX(-50%); z-index:40; background:rgba(15,23,42,0.88); backdrop-filter:blur(8px); border:1px solid rgba(59,130,246,0.4); color:#93c5fd; padding:6px 14px; border-radius:20px; font-size:12px; font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,0.3); pointer-events:none; transition:opacity 0.4s ease; opacity:0; text-align:center; white-space:nowrap;';
+    toast.innerHTML = `<span style="color:#60a5fa; margin-right:4px;">↺</span>인근 ${distStr}<strong>[${nextCctv.name}]</strong> 영상으로 우회 연결되었습니다`;
+
+    panel.appendChild(toast);
+    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 400);
+    }, 3800);
+}
+
 function switchCctvTarget(container, nextCctv) {
     if (!nextCctv) return false;
+
+    const prevCctv = container?._activeCctv || container?.closest?.('.video-panel')?._activeCctv;
 
     const isModal = container && (
         container.closest('#video-layer') ||
@@ -5831,6 +5988,7 @@ function switchCctvTarget(container, nextCctv) {
             ? state.nearestCctvs.findIndex(item => item && item.id === nextCctv.id)
             : -1;
         attachStreamToPanel(panel, nextCctv, nextIndex !== -1 ? nextIndex : 0);
+        showFailoverNoticeToast(panel, nextCctv, prevCctv);
         return true;
     }
 
@@ -5842,98 +6000,11 @@ function switchCctvTarget(container, nextCctv) {
 }
 
 function getActiveGridCctvIds() {
-    const activeIds = new Set();
-    const videos = document.querySelectorAll('.video-panel video, #video-frame video');
-    videos.forEach(video => {
-        const id = video.dataset.activeCctvId || (video._activeCctv && video._activeCctv.id);
-        if (id) activeIds.add(id);
-    });
-    const panels = document.querySelectorAll('.video-panel');
-    panels.forEach(panel => {
-        if (panel._activeCctv && panel._activeCctv.id) {
-            activeIds.add(panel._activeCctv.id);
-        }
-    });
-    return activeIds;
+    return GridFailoverController.getActiveGridCctvIds();
 }
 
 function findAnotherNearbyCctv(currentCctv) {
-    if (!currentCctv) return null;
-    const list = Array.isArray(state.nearestCctvs) ? state.nearestCctvs : [];
-    const idx = list.findIndex(item => item && item.id === currentCctv.id);
-    
-    if (!state.failedSessionCams) {
-        state.failedSessionCams = new Set();
-    }
-    
-    // 최대 우회 거리 지오펜스: 4.5km (위경도 거리 제곱 기준 대략 0.045 * 0.045 = 0.002025)
-    const MAX_FAILOVER_DISTANCE_SQ = 0.045 * 0.045;
-    const currentLat = Number(currentCctv.lat) || Number(state.center?.lat) || 37.5665;
-    const currentLng = Number(currentCctv.lng) || Number(state.center?.lng) || 126.9780;
-    
-    const isWithinGeofence = (item) => {
-        if (!item || !Number.isFinite(Number(item.lat)) || !Number.isFinite(Number(item.lng))) return false;
-        const dy = Number(item.lat) - currentLat;
-        const dx = Number(item.lng) - currentLng;
-        return (dy * dy + dx * dx) <= MAX_FAILOVER_DISTANCE_SQ;
-    };
-    
-    const activeGridIds = getActiveGridCctvIds();
-    const isFailed = (id) => state.failedSessionCams.has(id);
-    const isHealthy = (item) => item && !isKnownUnavailableCamera(item) && !isUnsupportedBrowserStream(item) && isWithinGeofence(item);
-    const isNotDuplicate = (id) => id !== currentCctv.id && !activeGridIds.has(id);
-
-    // 1st stage: search within nearest list for any candidate not failed yet, not active on screen, and within geofence
-    if (idx !== -1) {
-        for (let offset = 1; offset < list.length; offset += 1) {
-            const candidate = list[(idx + offset) % list.length];
-            if (candidate && !isFailed(candidate.id) && isHealthy(candidate) && isNotDuplicate(candidate.id)) {
-                return candidate;
-            }
-        }
-    } else {
-        const found = list.find(item => item && !isFailed(item.id) && isHealthy(item) && isNotDuplicate(item.id));
-        if (found) return found;
-    }
-
-    // 2nd stage: search from state.cctvData for closest healthy candidate not failed yet, not active on screen, and within geofence
-    if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
-        const candidates = state.cctvData
-            .filter(item => item && !isFailed(item.id) && isHealthy(item) && isNotDuplicate(item.id))
-            .map(item => {
-                const dy = Number(item.lat) - currentLat;
-                const dx = Number(item.lng) - currentLng;
-                return { item, distSq: dy * dy + dx * dx };
-            })
-            .sort((a, b) => a.distSq - b.distSq);
-
-        if (candidates.length > 0) {
-            return candidates[0].item;
-        }
-    }
-
-    // 3rd stage: if no candidate fits strict de-duplication, relax de-duplication filter but keep geofence
-    if (idx !== -1) {
-        for (let offset = 1; offset < list.length; offset += 1) {
-            const candidate = list[(idx + offset) % list.length];
-            if (candidate && candidate.id !== currentCctv.id && !isFailed(candidate.id) && isHealthy(candidate)) {
-                return candidate;
-            }
-        }
-    } else {
-        const found = list.find(item => item && item.id !== currentCctv.id && !isFailed(item.id) && isHealthy(item));
-        if (found) return found;
-    }
-
-    // 4th stage: if everything has failed, clear historical cache and cycle back within geofence
-    state.failedSessionCams.clear();
-    if (idx !== -1) {
-        for (let offset = 1; offset < list.length; offset += 1) {
-            const candidate = list[(idx + offset) % list.length];
-            if (candidate && candidate.id !== currentCctv.id && isHealthy(candidate)) return candidate;
-        }
-    }
-    return list.find(item => item && item.id !== currentCctv.id && isHealthy(item)) || null;
+    return GridFailoverController.findFailoverCandidate(currentCctv);
 }
 
 function createErrorPlaceholder(options, legacyRetryFn) {
