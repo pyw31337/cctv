@@ -4120,6 +4120,7 @@ function getCanarySuccessfulCamerasForRegion(regionKey, lat = state.center?.lat,
         .filter(Boolean)
         .filter(cctv => !isUnsupportedBrowserStream(cctv) && !isKnownUnavailableCamera(cctv) && !shouldIsolateProblemCamera(cctv))
         .map(cctv => decorateNearestCandidate(cctv, lat, lng))
+        .filter(cctv => Number.isFinite(cctv.distance) && cctv.distance <= 3.0)
         .sort((a, b) => {
             const aCanary = getCanaryCameraRecord(a);
             const bCanary = getCanaryCameraRecord(b);
@@ -4145,6 +4146,7 @@ function applyCoreCanarySuccessPriority(ordered, lat, lng) {
     for (const cctv of successes) {
         if (promoted.length >= protectedSlots) break;
         if (hasReservedCctvKey(cctv, reserved)) continue;
+        if (Number.isFinite(cctv.distance) && cctv.distance > 3.0) continue;
         promoted.push(cctv);
         addCctvReservationKeys(reserved, cctv);
     }
@@ -6313,10 +6315,12 @@ function initMap() {
             updateNearestCctvs();
             renderServiceStatusBanner();
             renderMapMarkers();
-            // Also update video grid so it stays in sync when switching back
-            renderVideoGrid();
+            // Only update video grid if not in full map mode to prevent UI lag during panning/zooming
+            if (state.mode !== 'map') {
+                renderVideoGrid();
+            }
             syncUrlState();
-        }, 250);
+        }, 300);
     };
 
     // Toggle 'map-moving' class so CSS can suppress expensive effects (blur etc.) during interaction
