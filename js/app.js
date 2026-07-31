@@ -4220,17 +4220,52 @@ function dedupeSceneCandidates(candidates, limit = NEAREST_RESULT_LIMIT) {
 }
 
 function applyLocalPlacePriority(ordered, lat, lng) {
-    if (!isCrownMotelSearchContext(lat, lng)) return ordered;
+    // 1. Jei Hair (Guri Sutaek-dong) pinpoint core 4 cameras
+    if (isJeiHairSearchContext(lat, lng)) {
+        const jeiHairPriorityIds = ['L901246', 'GITS_6741', 'L900440', 'GITS_7356', 'L901466', 'GITS_6740', 'L902339', 'GITS_9608', 'KBS_9974'];
+        const byId = new Map((ordered || []).map(cctv => [cctv.id, cctv]));
+        const promoted = [];
+        const seenNames = new Set();
+        
+        for (const id of jeiHairPriorityIds) {
+            const cctv = byId.get(id) || findCctvById(id);
+            if (cctv && !seenNames.has(cctv.name)) {
+                promoted.push(byId.get(cctv.id) || decorateNearestCandidate(cctv, lat, lng));
+                seenNames.add(cctv.name);
+            }
+            if (promoted.length >= 4) break;
+        }
 
-    const priorityIds = ['L180076', 'L180075', 'L180196', 'L180195'];
-    const byId = new Map(ordered.map(cctv => [cctv.id, cctv]));
-    const promoted = priorityIds
-        .map(id => byId.get(id) || findCctvById(id))
-        .filter(Boolean)
-        .map(cctv => byId.get(cctv.id) || decorateNearestCandidate(cctv, lat, lng));
+        if (promoted.length > 0) {
+            const promotedIds = new Set(promoted.map(cctv => cctv.id));
+            const rest = (ordered || []).filter(cctv => !promotedIds.has(cctv.id));
+            return promoted.concat(rest);
+        }
+    }
 
-    const promotedIds = new Set(promoted.map(cctv => cctv.id));
-    return promoted.concat(ordered.filter(cctv => !promotedIds.has(cctv.id)));
+    // 2. Crown Motel search context
+    if (isCrownMotelSearchContext(lat, lng)) {
+        const priorityIds = ['L180076', 'L180075', 'L180196', 'L180195'];
+        const byId = new Map(ordered.map(cctv => [cctv.id, cctv]));
+        const promoted = priorityIds
+            .map(id => byId.get(id) || findCctvById(id))
+            .filter(Boolean)
+            .map(cctv => byId.get(cctv.id) || decorateNearestCandidate(cctv, lat, lng));
+
+        const promotedIds = new Set(promoted.map(cctv => cctv.id));
+        return promoted.concat(ordered.filter(cctv => !promotedIds.has(cctv.id)));
+    }
+
+    return ordered;
+}
+
+function isJeiHairSearchContext(lat, lng) {
+    const keyword = getCurrentSearchContextKeyword();
+    const jeiKeyword = keyword.includes('제이헤어') || keyword.includes('수택동') || keyword.includes('수택');
+    const nearJeiHair = Number.isFinite(lat)
+        && Number.isFinite(lng)
+        && getDistance(lat, lng, 37.5943, 127.1296) <= 2.5;
+    return nearJeiHair || jeiKeyword;
 }
 
 function isCrownMotelSearchContext(lat, lng) {

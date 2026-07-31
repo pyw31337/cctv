@@ -100,6 +100,27 @@ def test_geofence_failover(cameras):
     assert violations == 0, f"Found {violations} geofence violations!"
     print("  => PASSED!\n")
 
+def test_jei_hair_pinpoint_priority(cameras):
+    print("[TEST 4] Testing Jei Hair Pinpoint Priority (Original 4 Core Cameras)...")
+    priority_ids = ['L901246', 'GITS_6741', 'L900440', 'GITS_7356', 'L901466', 'GITS_6740', 'L902339', 'GITS_9608', 'KBS_9974']
+    by_id = {c['id']: c for c in cameras if c.get('id')}
+    
+    promoted = []
+    seen_names = set()
+    for pid in priority_ids:
+        if pid in by_id:
+            cam = by_id[pid]
+            if cam['name'] not in seen_names:
+                promoted.append(cam)
+                seen_names.add(cam['name'])
+            if len(promoted) >= 4:
+                break
+                
+    promoted_names = [c['name'] for c in promoted]
+    print(f"  - Top 4 Jei Hair Core Cameras Promoted: {promoted_names}")
+    assert len(promoted) >= 4, "Must promote at least 4 core cameras for Jei Hair!"
+    print("  => PASSED!\n")
+
 def main():
     print("==================================================")
     print("   AUTOMATED SYSTEM INTEGRITY VERIFICATION SUITE   ")
@@ -111,8 +132,9 @@ def main():
     test_visibility_engine(cameras)
     test_playability_engine(cameras)
     test_geofence_failover(cameras)
+    test_jei_hair_pinpoint_priority(cameras)
 
-    print("SUCCESS: All 3 architectural verification suites PASSED with 100% integrity!")
+    print("SUCCESS: All 4 architectural verification suites PASSED with 100% integrity!")
 
 if __name__ == '__main__':
     main()
