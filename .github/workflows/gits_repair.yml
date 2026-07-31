@@ -40,43 +40,17 @@ jobs:
       - name: Run GITS ingest
         id: gits_ingest
         run: |
-          set +e
           python scripts/ingest_gits.py
-          code=$?
-          set -e
-          if [ "$code" -ne 0 ]; then
-            echo "::warning::GITS ingest failed with exit $code. Keeping existing catalog and recording workflow status."
-            cp /tmp/cctv_data.before.json cctv_data.json
-            python scripts/write_workflow_status.py --workflow "GITS Daily Ingest" --job ingest --status warning --impact possible --message "ingest_gits.py exited $code; existing cctv_data.json preserved"
-            echo "ingest_ok=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ingest_ok=true" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Guard data preservation
-        if: steps.gits_ingest.outputs.ingest_ok == 'true'
         run: |
-          set +e
           python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
-          code=$?
-          set -e
-          if [ "$code" -ne 0 ]; then
-            echo "::warning::GITS ingest would remove too many cameras. Restoring previous catalog and keeping service data intact."
-            cp /tmp/cctv_data.before.json cctv_data.json
-            python scripts/write_workflow_status.py \
-              --workflow "GITS Daily Ingest" \
-              --job ingest \
-              --status warning \
-              --impact none \
-              --message "GITS ingest was rejected by preservation guard; previous cctv_data.json preserved"
-          else
-            python scripts/write_workflow_status.py \
-              --workflow "GITS Daily Ingest" \
-              --job ingest \
-              --status ok \
-              --impact none \
-              --message "GITS delta ingest accepted; refreshed streams merged and missing IDs preserved for recheck"
-          fi
+          python scripts/write_workflow_status.py \
+            --workflow "GITS Daily Ingest" \
+            --job ingest \
+            --status ok \
+            --impact none \
+            --message "GITS delta ingest accepted; refreshed streams merged and missing IDs preserved for recheck"
 
       - name: Commit changes
         run: |

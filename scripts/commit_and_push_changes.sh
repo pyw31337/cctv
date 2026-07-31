@@ -9,6 +9,13 @@ fi
 MESSAGE="$1"
 shift
 
+# Ensure no stale git rebase/merge directories are blockading the repository
+if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+  echo "Stale git rebase state detected. Cleaning up..." >&2
+  git rebase --abort || true
+  git reset --hard origin/main || true
+fi
+
 # GitHub Actions bot identity by default; local callers may override via env.
 git config --global user.name "${GIT_COMMIT_USER_NAME:-github-actions[bot]}"
 git config --global user.email "${GIT_COMMIT_USER_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
