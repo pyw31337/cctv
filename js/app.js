@@ -2112,11 +2112,11 @@ function getDatasetReviewHealthMeta(cctv, regionKey, lastUpdated) {
 function isKnownUnavailableCamera(cctv) {
     if (!cctv) return false;
     const status = String(cctv.status || '').toLowerCase();
-    const reason = String(cctv.health_reason || cctv.disabled_reason || cctv.status_note || '').toLowerCase();
     if (status === 'disabled') return true;
-    if (status !== 'manual_check') return false;
 
-    return /(?:http[_ -]?(?:404|410)|maintenance|점검|no[_ -]?stream|stream[_ -]?missing|not[_ -]?found|invalid[_ -]?(?:url|stream))/.test(reason);
+    // manual_check 나 일시적 점검 상태인 카메라도 일방적으로 숨기지 않고 
+    // 지도에 마커로 남겨두어 자가 복구 Failover 우회 로직이 작동하도록 false 반환
+    return false;
 }
 
 function getCameraQualitySummary(cctv) {
