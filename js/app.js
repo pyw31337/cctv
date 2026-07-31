@@ -5840,6 +5840,22 @@ function switchCctvTarget(container, nextCctv) {
     return false;
 }
 
+function getActiveGridCctvIds() {
+    const activeIds = new Set();
+    const videos = document.querySelectorAll('.video-panel video, #video-frame video');
+    videos.forEach(video => {
+        const id = video.dataset.activeCctvId || (video._activeCctv && video._activeCctv.id);
+        if (id) activeIds.add(id);
+    });
+    const panels = document.querySelectorAll('.video-panel');
+    panels.forEach(panel => {
+        if (panel._activeCctv && panel._activeCctv.id) {
+            activeIds.add(panel._activeCctv.id);
+        }
+    });
+    return activeIds;
+}
+
 function findAnotherNearbyCctv(currentCctv) {
     if (!currentCctv) return null;
     const list = Array.isArray(state.nearestCctvs) ? state.nearestCctvs : [];
@@ -5848,28 +5864,31 @@ function findAnotherNearbyCctv(currentCctv) {
     if (!state.failedSessionCams) {
         state.failedSessionCams = new Set();
     }
+    
+    const activeGridIds = getActiveGridCctvIds();
     const isFailed = (id) => state.failedSessionCams.has(id);
     const isHealthy = (item) => item && !isKnownUnavailableCamera(item) && !isUnsupportedBrowserStream(item);
+    const isNotDuplicate = (id) => id !== currentCctv.id && !activeGridIds.has(id);
 
-    // 1st stage: search within nearest list for any candidate not failed yet
+    // 1st stage: search within nearest list for any candidate not failed yet and not active on screen
     if (idx !== -1) {
         for (let offset = 1; offset < list.length; offset += 1) {
             const candidate = list[(idx + offset) % list.length];
-            if (candidate && candidate.id !== currentCctv.id && !isFailed(candidate.id) && isHealthy(candidate)) {
+            if (candidate && !isFailed(candidate.id) && isHealthy(candidate) && isNotDuplicate(candidate.id)) {
                 return candidate;
             }
         }
     } else {
-        const found = list.find(item => item && item.id !== currentCctv.id && !isFailed(item.id) && isHealthy(item));
+        const found = list.find(item => item && !isFailed(item.id) && isHealthy(item) && isNotDuplicate(item.id));
         if (found) return found;
     }
 
-    // 2nd stage: search from state.cctvData for closest healthy candidate not failed yet
+    // 2nd stage: search from state.cctvData for closest healthy candidate not failed yet and not active on screen
     if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
         const sourceLat = Number(currentCctv.lat) || Number(state.center?.lat) || 37.5665;
         const sourceLng = Number(currentCctv.lng) || Number(state.center?.lng) || 126.9780;
         const candidates = state.cctvData
-            .filter(item => item && item.id !== currentCctv.id && !isFailed(item.id) && isHealthy(item))
+            .filter(item => item && !isFailed(item.id) && isHealthy(item) && isNotDuplicate(item.id))
             .map(item => {
                 const dy = Number(item.lat) - sourceLat;
                 const dx = Number(item.lng) - sourceLng;
@@ -5882,7 +5901,20 @@ function findAnotherNearbyCctv(currentCctv) {
         }
     }
 
-    // 3rd stage: if everything has failed, clear historical cache and cycle back
+    // 3rd stage: if no candidate fits strict de-duplication, relax de-duplication filter and find any healthy non-failed camera
+    if (idx !== -1) {
+        for (let offset = 1; offset < list.length; offset += 1) {
+            const candidate = list[(idx + offset) % list.length];
+            if (candidate && candidate.id !== currentCctv.id && !isFailed(candidate.id) && isHealthy(candidate)) {
+                return candidate;
+            }
+        }
+    } else {
+        const found = list.find(item => item && item.id !== currentCctv.id && !isFailed(item.id) && isHealthy(item));
+        if (found) return found;
+    }
+
+    // 4th stage: if everything has failed, clear historical cache and cycle back
     state.failedSessionCams.clear();
     if (idx !== -1) {
         for (let offset = 1; offset < list.length; offset += 1) {
