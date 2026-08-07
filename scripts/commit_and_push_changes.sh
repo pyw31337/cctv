@@ -20,9 +20,12 @@ fi
 git config --global user.name "${GIT_COMMIT_USER_NAME:-github-actions[bot]}"
 git config --global user.email "${GIT_COMMIT_USER_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
 
+# Save original file targets
+TARGET_PATTERNS=("$@")
+
 # Stage only the intended files. Missing globs are ignored so workflows can share
 # this helper even when a report file is unchanged or absent.
-for pattern in "$@"; do
+for pattern in "${TARGET_PATTERNS[@]}"; do
   git add -- "$pattern" 2>/dev/null || true
 done
 
@@ -33,9 +36,7 @@ fi
 
 git commit -m "$MESSAGE"
 
-# Workflows in this repo often update generated data close together. Serialize at
-# the workflow level first, then still retry a normal push in case a human/Codex
-# commit landed while the job was running.
+# Self-Healing Push Loop with Auto-Reapply
 for attempt in 1 2 3 4 5; do
   echo "Push attempt ${attempt}/5..."
   if git push origin HEAD:main; then
@@ -49,19 +50,40 @@ for attempt in 1 2 3 4 5; do
     continue
   fi
 
-  echo "Rebase conflict while pushing generated data." >&2
+  echo "Rebase conflict detected on generated data. Initiating self-healing auto-reapply..." >&2
+  TMP_BACKUP="$(mktemp -d)"
+  for pattern in "${TARGET_PATTERNS[@]}"; do
+    if [ -e "$pattern" ]; then
+      mkdir -p "$TMP_BACKUP/$(dirname "$pattern")"
+      cp -r "$pattern" "$TMP_BACKUP/$pattern" 2>/dev/null || true
+    fi
+  done
+
   git rebase --abort || true
-  if [ "${CCTV_COMMIT_PUSH_SOFT_FAIL:-1}" = "1" ]; then
-    echo "Soft-fail mode enabled: treating generated-data push conflict as a warning." >&2
+  git reset --hard origin/main || true
+
+  for pattern in "${TARGET_PATTERNS[@]}"; do
+    if [ -e "$TMP_BACKUP/$pattern" ]; then
+      mkdir -p "$(dirname "$pattern")"
+      cp -r "$TMP_BACKUP/$pattern" "$pattern" 2>/dev/null || true
+      git add -- "$pattern" 2>/dev/null || true
+    fi
+  done
+  rm -rf "$TMP_BACKUP"
+
+  if ! git diff --cached --quiet; then
+    git commit -m "$MESSAGE (auto-reapplied)" || true
+  fi
+
+  if git push origin HEAD:main; then
+    echo "Self-healing push succeeded!"
     exit 0
   fi
-  echo "Leaving the workflow failed instead of force-pushing or dropping data." >&2
-  exit 1
 done
 
 echo "Failed to push after 5 attempts." >&2
 if [ "${CCTV_COMMIT_PUSH_SOFT_FAIL:-1}" = "1" ]; then
-  echo "Soft-fail mode enabled: generated-data push failure is a warning." >&2
+  echo "Soft-fail mode enabled: generated-data push failure is treated as a warning." >&2
   exit 0
 fi
 exit 1
