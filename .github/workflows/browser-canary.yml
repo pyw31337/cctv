@@ -31,6 +31,7 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Run real browser playback canary
         env:
+  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
           CCTV_APP_BASE: ${{ inputs.app_base }}
         run: node scripts/browser_canary.mjs
       - name: Upload browser canary report

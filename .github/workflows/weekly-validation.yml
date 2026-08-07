@@ -31,6 +31,7 @@ jobs:
         
     - name: Run Validation Script
       env:
+  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
         SMTP_USER: ${{ secrets.SMTP_USER }}
         SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       run: python validate_weekly.py

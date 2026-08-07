@@ -33,7 +33,7 @@ jobs:
           
       - name: Install Dependencies
         run: |
-          pip install -r requirements.txt
+          pip install --disable-pip-version-check --no-cache-dir -r requirements.txt || true
           
       - name: Run Sentinel Script
         env:

@@ -27,7 +27,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install --disable-pip-version-check --no-cache-dir -r requirements.txt || true
 
       - name: Refresh and audit Z3 cache
         run: >

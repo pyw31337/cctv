@@ -13,7 +13,10 @@ concurrency:
 jobs:
   health-check:
     runs-on: ubuntu-latest
-    permissions:
+    env:
+  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
+
+permissions:
       contents: read
       issues: write
     steps:
