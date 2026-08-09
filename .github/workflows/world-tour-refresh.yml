@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 env:
-  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
 
 permissions:
   contents: write
@@ -71,7 +70,6 @@ jobs:
           # lands while this long-running refresh is executing. Prefer keeping
           # the newer main branch clean and let the next scheduled refresh
           # regenerate data instead of failing the whole workflow or force-pushing.
-          CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
         run: |
           scripts/commit_and_push_changes.sh "Auto-update: World tour CCTV data [skip ci]" \
             data/world_tour_cams.json \

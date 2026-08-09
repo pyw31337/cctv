@@ -21,7 +21,6 @@ on:
       - 'sw.js'
 
 env:
-  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
 
 permissions:
   contents: write
@@ -52,7 +51,6 @@ jobs:
 
       - name: Rewrite build version tokens
         env:
-  CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
