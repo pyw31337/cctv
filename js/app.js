@@ -1010,6 +1010,9 @@ function setupEventListeners() {
             if (cctv) {
                 $('#search-results').classList.remove('active');
                 $('#dim-overlay').classList.remove('active');
+                if (cctv.lat && cctv.lng) {
+                    selectPlace(cctv.lat, cctv.lng, cctv.name, cctv.address || cctv.name);
+                }
                 openVideoLayer(cctv);
             }
             return;
@@ -1075,6 +1078,9 @@ function setupEventListeners() {
             if (cctv) {
                 $('#search-results').classList.remove('active');
                 $('#dim-overlay').classList.remove('active');
+                if (cctv.lat && cctv.lng) {
+                    selectPlace(cctv.lat, cctv.lng, cctv.name, cctv.address || cctv.name);
+                }
                 openVideoLayer(cctv);
             }
             return;

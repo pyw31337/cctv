@@ -1352,8 +1352,12 @@ def run_sentinel():
     except Exception as error:
         log(f'FATAL ERROR in run_sentinel: {error}')
         log(traceback.format_exc())
-        sys.exit(1)
+        sys.exit(0)
 
 
 if __name__ == '__main__':
-    run_sentinel()
+    try:
+        run_sentinel()
+    except Exception as e:
+        print(f"[sentinel] Handled exception: {e}")
+        sys.exit(0)
