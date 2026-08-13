@@ -24,9 +24,9 @@
       "aurorainfo": 6,
       "climaaovivo": 72,
       "baltic": 405,
-      "tabi": 2,
       "external": 5,
       "earthcam": 2,
+      "tabi": 2,
       "viewsurf": 183,
       "webcamtaxi": 12,
       "worldcamtv": 13,
@@ -59,21 +59,22 @@
     },
     "playbackCounts": {
       "verified": 956,
-      "unchecked": 4,
-      "source-only": 1878
+      "unchecked": 3,
+      "source-only": 1878,
+      "unavailable": 1
     },
     "qualityTiers": {
       "excellent": 786,
-      "good": 300,
+      "good": 299,
       "fair": 1708,
-      "watch": 44
+      "watch": 45
     },
     "directPlaybackStatusCounts": {
       "trusted_provider_embed": 232,
       "direct_hls": 96,
-      "source_site_only": 1901,
+      "source_site_only": 1902,
       "direct_video": 605,
-      "in_app_playable": 3,
+      "in_app_playable": 2,
       "youtube_embed_verified": 1
     },
     "sourceOnlyReasons": {
@@ -83,7 +84,8 @@
       "worldcam_detail_page_does_not_expose_public_iframe_hls_or_mp4": 169,
       "verified_original_source_page_only": 119,
       "direct_stream_probe_failed": 47,
-      "invalid_or_unstable_embed_url": 6
+      "invalid_or_unstable_embed_url": 6,
+      "youtube_unavailable_or_not_embeddable": 1
     },
     "youtubeSearchQueries": [
       "live cam",
@@ -475,19 +477,20 @@
       "staleFallbackHours": 24.0,
       "timeoutCapSeconds": 14.0
     },
-    "lastPlayabilityAuditAt": "2026-08-13T08:56:46.451029+00:00",
+    "lastPlayabilityAuditAt": "2026-08-13T14:47:23.487755+00:00",
     "playabilityAuditPolicy": "Snapshot-only feeds are excluded; unavailable/embed-disabled/source-only feeds are retained but not treated as in-app playable. Known refused original-only providers are removed from the user-facing list. When max-items is used, stale and high-risk source items are rotated first so every retained item eventually receives a fresh check.",
     "playabilityAuditMode": "rotating",
     "playabilityAuditedThisRun": 520,
     "playabilityRetainedWithoutAuditThisRun": 2318,
     "oldestCheckedAt": "2026-08-13",
-    "uncheckedCount": 4,
+    "uncheckedCount": 3,
     "playbackStatusCounts": {
       "verified": 956,
-      "unchecked": 4,
-      "source-only": 1878
+      "unchecked": 3,
+      "source-only": 1878,
+      "unavailable": 1
     },
-    "sourceOnlyCount": 1880,
+    "sourceOnlyCount": 1881,
     "sourceTypeHealth": {
       "africam": {
         "total": 10,
@@ -852,13 +855,13 @@
       "tabi": {
         "total": 2,
         "verified": 0,
-        "sourceOnly": 1,
-        "unchecked": 2,
-        "unavailable": 0,
+        "sourceOnly": 2,
+        "unchecked": 1,
+        "unavailable": 1,
         "embedDisabled": 0,
         "directHls": 0,
         "trustedEmbed": 0,
-        "externalOnly": 1,
+        "externalOnly": 3,
         "verifiedRate": 0.0
       },
       "usgsvolcano": {
@@ -33388,33 +33391,6 @@
       "directProbeStatus": "direct_url_present"
     },
     {
-      "id": "tabi-venice-lagoon-tabi",
-      "title": "베네치아 라군",
-      "subtitle": "베네치아 라군과 수상 도시",
-      "city": "Venice",
-      "country": "Italy",
-      "region": "Europe",
-      "lat": 45.4408,
-      "lng": 12.3155,
-      "videoId": "tIWaq7cAFRo",
-      "channel": "TabiCam",
-      "sourceUrl": "https://tabi.cam/ko/italy/venice-lagoon-418019/",
-      "tags": [
-        "tourism",
-        "tabi"
-      ],
-      "priority": 76,
-      "status": "is_live",
-      "sourceType": "tabi",
-      "youtubePlayabilityStatus": "ERROR",
-      "youtubePlayabilityReason": "This video is unavailable",
-      "lastCheckedAt": "2026-08-13",
-      "playbackStatus": "unchecked",
-      "stabilityScore": 76,
-      "qualityScore": 76,
-      "qualityTier": "good"
-    },
-    {
       "id": "windy-1229038291",
       "title": "Eiffel Tower View (Paris)",
       "subtitle": "Eiffel Tower view from Trocadéro, Paris",
@@ -57541,7 +57517,8 @@
       "sourceOnly": true,
       "stabilityScore": 70,
       "qualityScore": 70,
-      "qualityTier": "fair"
+      "qualityTier": "fair",
+      "sourceRefreshError": "HTTPError: HTTP Error 404: Not Found"
     },
     {
       "id": "webcamhopper-map-4760-html",
@@ -88421,6 +88398,36 @@
       "embedProbeStatus": "URLError: <urlopen error [Errno -2] Name or service not known>",
       "directPlaybackStatus": "source_site_only",
       "sourceOnlyReason": "embed_url_probe_failed"
+    },
+    {
+      "id": "tabi-venice-lagoon-tabi",
+      "title": "베네치아 라군",
+      "subtitle": "베네치아 라군과 수상 도시",
+      "city": "Venice",
+      "country": "Italy",
+      "region": "Europe",
+      "lat": 45.4408,
+      "lng": 12.3155,
+      "videoId": "tIWaq7cAFRo",
+      "channel": "TabiCam",
+      "sourceUrl": "https://tabi.cam/ko/italy/venice-lagoon-418019/",
+      "tags": [
+        "tourism",
+        "tabi"
+      ],
+      "priority": 76,
+      "status": "is_live",
+      "sourceType": "tabi",
+      "youtubePlayabilityStatus": "ERROR",
+      "youtubePlayabilityReason": "Video unavailable",
+      "lastCheckedAt": "2026-08-13",
+      "playbackStatus": "unavailable",
+      "stabilityScore": 8,
+      "qualityScore": 8,
+      "qualityTier": "watch",
+      "directPlaybackStatus": "source_site_only",
+      "sourceOnly": true,
+      "sourceOnlyReason": "youtube_unavailable_or_not_embeddable"
     }
   ]
 }
