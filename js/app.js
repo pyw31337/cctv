@@ -4249,17 +4249,27 @@ function applyLocalPlacePriority(ordered, lat, lng) {
         }
     }
 
-    // 2. Crown Motel search context
+    // 2. Crown Motel (Namyangju Hwado-eup Maseok) pinpoint core 4 cameras
     if (isCrownMotelSearchContext(lat, lng)) {
-        const priorityIds = ['L180076', 'L180075', 'L180196', 'L180195'];
-        const byId = new Map(ordered.map(cctv => [cctv.id, cctv]));
-        const promoted = priorityIds
-            .map(id => byId.get(id) || findCctvById(id))
-            .filter(Boolean)
-            .map(cctv => byId.get(cctv.id) || decorateNearestCandidate(cctv, lat, lng));
+        const priorityIds = ['L180075', 'GITS_95551', 'L180076', 'GITS_95552', 'L180196', 'L180074', 'GITS_95550', 'KBS_9974'];
+        const byId = new Map((ordered || []).map(cctv => [cctv.id, cctv]));
+        const promoted = [];
+        const seenNames = new Set();
 
-        const promotedIds = new Set(promoted.map(cctv => cctv.id));
-        return promoted.concat(ordered.filter(cctv => !promotedIds.has(cctv.id)));
+        for (const id of priorityIds) {
+            const cctv = byId.get(id) || findCctvById(id);
+            if (cctv && !seenNames.has(cctv.name)) {
+                promoted.push(byId.get(cctv.id) || decorateNearestCandidate(cctv, lat, lng));
+                seenNames.add(cctv.name);
+            }
+            if (promoted.length >= 4) break;
+        }
+
+        if (promoted.length > 0) {
+            const promotedIds = new Set(promoted.map(cctv => cctv.id));
+            const rest = (ordered || []).filter(cctv => !promotedIds.has(cctv.id));
+            return promoted.concat(rest);
+        }
     }
 
     return ordered;
@@ -4276,11 +4286,11 @@ function isJeiHairSearchContext(lat, lng) {
 
 function isCrownMotelSearchContext(lat, lng) {
     const keyword = getCurrentSearchContextKeyword();
-    const crownKeyword = keyword.includes('크라운모텔') || keyword.includes('화도읍') || keyword.includes('마석');
+    const crownKeyword = keyword.includes('크라운모텔') || keyword.includes('화도읍') || keyword.includes('마석') || keyword.includes('화도');
     const nearCrownMotel = Number.isFinite(lat)
         && Number.isFinite(lng)
-        && getDistance(lat, lng, 37.6525, 127.3072) <= 0.9;
-    return nearCrownMotel && crownKeyword;
+        && getDistance(lat, lng, 37.6509, 127.3111) <= 2.5;
+    return nearCrownMotel || crownKeyword;
 }
 
 // (Mobile 1+3 layout removed by user request — keep simple 2×2 / 1×4 grid.)
