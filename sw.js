@@ -144,7 +144,7 @@ self.addEventListener('fetch', event => {
     }
 
     if (isStaleWhileRevalidate(url)) {
-        event.respondWith(networkFirst(request, DATA_CACHE));
+        event.respondWith(staleWhileRevalidate(request, DATA_CACHE));
         return;
     }
 
@@ -154,7 +154,7 @@ self.addEventListener('fetch', event => {
     }
 
     if (isShellRequest(url)) {
-        event.respondWith(staleWhileRevalidate(request, SHELL_CACHE));
+        event.respondWith(networkFirst(request, SHELL_CACHE));
     }
 });
 

@@ -34,7 +34,24 @@ async function loadFont(url: string): Promise<ArrayBuffer> {
     return res.arrayBuffer();
 }
 
+const PRIVATE_HOSTNAME_PATTERN = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.0\.0\.0|::1$|\[?::1\]?$|100\.6[4-9]\.|100\.[7-9]\d\.|100\.1[01]\d\.|100\.12[0-7]\.)/i;
+const PRIVATE_172_PATTERN = /^172\.(1[6-9]|2\d|3[01])\./;
+
+function isSafeSnapshotUrl(raw: string): boolean {
+    let parsed: URL;
+    try {
+        parsed = new URL(raw);
+    } catch {
+        return false;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname;
+    if (PRIVATE_HOSTNAME_PATTERN.test(hostname) || PRIVATE_172_PATTERN.test(hostname)) return false;
+    return true;
+}
+
 async function snapshotToDataUri(url: string): Promise<string | null> {
+    if (!isSafeSnapshotUrl(url)) return null;
     try {
         const res = await fetch(url, { cf: { cacheTtl: 1800 } as any });
         if (!res.ok) return null;

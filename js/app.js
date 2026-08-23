@@ -535,6 +535,19 @@ let qualityTelemetryFlushTimer = null;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
+// Escapes text for safe interpolation into innerHTML markup or an HTML
+// attribute value. Place names/addresses come from the Kakao Places API and
+// the `name`/`cctv` URL params, both of which are attacker-influenceable.
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[ch]));
+}
+
 // === Initialization ===
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('CCTV Viewer 2.0 Initializing...');
@@ -1550,14 +1563,16 @@ function renderSearchResults(data) {
 
     if (data.length > 0) {
         resultsEl.innerHTML = data.slice(0, SEARCH_RESULT_LIMIT).map(place => {
+            const safeName = escapeHtml(place.place_name);
+            const safeAddress = escapeHtml(place.address_name || '');
             if (place.isWorldTourCam) {
                 // Distinct row: jumps into the world-tour player on click.
                 return `
-                <div class="search-result-item world-tour-search-result" data-type="world" data-world-cam-id="${place.worldCamId}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+                <div class="search-result-item world-tour-search-result" data-type="world" data-world-cam-id="${escapeHtml(place.worldCamId)}" data-name="${safeName}" data-address="${safeAddress}">
                     <div class="search-result-icon">🌐</div>
                     <div class="search-result-info">
-                        <div class="search-result-name">${place.place_name}</div>
-                        <div class="search-result-address">전세계 라이브 · ${place.address_name || ''}</div>
+                        <div class="search-result-name">${safeName}</div>
+                        <div class="search-result-address">전세계 라이브 · ${safeAddress}</div>
                     </div>
                     <div class="search-result-actions">
                         <button class="btn-share-search" data-action="share-video" title="글로벌 영상 링크 복사" aria-label="글로벌 영상 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
@@ -1567,11 +1582,11 @@ function renderSearchResults(data) {
             }
             const icon = place.isRegion ? '🏙️' : '📍';
             return `
-            <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+            <div class="search-result-item" data-lat="${Number(place.y)}" data-lng="${Number(place.x)}" data-name="${safeName}" data-address="${safeAddress}">
                 <div class="search-result-icon">${icon}</div>
                 <div class="search-result-info">
-                    <div class="search-result-name">${place.place_name}</div>
-                    <div class="search-result-address">${place.address_name || ''}</div>
+                    <div class="search-result-name">${safeName}</div>
+                    <div class="search-result-address">${safeAddress}</div>
                 </div>
                 <div class="search-result-actions">
                     <button class="btn-share-search" data-action="share-video" title="4분할 영상으로 열기" aria-label="4분할 영상으로 열기">${SEARCH_VIDEO_SHARE_SVG}</button>
@@ -4056,6 +4071,80 @@ function openIssueReporter(cctv) {
     window.open(issueUrl, '_blank', 'noopener');
 }
 
+// === Selection stability (hysteresis) ===
+// Health/quality/canary data refreshes every 5-30 minutes and each sample is
+// a single noisy check, so `_priorityScore` can flip slightly between loads
+// even when nothing about the cameras actually changed. Without damping,
+// that noise alone can reorder the top-4 grid on every re-search of the same
+// spot. This pins the previously-shown top cameras in place as long as
+// they're still genuinely playable, so the grid only changes when a camera
+// truly breaks (or the user searches somewhere new).
+const STICKY_SELECTION_TTL_MS = 20 * 60 * 1000;
+const STICKY_SELECTION_PIN_COUNT = 4;
+const STICKY_SELECTION_STORAGE_KEY = 'stickyCamSelections_v1';
+const STICKY_SELECTION_MAX_ENTRIES = 30;
+const STICKY_LOCATION_GRID = 3000; // ~35m grid cell, matches "same search" intent
+
+function getStickyLocationKey(lat, lng) {
+    const latCell = Math.round(Number(lat) * STICKY_LOCATION_GRID);
+    const lngCell = Math.round(Number(lng) * STICKY_LOCATION_GRID);
+    return `${latCell}:${lngCell}:${state.sortMode || 'nearest'}`;
+}
+
+function readStickySelectionStore() {
+    try {
+        const raw = sessionStorage.getItem(STICKY_SELECTION_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function writeStickySelectionStore(store) {
+    try {
+        const entries = Object.entries(store).sort((a, b) => (b[1]?.ts || 0) - (a[1]?.ts || 0));
+        const trimmed = Object.fromEntries(entries.slice(0, STICKY_SELECTION_MAX_ENTRIES));
+        sessionStorage.setItem(STICKY_SELECTION_STORAGE_KEY, JSON.stringify(trimmed));
+    } catch (_) { /* storage may be unavailable (private mode, quota) */ }
+}
+
+function applySelectionHysteresis(ordered, lat, lng) {
+    const locationKey = getStickyLocationKey(lat, lng);
+    const store = readStickySelectionStore();
+    const entry = store[locationKey];
+    const stickyIds = entry && (Date.now() - Number(entry.ts || 0) <= STICKY_SELECTION_TTL_MS)
+        ? entry.ids
+        : null;
+
+    let result = ordered;
+    if (Array.isArray(stickyIds) && stickyIds.length > 0) {
+        const byId = new Map(ordered.map(cctv => [cctv.id, cctv]));
+        const pinned = [];
+        const seen = new Set();
+        for (const id of stickyIds) {
+            const cctv = byId.get(id);
+            // Only re-pin a previous pick if it's still in this run's
+            // selectable pool and hasn't since become a known-broken camera.
+            if (cctv && !shouldIsolateProblemCamera(cctv)) {
+                pinned.push(cctv);
+                seen.add(id);
+            }
+            if (pinned.length >= STICKY_SELECTION_PIN_COUNT) break;
+        }
+        if (pinned.length > 0) {
+            result = [...pinned, ...ordered.filter(cctv => !seen.has(cctv.id))];
+        }
+    }
+
+    const topIds = result.slice(0, STICKY_SELECTION_PIN_COUNT).map(cctv => cctv.id);
+    if (topIds.length > 0) {
+        store[locationKey] = { ids: topIds, ts: Date.now() };
+        writeStickySelectionStore(store);
+    }
+    return result;
+}
+
 // === CCTV Logic ===
 function updateNearestCctvs() {
     const { lat, lng } = state.center;
@@ -4076,8 +4165,9 @@ function updateNearestCctvs() {
 
     const canaryAware = applyCoreCanarySuccessPriority(ordered, lat, lng);
     const localAware = applyLocalPlacePriority(canaryAware, lat, lng);
+    const stabilized = applySelectionHysteresis(localAware, lat, lng);
 
-    state.nearestCctvs = dedupeSceneCandidates(localAware, NEAREST_RESULT_LIMIT);
+    state.nearestCctvs = dedupeSceneCandidates(stabilized, NEAREST_RESULT_LIMIT);
 }
 
 function getCurrentSearchContextKeyword() {
@@ -5982,8 +6072,10 @@ const GridFailoverController = {
             if (found) return found;
         }
 
-        // 4th stage: cycle back within geofence after clearing session failures
-        state.failedSessionCams.clear();
+        // 4th stage: cycle back within geofence, ignoring session failures.
+        // (Deliberately does NOT clear state.failedSessionCams here: this set
+        // is shared across all panels, so wiping it would let a camera that
+        // just failed in a different panel immediately reappear there too.)
         if (idx !== -1) {
             for (let offset = 1; offset < list.length; offset += 1) {
                 const candidate = list[(idx + offset) % list.length];
@@ -7296,7 +7388,7 @@ function openWeatherPanel() {
     layer?.classList.remove('world-tour-layer');
     content?.classList.remove('world-tour-content');
     document.body.classList.remove('world-tour-active');
-    $('#weather-title').innerHTML = `<span style="color: var(--accent)">${state.keyword}</span> 주간 날씨`;
+    $('#weather-title').innerHTML = `<span style="color: var(--accent)">${escapeHtml(state.keyword)}</span> 주간 날씨`;
     fetchWeather();
 }
 
