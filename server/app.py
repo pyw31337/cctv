@@ -6,11 +6,13 @@ import shutil
 import logging
 import threading
 import hashlib
+import ipaddress
+import socket
 import json
 import re
 import base64
 from datetime import datetime, timedelta
-from urllib.parse import quote, urlencode, urljoin, unquote
+from urllib.parse import quote, urlencode, urljoin, unquote, urlparse
 import flask
 from flask import Flask, request, Response, send_from_directory, abort
 import requests
@@ -58,6 +60,38 @@ def timed_cache(seconds: int = 60, maxsize: int = 128):
             return val
         return wrapper
     return decorator
+
+
+def is_safe_proxy_target(url):
+    """Reject proxy targets that point at internal/private network space.
+
+    /proxy is a public, unauthenticated relay (needed to work around CORS
+    and SSL quirks on upstream CCTV providers), so it must not be usable to
+    reach loopback, link-local (incl. cloud metadata at 169.254.169.254),
+    or RFC1918 addresses. Resolves the hostname so an attacker can't bypass
+    this with a domain that DNS-rebinds to an internal IP.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ('http', 'https'):
+        return False
+    hostname = parsed.hostname
+    if not hostname or hostname.lower() == 'localhost':
+        return False
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            return False
+    return True
 
 # === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
 _z3_cache = {
@@ -573,7 +607,9 @@ def stream_video():
     url = request.args.get('url')
     if not url:
         return "Missing URL", 400
-    
+    if not is_safe_proxy_target(url):
+        return "Refused: target host not allowed", 400
+
     stream_id = get_stream_id(url)
     stream_dir = os.path.join(HLS_DIR, stream_id)
     playlist_path = os.path.join(stream_dir, 'index.m3u8')
@@ -641,7 +677,9 @@ def proxy_stream():
     target_url = request.args.get('url')
     if not target_url:
         return "Missing URL", 400
-        
+    if not is_safe_proxy_target(target_url):
+        return "Refused: target host not allowed", 400
+
     try:
         # Some servers need specific Headers
         headers = {}
