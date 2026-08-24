@@ -1,13 +1,20 @@
-name: GITS Daily Ingest
+name: GITS Ingest
 
-# GITS 카메라 (경기도) 1,800+개의 popup token 은 단기 만료성이라 daily fresh ingest 필요.
+# GITS 카메라 (경기도) 1,800+개의 popup token 은 단기 만료성이라 fresh ingest 필요.
 # 이전엔 cctv-proxy worker /gits 가 실시간 fetch 했으나 Oracle /gits 가 hang 하면서 망가짐.
 # popup 자체는 살아있어서 collectors.gits.GitsCollector 로 직접 긁어 cctv_data.json 에 넣는다.
+#
+# Was daily-only: a camera whose popup scrape failed (or genuinely expired)
+# sat flagged manual_check/stream_missing_latest_gits_ingest for up to 24h
+# before the next chance to recover. Bumped to 4x/day (~6h apart, same
+# stagger pattern as world-tour-playability-audit.yml) to cut that worst-case
+# staleness window to ~6h without touching the abandoned real-time /gits path.
 
 on:
   schedule:
-    # 매일 06:05 KST (= 21:05 UTC 전날). CultureFlow/CCTV 감사 작업과 시간 분리.
-    - cron: '05 21 * * *'
+    # 4x/day, ~6h apart: 03:05/09:05/15:05/21:05 UTC. Kept the original 21:05
+    # slot and its :05 offset to stay staggered from other cctv-repo-writes jobs.
+    - cron: '05 3,9,15,21 * * *'
   workflow_dispatch:
 
 permissions:
@@ -46,7 +53,7 @@ jobs:
         run: |
           python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
           python scripts/write_workflow_status.py \
-            --workflow "GITS Daily Ingest" \
+            --workflow "GITS Ingest" \
             --job ingest \
             --status ok \
             --impact none \
@@ -54,4 +61,4 @@ jobs:
 
       - name: Commit changes
         run: |
-          scripts/commit_and_push_changes.sh "chore: daily GITS ingest [skip ci]" cctv_data.json data/workflow_status.json
+          scripts/commit_and_push_changes.sh "chore: GITS ingest [skip ci]" cctv_data.json data/workflow_status.json

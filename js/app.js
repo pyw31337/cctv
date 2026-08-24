@@ -6050,6 +6050,11 @@ function sanitizeErrorMessage(text) {
 // ============================================================================
 const GridFailoverController = {
     MAX_GEODISTANCE_KM: 4.5,
+    // Last-resort radii tried only when nothing at all is playable within
+    // MAX_GEODISTANCE_KM (sparse-camera regions like Seoul/Gyeonggi border
+    // towns). A further-away working camera is better than the panel
+    // showing "no alternative available".
+    EXPANDED_GEODISTANCE_STAGES_KM: [15, 40, 100],
 
     getActiveGridCctvIds() {
         const activeIds = new Set();
@@ -6084,15 +6089,16 @@ const GridFailoverController = {
         const isFailed = (id) => state.failedSessionCams.has(id);
         const isNotDuplicate = (id) => id !== currentCctv.id && !activeGridIds.has(id);
 
-        const isGeofencedAndPlayable = (item) => {
+        const isPlayableWithinRadius = (item, radiusKm) => {
             if (!item || !CctvPlayabilityEngine.isPlayableCandidate(item)) return false;
             const itemLat = Number(item.lat);
             const itemLng = Number(item.lng);
             if (!Number.isFinite(itemLat) || !Number.isFinite(itemLng)) return false;
 
             const distKm = getDistance(currentLat, currentLng, itemLat, itemLng);
-            return distKm <= this.MAX_GEODISTANCE_KM;
+            return distKm <= radiusKm;
         };
+        const isGeofencedAndPlayable = (item) => isPlayableWithinRadius(item, this.MAX_GEODISTANCE_KM);
 
         // 1st stage: search in nearest list for non-duplicate, geofenced, playable candidate
         if (idx !== -1) {
@@ -6142,7 +6148,23 @@ const GridFailoverController = {
                 if (candidate && candidate.id !== currentCctv.id && isGeofencedAndPlayable(candidate)) return candidate;
             }
         }
-        return list.find(item => item && item.id !== currentCctv.id && isGeofencedAndPlayable(item)) || null;
+        const withinBaseGeofence = list.find(item => item && item.id !== currentCctv.id && isGeofencedAndPlayable(item));
+        if (withinBaseGeofence) return withinBaseGeofence;
+
+        // 5th stage: nothing playable at all within MAX_GEODISTANCE_KM (sparse
+        // regions). Progressively widen the search instead of giving up --
+        // ignores session failures too, same as stage 4, since by this point
+        // any working camera is better than the "no alternative" dead end.
+        if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
+            for (const radiusKm of this.EXPANDED_GEODISTANCE_STAGES_KM) {
+                const candidates = state.cctvData
+                    .filter(item => item && item.id !== currentCctv.id && isPlayableWithinRadius(item, radiusKm))
+                    .map(item => ({ item, distKm: getDistance(currentLat, currentLng, Number(item.lat), Number(item.lng)) }))
+                    .sort((a, b) => a.distKm - b.distKm);
+                if (candidates.length > 0) return candidates[0].item;
+            }
+        }
+        return null;
     }
 };
 
