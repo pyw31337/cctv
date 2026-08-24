@@ -62,6 +62,52 @@ def timed_cache(seconds: int = 60, maxsize: int = 128):
     return decorator
 
 
+# Per-client-IP sliding-window rate limit. /proxy and /stream have no auth
+# and /proxy is a general-purpose relay, so nothing else stops one client
+# from hammering them. Safe as a simple in-process counter because the
+# Dockerfile runs a single gunicorn worker (--workers 1) -- every request
+# lands in the same process, so there's no per-worker inconsistency.
+# Thresholds are generous (a normal session with 4 video panels retrying
+# through failover is nowhere near this) so this is meant to blunt sustained
+# abuse, not to be a precise quota.
+from collections import defaultdict, deque
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_hits = defaultdict(deque)
+RATE_LIMIT_PRUNE_THRESHOLD = 5000  # distinct IPs before an opportunistic sweep
+
+
+def _rate_limit_client_id():
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+
+def rate_limited(max_requests=300, window_seconds=60):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            client_id = _rate_limit_client_id()
+            now = time.time()
+            with _rate_limit_lock:
+                hits = _rate_limit_hits[client_id]
+                while hits and now - hits[0] > window_seconds:
+                    hits.popleft()
+                if len(hits) >= max_requests:
+                    return Response(
+                        'Too many requests', 429,
+                        {'Retry-After': str(window_seconds), 'Content-Type': 'text/plain'}
+                    )
+                hits.append(now)
+                if len(_rate_limit_hits) > RATE_LIMIT_PRUNE_THRESHOLD:
+                    for key in [k for k, v in _rate_limit_hits.items() if not v]:
+                        del _rate_limit_hits[key]
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 def is_safe_proxy_target(url):
     """Reject proxy targets that point at internal/private network space.
 
@@ -644,6 +690,7 @@ def fetch_upstream(url, headers, attempts=3):
     raise last_error
 
 @app.route('/stream')
+@rate_limited(max_requests=60, window_seconds=60)
 def stream_video():
     url = request.args.get('url')
     if not url:
@@ -713,6 +760,7 @@ def serve_hls(stream_id, filename):
     return send_from_directory(os.path.join(HLS_DIR, stream_id), filename)
 
 @app.route('/proxy')
+@rate_limited(max_requests=600, window_seconds=60)
 def proxy_stream():
     """Simple pass-through proxy for SSL/CORS issues"""
     target_url = request.args.get('url')
