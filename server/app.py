@@ -94,25 +94,49 @@ def is_safe_proxy_target(url):
     return True
 
 
-def verified_get(url, **kwargs):
-    """GET with real TLS verification, falling back to verify=False only if
-    this specific upstream's certificate genuinely fails to validate.
+# Hosts observed (this process's lifetime) to fail strict TLS verification.
+# Several upstream CCTV providers were previously fetched with a blanket
+# verify=False, on the assumption their certs don't validate -- but that was
+# never confirmed per-domain. verified_request() tries strict verification
+# first and only remembers/relaxes it for a host that actually raises
+# SSLError, so a domain with a perfectly good cert (the common case) gets
+# real verification, a host that's confirmed to need the fallback doesn't
+# pay a doubled round-trip on every subsequent call (important for hot
+# loops like the Daejeon MP4 probe), and we get log visibility into which
+# domains, if any, truly need it instead of it being silently blanket-applied.
+_tls_fallback_hosts = set()
+_tls_fallback_lock = threading.Lock()
 
-    Several upstream CCTV providers were previously fetched with a blanket
-    verify=False, on the assumption their certs don't validate -- but that
-    was never confirmed per-domain. This tries strict verification first and
-    only relaxes it (with a logged warning naming the host) on an actual
-    SSLError, so a domain with a perfectly good cert (the common case) gets
-    real verification, and we get visibility into which domains, if any,
-    truly need the fallback instead of it being silently blanket-applied.
+
+def verified_request(method, url, session=None, **kwargs):
+    """Issue an HTTP request with real TLS verification, falling back to
+    verify=False only for a host already confirmed (this process's
+    lifetime) to fail it. Pass `session=` to run through a requests.Session
+    (needed for cookie-based multi-step flows like Jeju or the Z3
+    its.go.kr XSRF handshake) instead of the bare requests module.
     """
     kwargs.pop('verify', None)
+    caller = session or requests
+    hostname = urlparse(url).hostname
+    with _tls_fallback_lock:
+        use_insecure = hostname in _tls_fallback_hosts
     try:
-        return requests.get(url, verify=True, **kwargs)
+        return caller.request(method, url, verify=not use_insecure, **kwargs)
     except requests.exceptions.SSLError as exc:
-        hostname = urlparse(url).hostname
+        if use_insecure:
+            raise  # already on verify=False; this is a real connection problem, not a cert one
         logger.warning(f"TLS verification failed for {hostname}, retrying without verification: {exc}")
-        return requests.get(url, verify=False, **kwargs)
+        with _tls_fallback_lock:
+            _tls_fallback_hosts.add(hostname)
+        return caller.request(method, url, verify=False, **kwargs)
+
+
+def verified_get(url, session=None, **kwargs):
+    return verified_request('GET', url, session=session, **kwargs)
+
+
+def verified_post(url, session=None, **kwargs):
+    return verified_request('POST', url, session=session, **kwargs)
 
 # === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
 _z3_cache = {
@@ -129,8 +153,7 @@ Z3_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/pyw31337/cctv/main/data/z
 Z3_LOCAL_CACHE_FILE = os.environ.get('Z3_LOCAL_CACHE_FILE', os.path.join(ROOT_DIR, 'data', 'z3_cache.json'))
 
 JEJU_STREAM_CACHE_TTL_SECONDS = 120
-jeju_session = requests.Session()
-jeju_session.verify = False
+jeju_session = requests.Session()  # verification handled per-request by verified_request()
 jeju_lock = threading.Lock()
 jeju_stream_cache = {}
 
@@ -263,11 +286,10 @@ def _refresh_z3_from_its():
     Works when the server is in a region with access to Korean government sites (e.g. Tokyo).
     Caller must hold _z3_cache['lock']. Returns True if successful."""
     try:
-        s = requests.Session()
-        s.verify = False
+        s = requests.Session()  # verification handled per-request by verified_request()
         logger.info("Z3: Attempting direct its.go.kr refresh...")
 
-        r = s.get('https://its.go.kr/', timeout=15,
+        r = verified_get('https://its.go.kr/', session=s, timeout=15,
                   headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
         xsrf = s.cookies.get('XSRF-TOKEN', '')
         if not xsrf:
@@ -281,7 +303,7 @@ def _refresh_z3_from_its():
             'X-XSRF-TOKEN': xsrf,
             'Accept': 'application/json',
         }
-        r2 = s.post('https://its.go.kr/map/getMarkers',
+        r2 = verified_post('https://its.go.kr/map/getMarkers', session=s,
                     data=json.dumps({'body': {'data': {'type': 'CCTV'}}}),
                     headers=headers, timeout=120)
 
@@ -818,7 +840,7 @@ def proxy_daejeon():
         real_url = f"https://tportal.daejeon.go.kr:37084/{media_path}/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
         last_url = real_url
         try:
-            resp = requests.get(real_url, headers=probe_headers, timeout=(1.0, 1.5), verify=False, stream=True)
+            resp = verified_get(real_url, headers=probe_headers, timeout=(1.0, 1.5), stream=True)
             if resp.status_code in (200, 206):
                 logger.info(f"Proxying Daejeon {cctv_id} offset={offset}m -> {real_url}")
                 return flask.redirect(real_url)
@@ -1111,8 +1133,9 @@ def proxy_jeju():
     try:
         if not jeju_session.cookies:
             try:
-                jeju_session.get(
+                verified_get(
                     "https://www.jejuits.go.kr/jido/mainView.do",
+                    session=jeju_session,
                     headers=headers,
                     timeout=(2, 4),
                 )
@@ -1129,7 +1152,7 @@ def proxy_jeju():
                 "maplevel": "14",
             }
             logger.info(f"Jeju: Resolving UUID for {short_id}...")
-            resp = jeju_session.post(info_url, data=payload, headers=headers, timeout=(2, 4))
+            resp = verified_post(info_url, session=jeju_session, data=payload, headers=headers, timeout=(2, 4))
             if resp.status_code == 200:
                 data = resp.json()
                 if 'stremid' in data:
@@ -1145,7 +1168,7 @@ def proxy_jeju():
         payload = {"DEVICE_ID": target_id}
 
         logger.info(f"Jeju: Fetching token for {target_id}...")
-        resp = jeju_session.post(target_api, data=payload, headers=headers, timeout=(3, 12))
+        resp = verified_post(target_api, session=jeju_session, data=payload, headers=headers, timeout=(3, 12))
         if resp.status_code != 200:
             return f"Jeju API Error: {resp.status_code}", 502
 
