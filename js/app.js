@@ -4074,26 +4074,38 @@ function openIssueReporter(cctv) {
 // === Selection stability (hysteresis) ===
 // Health/quality/canary data refreshes every 5-30 minutes and each sample is
 // a single noisy check, so `_priorityScore` can flip slightly between loads
-// even when nothing about the cameras actually changed. Without damping,
-// that noise alone can reorder the top-4 grid on every re-search of the same
-// spot. This pins the previously-shown top cameras in place as long as
-// they're still genuinely playable, so the grid only changes when a camera
-// truly breaks (or the user searches somewhere new).
-const STICKY_SELECTION_TTL_MS = 20 * 60 * 1000;
+// even when nothing about the cameras actually changed. Score-based ranking
+// alone would reorder the top-4 grid on every re-search of the same spot.
+//
+// Policy: once a location has shown a top-4, keep showing exactly that same
+// top-4 on every future visit -- indefinitely, as long as it's revisited
+// occasionally -- and only replace a camera once it's been continuously
+// broken for a while (not on a single noisy reading). Ranking still decides
+// what a *brand-new* location gets shown; it just no longer gets to reshuffle
+// a place the user already has a settled view of.
+const STICKY_SELECTION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days, refreshed on every revisit
 const STICKY_SELECTION_PIN_COUNT = 4;
-const STICKY_SELECTION_STORAGE_KEY = 'stickyCamSelections_v1';
-const STICKY_SELECTION_MAX_ENTRIES = 30;
-const STICKY_LOCATION_GRID = 3000; // ~35m grid cell, matches "same search" intent
+const STICKY_SELECTION_STORAGE_KEY = 'stickyCamSelections_v2';
+const STICKY_SELECTION_MAX_ENTRIES = 60;
+const STICKY_SELECTION_BROKEN_GRACE_MS = 10 * 60 * 1000; // ignore a single noisy "broken" reading
+const STICKY_LOCATION_GRID = 3000; // ~35m grid cell; only used when no search keyword is available
 
 function getStickyLocationKey(lat, lng) {
+    // Prefer the search keyword itself ("크라운모텔", "제이헤어", ...): it's a
+    // far more reliable identity for "the same place" than lat/lng, which can
+    // drift slightly between repeat searches/geocodes of the same name.
+    const keyword = getCurrentSearchContextKeyword();
+    if (keyword) {
+        return `kw:${keyword}:${state.sortMode || 'nearest'}`;
+    }
     const latCell = Math.round(Number(lat) * STICKY_LOCATION_GRID);
     const lngCell = Math.round(Number(lng) * STICKY_LOCATION_GRID);
-    return `${latCell}:${lngCell}:${state.sortMode || 'nearest'}`;
+    return `geo:${latCell}:${lngCell}:${state.sortMode || 'nearest'}`;
 }
 
 function readStickySelectionStore() {
     try {
-        const raw = sessionStorage.getItem(STICKY_SELECTION_STORAGE_KEY);
+        const raw = localStorage.getItem(STICKY_SELECTION_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : null;
         return (parsed && typeof parsed === 'object') ? parsed : {};
     } catch (_) {
@@ -4105,7 +4117,7 @@ function writeStickySelectionStore(store) {
     try {
         const entries = Object.entries(store).sort((a, b) => (b[1]?.ts || 0) - (a[1]?.ts || 0));
         const trimmed = Object.fromEntries(entries.slice(0, STICKY_SELECTION_MAX_ENTRIES));
-        sessionStorage.setItem(STICKY_SELECTION_STORAGE_KEY, JSON.stringify(trimmed));
+        localStorage.setItem(STICKY_SELECTION_STORAGE_KEY, JSON.stringify(trimmed));
     } catch (_) { /* storage may be unavailable (private mode, quota) */ }
 }
 
@@ -4113,20 +4125,32 @@ function applySelectionHysteresis(ordered, lat, lng) {
     const locationKey = getStickyLocationKey(lat, lng);
     const store = readStickySelectionStore();
     const entry = store[locationKey];
-    const stickyIds = entry && (Date.now() - Number(entry.ts || 0) <= STICKY_SELECTION_TTL_MS)
-        ? entry.ids
-        : null;
+    const isFresh = entry && (Date.now() - Number(entry.ts || 0) <= STICKY_SELECTION_TTL_MS);
+    const stickyIds = isFresh ? entry.ids : null;
+    const brokenSince = { ...(isFresh && entry.brokenSince ? entry.brokenSince : {}) };
 
     let result = ordered;
     if (Array.isArray(stickyIds) && stickyIds.length > 0) {
         const byId = new Map(ordered.map(cctv => [cctv.id, cctv]));
         const pinned = [];
         const seen = new Set();
+        const now = Date.now();
+
         for (const id of stickyIds) {
             const cctv = byId.get(id);
-            // Only re-pin a previous pick if it's still in this run's
-            // selectable pool and hasn't since become a known-broken camera.
-            if (cctv && !shouldIsolateProblemCamera(cctv)) {
+            if (!cctv) continue; // no longer exists in today's candidate pool at all
+
+            if (shouldIsolateProblemCamera(cctv)) {
+                const brokenAt = brokenSince[id] || now;
+                brokenSince[id] = brokenAt;
+                // A single noisy health sample doesn't evict a settled pick --
+                // only a camera that's stayed broken past the grace period does.
+                if (now - brokenAt < STICKY_SELECTION_BROKEN_GRACE_MS) {
+                    pinned.push(cctv);
+                    seen.add(id);
+                }
+            } else {
+                delete brokenSince[id];
                 pinned.push(cctv);
                 seen.add(id);
             }
@@ -4139,7 +4163,11 @@ function applySelectionHysteresis(ordered, lat, lng) {
 
     const topIds = result.slice(0, STICKY_SELECTION_PIN_COUNT).map(cctv => cctv.id);
     if (topIds.length > 0) {
-        store[locationKey] = { ids: topIds, ts: Date.now() };
+        const topIdSet = new Set(topIds);
+        const prunedBrokenSince = Object.fromEntries(
+            Object.entries(brokenSince).filter(([id]) => topIdSet.has(id))
+        );
+        store[locationKey] = { ids: topIds, ts: Date.now(), brokenSince: prunedBrokenSince };
         writeStickySelectionStore(store);
     }
     return result;

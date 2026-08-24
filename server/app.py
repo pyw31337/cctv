@@ -93,6 +93,27 @@ def is_safe_proxy_target(url):
             return False
     return True
 
+
+def verified_get(url, **kwargs):
+    """GET with real TLS verification, falling back to verify=False only if
+    this specific upstream's certificate genuinely fails to validate.
+
+    Several upstream CCTV providers were previously fetched with a blanket
+    verify=False, on the assumption their certs don't validate -- but that
+    was never confirmed per-domain. This tries strict verification first and
+    only relaxes it (with a logged warning naming the host) on an actual
+    SSLError, so a domain with a perfectly good cert (the common case) gets
+    real verification, and we get visibility into which domains, if any,
+    truly need the fallback instead of it being silently blanket-applied.
+    """
+    kwargs.pop('verify', None)
+    try:
+        return requests.get(url, verify=True, **kwargs)
+    except requests.exceptions.SSLError as exc:
+        hostname = urlparse(url).hostname
+        logger.warning(f"TLS verification failed for {hostname}, retrying without verification: {exc}")
+        return requests.get(url, verify=False, **kwargs)
+
 # === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
 _z3_cache = {
     'data': None,       # dict: cctvip (str) -> appUrl (str)
@@ -363,10 +384,9 @@ def get_z3_app_url(cctvip):
 
 
 def fetch_z3_hls_url(app_url):
-    return requests.get(
+    return verified_get(
         app_url + '!hls',
         timeout=10,
-        verify=False,
         headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
             'Referer': 'https://its.go.kr/'
@@ -583,10 +603,9 @@ def fetch_upstream(url, headers, attempts=3):
     last_error = None
     for attempt in range(1, attempts + 1):
         try:
-            resp = requests.get(
+            resp = verified_get(
                 url,
                 timeout=(5, 20),
-                verify=False,
                 headers=headers,
                 allow_redirects=True,
             )
@@ -1221,7 +1240,7 @@ def proxy_utic():
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do"
         }
-        resp = requests.get(jsp_url, headers=headers, timeout=10, verify=False)
+        resp = verified_get(jsp_url, headers=headers, timeout=10)
         if resp.status_code != 200:
             return f"UTIC JSP Error: {resp.status_code}", 502
 
@@ -1309,7 +1328,7 @@ def proxy_kb():
     }
 
     try:
-        resp = requests.get(utic_api_url, headers=headers, timeout=10, verify=False)
+        resp = verified_get(utic_api_url, headers=headers, timeout=10)
         if resp.status_code != 200:
             return f"UTIC KB API error: {resp.status_code}", 502
 
@@ -1379,7 +1398,7 @@ def proxy_gits():
             hls_token_url = match_hls.group(1)
             if hls_token_url.startswith("//"):
                 hls_token_url = "https:" + hls_token_url
-            hls_resp = requests.get(hls_token_url, headers=gits_headers, timeout=10, verify=False)
+            hls_resp = verified_get(hls_token_url, headers=gits_headers, timeout=10)
             if hls_resp.status_code == 200:
                 m3u8_url = hls_resp.text.strip()
                 if m3u8_url.startswith("http"):
