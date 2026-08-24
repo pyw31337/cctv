@@ -80,6 +80,7 @@ const STABILITY_MODE_PRIMARY_TARGET = 4;
 const STABILITY_MODE_EXPANDED_RADIUS_KM = 24;
 const STABILITY_MODE_EMERGENCY_RADIUS_KM = 45;
 const DYNAMIC_BACKUP_RADIUS_KM = 8;
+const SAME_SCENE_BACKUP_RADIUS_KM = 0.08; // ~80m: different providers' coordinates for the same physical camera/intersection typically differ by well under this
 const ORACLE_CANDIDATES = [
     'https://158.179.194.163.sslip.io',
     'https://cctv-proxy.pyw213.workers.dev'
@@ -5803,57 +5804,88 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
 function ensureDynamicBackups(cctv) {
     if (!cctv || cctv._dynamicFallbacksAdded) return;
-    const backupSource = isJejuUticProxyable(cctv) ? 'JEJU' : cctv.source;
-    if (!['JEJU', 'NOWJEJU', 'TRENDWORLD'].includes(backupSource)) return;
-    if (!Number.isFinite(Number(cctv.lat)) || !Number.isFinite(Number(cctv.lng))) return;
 
     const backupUrls = Array.isArray(cctv.backup_urls)
         ? cctv.backup_urls.map(item => normalizeBackupEntry(item, cctv)).filter(Boolean)
         : [];
     const knownUrls = new Set([cctv.directUrl, cctv.url, ...backupUrls.map(item => item && item.url)].filter(Boolean));
-    const jejuStatus = state.regionHealth.JEJU?.status || '';
-    const jejuIsUnstable = ['DEGRADED', 'DOWN'].includes(jejuStatus);
-    const preferredSources = backupSource === 'JEJU' && jejuIsUnstable
-        ? ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'GITS']
-        : ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS'];
 
-    const nearbyBackupCandidates = state.cctvData
-        .filter(item => item && item.id !== cctv.id && preferredSources.includes(item.source))
-        .filter(item => !isUnsupportedBrowserStream(item))
-        .map(item => ({
-            item,
-            distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng)
-        }))
-        .filter(({ item, distance }) => Number.isFinite(distance) && distance <= DYNAMIC_BACKUP_RADIUS_KM && (item.directUrl || item.url) && !knownUrls.has(item.directUrl || item.url))
-        .sort((a, b) => {
-            const sourceDelta = preferredSources.indexOf(a.item.source) - preferredSources.indexOf(b.item.source);
-            const sameSpotDelta = Number(a.distance > 0.25) - Number(b.distance > 0.25);
-            return sameSpotDelta || sourceDelta || a.distance - b.distance;
-        });
-    const rotation = backupSource === 'JEJU' && nearbyBackupCandidates.length > 1
-        ? getStableModulo(cctv.id || cctv.name, Math.min(nearbyBackupCandidates.length, 5))
-        : 0;
-    const rotatedBackupCandidates = nearbyBackupCandidates
-        .slice(rotation)
-        .concat(nearbyBackupCandidates.slice(0, rotation));
-    const nearbyBackups = rotatedBackupCandidates
-        .slice(0, 5)
-        .map(({ item }) => ({
-            id: item.id,
-            source: item.source,
-            url: item.directUrl || item.url,
-            name: item.name,
-            original_id: item.original_id,
-            lat: item.lat,
-            lng: item.lng,
-            distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng)
-        }));
+    // Same-scene backups: another feed of the exact same intersection/camera
+    // from a different provider, matched by normalized name plus a tight
+    // (~80m) distance check rather than getCctvSceneKey's hard coordinate
+    // grid -- different providers record slightly different coordinates for
+    // the same physical pole, and a hard grid cell boundary was splitting
+    // genuine matches (e.g. two ~10-50m-apart GITS/UTIC/SPATIC feeds of the
+    // same intersection landing in adjacent cells). This applies to every
+    // source, not just the curated island list below: a GITS-only camera
+    // near a Seoul/Gyeonggi border intersection typically has no backup_urls
+    // of its own at all, so on a playback failure it used to jump straight
+    // to a geographically different camera instead of trying the UTIC/SPATIC
+    // feed of the very same spot first.
+    const sceneName = normalizeCctvSceneName(cctv.name);
+    const sameSceneBackups = (sceneName.length >= 2 && Number.isFinite(Number(cctv.lat)) && Number.isFinite(Number(cctv.lng)) && Array.isArray(state.cctvData))
+        ? state.cctvData
+            .filter(item => item && item.id !== cctv.id && normalizeCctvSceneName(item.name) === sceneName)
+            .filter(item => !isUnsupportedBrowserStream(item))
+            .map(item => ({ item, distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng) }))
+            .filter(({ item, distance }) => Number.isFinite(distance) && distance <= SAME_SCENE_BACKUP_RADIUS_KM && (item.directUrl || item.url) && !knownUrls.has(item.directUrl || item.url))
+            .sort((a, b) => a.distance - b.distance)
+            .map(({ item }) => ({
+                id: item.id,
+                source: item.source,
+                url: item.directUrl || item.url,
+                name: item.name,
+                original_id: item.original_id,
+                lat: item.lat,
+                lng: item.lng,
+                distance: 0
+            }))
+        : [];
+    sameSceneBackups.forEach(item => knownUrls.add(item.url));
 
-    if (nearbyBackups.length > 0) {
-        cctv.backup_urls = backupUrls.concat(nearbyBackups);
-    } else {
-        cctv.backup_urls = backupUrls;
+    const backupSource = isJejuUticProxyable(cctv) ? 'JEJU' : cctv.source;
+    let nearbyBackups = [];
+    if (['JEJU', 'NOWJEJU', 'TRENDWORLD'].includes(backupSource) && Number.isFinite(Number(cctv.lat)) && Number.isFinite(Number(cctv.lng))) {
+        const jejuStatus = state.regionHealth.JEJU?.status || '';
+        const jejuIsUnstable = ['DEGRADED', 'DOWN'].includes(jejuStatus);
+        const preferredSources = backupSource === 'JEJU' && jejuIsUnstable
+            ? ['NOWJEJU', 'TRENDWORLD', 'JEJU', 'GITS']
+            : ['JEJU', 'NOWJEJU', 'TRENDWORLD', 'GITS'];
+
+        const nearbyBackupCandidates = state.cctvData
+            .filter(item => item && item.id !== cctv.id && preferredSources.includes(item.source))
+            .filter(item => !isUnsupportedBrowserStream(item))
+            .map(item => ({
+                item,
+                distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng)
+            }))
+            .filter(({ item, distance }) => Number.isFinite(distance) && distance <= DYNAMIC_BACKUP_RADIUS_KM && (item.directUrl || item.url) && !knownUrls.has(item.directUrl || item.url))
+            .sort((a, b) => {
+                const sourceDelta = preferredSources.indexOf(a.item.source) - preferredSources.indexOf(b.item.source);
+                const sameSpotDelta = Number(a.distance > 0.25) - Number(b.distance > 0.25);
+                return sameSpotDelta || sourceDelta || a.distance - b.distance;
+            });
+        const rotation = backupSource === 'JEJU' && nearbyBackupCandidates.length > 1
+            ? getStableModulo(cctv.id || cctv.name, Math.min(nearbyBackupCandidates.length, 5))
+            : 0;
+        const rotatedBackupCandidates = nearbyBackupCandidates
+            .slice(rotation)
+            .concat(nearbyBackupCandidates.slice(0, rotation));
+        nearbyBackups = rotatedBackupCandidates
+            .slice(0, 5)
+            .map(({ item }) => ({
+                id: item.id,
+                source: item.source,
+                url: item.directUrl || item.url,
+                name: item.name,
+                original_id: item.original_id,
+                lat: item.lat,
+                lng: item.lng,
+                distance: getDistance(cctv.lat, cctv.lng, item.lat, item.lng)
+            }));
     }
+
+    cctv.backup_urls = backupUrls.concat(sameSceneBackups, nearbyBackups);
     cctv._dynamicFallbacksAdded = true;
 }
 
