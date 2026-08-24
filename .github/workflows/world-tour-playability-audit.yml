@@ -16,7 +16,10 @@ permissions:
   contents: write
 
 concurrency:
-  group: cctv-repo-writes
+  # Shared only with world-tour-refresh.yml (both write
+  # data/world_tour_cams.json). See that workflow for why this is split
+  # out of cctv-repo-writes.
+  group: cctv-world-tour-writes
   cancel-in-progress: false
 
 env:
