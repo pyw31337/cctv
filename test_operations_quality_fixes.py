@@ -1,9 +1,12 @@
 import unittest
+import json
+from pathlib import Path
 
 from scripts.build_quality_summary_fallback import row_from_check_registry
 from scripts.canary_probe import select_candidates, summarize_region
 from scripts.ingest_gits import merge_gits_catalog
 from scripts.adaptive_collection import browser_grid_signal, effective_interval, source_quality_signal
+from cctv_runtime import NAMYANGJU_GOLDEN_STREAMS
 
 
 class GitsDeltaMergeTests(unittest.TestCase):
@@ -46,6 +49,16 @@ class QualityEvidenceTests(unittest.TestCase):
         self.assertEqual(row["direct_playable_samples"], 12)
         self.assertEqual(row["success"], 10)
         self.assertEqual(row["failure"], 2)
+
+
+class NamyangjuMappingTests(unittest.TestCase):
+    def test_rokone_and_maseok_use_distinct_verified_streams(self):
+        data = json.loads((Path(__file__).parent / "cctv_data.json").read_text(encoding="utf-8"))
+        by_id = {item.get("id"): item for item in data}
+        self.assertEqual(NAMYANGJU_GOLDEN_STREAMS["L180074"][1], "L180188")
+        self.assertEqual(NAMYANGJU_GOLDEN_STREAMS["L180076"][1], "L180009")
+        self.assertIn("/L180188/", by_id["L180074"]["url"])
+        self.assertIn("/L180009/", by_id["L180076"]["url"])
 
 
 class CanarySelectionTests(unittest.TestCase):

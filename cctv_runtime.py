@@ -24,6 +24,7 @@ DEFAULT_QUALITY_SUMMARY_URL = "https://cctv-quality.pyw31337.workers.dev/v1/summ
 # Verified Namyangju UTIC mapping. These IDs are deliberately keyed by the
 # stable catalog camera ID, not by a mutable display name.
 NAMYANGJU_GOLDEN_STREAMS: dict[str, tuple[str, str]] = {
+    "L180074": ("록원교회(웹)", "L180188"),
     "L180075": ("마석사거리(웹)", "L180111"),
     "L180076": ("마석윗3", "L180009"),
     "L180195": ("창현A앞4 (1)", "L180007"),
