@@ -18,7 +18,6 @@ DEFAULT_FILES = (
     'data/cctv_extended.json',
     'cctv_overrides.json',
     'cctv_data_pre_audit_v2.json',
-    'cctv_data_test.json',
     'data/status.json',
 )
 
