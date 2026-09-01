@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from cctv_runtime import public_proxy_base, validate_namyangju_golden_mappings, validate_stream_identity
+from cctv_runtime import atomic_write_json, public_proxy_base, validate_namyangju_golden_mappings, validate_stream_identity
 
 try:
     import requests
@@ -794,4 +794,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-from cctv_runtime import atomic_write_json
