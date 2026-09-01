@@ -3,10 +3,12 @@ import json
 import requests
 import urllib.parse
 import time
+from cctv_runtime import first_env
 
 TARGETS = ["L010227", "L010224", "E600016"] # Onsu, Oryu IC, Neobudaegyo
 CCTV_DATA_FILE = "cctv_data.json"
 API_URL = "https://www.utic.go.kr/map/getCctvInfoById.do"
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 
 def fetch_details(cctv_id):
     try:
@@ -21,6 +23,8 @@ def fetch_details(cctv_id):
 
 def construct_url(cctv_id, details):
     if not details: return None
+    if not UTIC_KEY:
+        return None
     
     # E60 (Han River)
     if "E60" in cctv_id: 
@@ -35,7 +39,7 @@ def construct_url(cctv_id, details):
     kind = "1"
     
     params = {
-        "key": "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI",
+        "key": UTIC_KEY,
         "cctvid": cctv_id,
         "cctvName": encoded_name,
         "kind": kind,
@@ -45,7 +49,7 @@ def construct_url(cctv_id, details):
         "cctvpasswd": details.get("PASSWD") or "null",
         "cctvport": details.get("PORT") or "null"
     }
-    qs = "&".join([f"{k}={v}" for k, v in params.items()])
+    qs = urllib.parse.urlencode(params)
     return f"{base_url}?{qs}"
 
 def main():

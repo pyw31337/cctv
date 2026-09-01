@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cctv_runtime import atomic_write_json
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FILES = [
     ROOT / "data" / "status.json",
@@ -138,9 +140,7 @@ def normalize_file(path: Path, now: datetime, source: str) -> bool:
         payload["last_updated"] = source_updated_at
     if before == time_meta:
         return False
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write_json(path, payload)
     print(f"[OK] normalized {path.relative_to(ROOT)} source_updated_at={source_updated_at}")
     return True
 

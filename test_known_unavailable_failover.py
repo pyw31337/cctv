@@ -18,7 +18,8 @@ class KnownUnavailableFailoverTests(unittest.TestCase):
         app_js = (ROOT / "js" / "app.js").read_text(encoding="utf-8")
         self.assertIn("function isKnownUnavailableCamera", app_js)
         self.assertIn("ranked.filter(cctv => !isKnownUnavailableCamera(cctv))", app_js)
-        self.assertIn("정상 카메라로 자동 전환 중", app_js)
+        self.assertIn("if (isKnownUnavailableCamera(cctv))", app_js)
+        self.assertIn("openVideoLayer(fallback)", app_js)
 
     def test_cache_version_forces_failover_release(self):
         index_html = (ROOT / "index.html").read_text(encoding="utf-8")

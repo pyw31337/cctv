@@ -1,13 +1,17 @@
 
 import json
+from cctv_runtime import first_env
 
 CUR_FILE = "cctv_data.json"
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 # Original User URL:
-# https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI&cctvid=L030049&cctvName=%25EC%2597%25AD%25EA%25B3%25A1%25EA%25B3%25A0%25EA%25B0%2580%25EC%2582%25AC%25EA%25B1%25B0%25EB%25A6%25AC&kind=O&cctvip=TM098TC07P&cctvch=6&id=undefined&cctvpasswd=undefined&cctvport=undefined
+# UTIC URL retained for reference; the actual key is read from UTIC_KEY.
 # We need to ensure we use this EXACT parameter set.
 
 def main():
     print("Applying User-Provided URL for Yeokgok...")
+    if not UTIC_KEY:
+        raise RuntimeError("Missing UTIC_API_KEY/UTIC_KEY")
     
     with open(CUR_FILE, "r") as f:
         data = json.load(f)
@@ -15,7 +19,11 @@ def main():
     updated = 0
     for item in data:
         if "역곡고가사거리" in item['name']:
-            target_url = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI&cctvid=L030049&cctvName=%25EC%2597%25AD%25EA%25B3%25A1%25EA%25B3%25A0%25EA%25B0%2580%25EC%2582%25AC%25EA%25B1%25B0%25EB%25A6%25AC&kind=O&cctvip=TM098TC07P&cctvch=6&id=undefined&cctvpasswd=undefined&cctvport=undefined"
+            target_url = (
+                "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
+                f"?key={UTIC_KEY}&cctvid=L030049&cctvName=%25EC%2597%25AD%25EA%25B3%25A1%25EA%25B3%25A0%25EA%25B0%2580%25EC%2582%25AC%25EA%25B1%25B0%25EB%25A6%25AC"
+                "&kind=O&cctvip=TM098TC07P&cctvch=6&id=undefined&cctvpasswd=undefined&cctvport=undefined"
+            )
             
             if item['url'] != target_url:
                 print(f"Updating: {item['name']}")

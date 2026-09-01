@@ -179,13 +179,14 @@
         <div class="wide-table"><table><thead><tr><th>지역</th><th>보유</th><th>품질 샘플</th><th>누적 점검</th><th>최근 24h</th><th>성공률</th><th>주요 소스</th><th>주의</th></tr></thead><tbody id="inventory-region-rows"></tbody></table></div>
     </section>
 </main>
+<script src="js/runtime-config.js?v=20260814-b69de665"></script>
 <script>
 const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const FALLBACK_URL = 'data/quality_summary.json';
-const ORACLE_BASE = 'https://158.179.194.163.sslip.io';
-const CANARY_URLS = ['data/canary_status.json', `${ORACLE_BASE}/canary-status`];
-const OPS_URLS = ['data/ops_status.json', `${ORACLE_BASE}/ops-status`];
-const CANARY_HISTORY_URLS = ['data/canary_history.json', `${ORACLE_BASE}/canary-history`];
+const ORACLE_BASE = window.CCTV_QUALITY_CONFIG?.publicProxyBase || '';
+const CANARY_URLS = ['data/canary_status.json', ...(ORACLE_BASE ? [`${ORACLE_BASE}/canary-status`] : [])];
+const OPS_URLS = ['data/ops_status.json', ...(ORACLE_BASE ? [`${ORACLE_BASE}/ops-status`] : [])];
+const CANARY_HISTORY_URLS = ['data/canary_history.json', ...(ORACLE_BASE ? [`${ORACLE_BASE}/canary-history`] : [])];
 const CACHE_URL = 'data/cache_status.json';
 const UTIC_AUDIT_URL = 'data/utic_audit_history.json';
 const STATUS_URL = 'data/status.json';

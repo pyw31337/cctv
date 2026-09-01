@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT="${CCTV_ROOT:-/Users/pyw31337/Developer/cctv}"
-ORACLE_URL="${CCTV_Z3_ORACLE_URL:-https://158.179.194.163.sslip.io/z3-cache.json}"
 LABEL="${CCTV_Z3_LAUNCHD_LABEL:-com.pyw31337.cctv.z3-cache-refresh}"
 MAX_LOCAL_AGE_MINUTES="${CCTV_Z3_MAX_LOCAL_AGE_MINUTES:-70}"
 MAX_ORACLE_AGE_MINUTES="${CCTV_Z3_MAX_ORACLE_AGE_MINUTES:-70}"
@@ -17,6 +16,13 @@ stamp() {
 mkdir -p "$(dirname "$LOG_FILE")"
 
 cd "$ROOT"
+
+ORACLE_BASE="${CCTV_ORACLE_BASE:-$(python3 - <<'PY'
+from cctv_runtime import public_proxy_base
+print(public_proxy_base())
+PY
+)}"
+ORACLE_URL="${CCTV_Z3_ORACLE_URL:-${ORACLE_BASE}/z3-cache.json}"
 
 read -r LOCAL_FETCHED LOCAL_AGE LOCAL_ENTRIES < <(
   python3 - <<'PY'

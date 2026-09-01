@@ -17,10 +17,15 @@ Correct UTIC iframe format:
 import json
 import re
 from pathlib import Path
+from cctv_runtime import first_env
 
-UTIC_KEY = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 
 def main():
+    if not UTIC_KEY:
+        print("Missing UTIC_API_KEY/UTIC_KEY")
+        return
+
     base = Path(__file__).parent.parent
     data_path = base / "cctv_data.json"
     

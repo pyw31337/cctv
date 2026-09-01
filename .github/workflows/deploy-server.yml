@@ -17,7 +17,6 @@ jobs:
       
       - name: Deploy Server
         run: |
-          cd server
-          flyctl deploy --remote-only
+          flyctl deploy --remote-only --config server/fly.toml --dockerfile server/Dockerfile
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

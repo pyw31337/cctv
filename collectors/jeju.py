@@ -1,5 +1,6 @@
 import requests
 import urllib3
+from cctv_runtime import public_proxy_base
 
 # Suppress SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -11,7 +12,7 @@ class JejuCollector:
     """
     def __init__(self):
         self.list_url = "https://www.jejuits.go.kr/jido/getCurFeatures.do"
-        self.proxy_base = "https://158.179.194.163.sslip.io/jeju"
+        self.proxy_base = f"{public_proxy_base()}/jeju"
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": "https://www.jejuits.go.kr/jido/mainView.do",

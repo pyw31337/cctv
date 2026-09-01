@@ -2,10 +2,17 @@
 import requests
 import xml.etree.ElementTree as ET
 import time
+from cctv_runtime import first_env
+
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 
 def scan_jindo():
     print("Scanning UTIC IDs E901100 - E901150 for '진도'...")
     
+    if not UTIC_KEY:
+        print("Missing UTIC_API_KEY/UTIC_KEY")
+        return
+
     # Base URL for metadata
     base_url = "http://www.utic.go.kr/guide/cctvOpenData.do"
     
@@ -13,7 +20,7 @@ def scan_jindo():
     for i in range(1100, 1151):
         cid = f"E90{i}"
         try:
-            params = {"key": "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"}
+            params = {"key": UTIC_KEY}
             # The openData endpoint returns a list (usually XML or JSON). 
             # But here we want query by ID? 
             # Actually UTIC API `getCctvInfoById.do` is not public/documented well?
@@ -44,7 +51,7 @@ def scan_jindo():
     # Or just fetch the main XML list (it's one big file) and grep it?
     # XML url: http://www.utic.go.kr/guide/cctvOpenData.do?key=...
     
-    res = requests.get(base_url, params={"key": "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"})
+    res = requests.get(base_url, params={"key": UTIC_KEY})
     if res.status_code != 200:
         print("Failed to fetch Master List")
         return

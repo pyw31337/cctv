@@ -1,11 +1,19 @@
 
 import requests
 import re
+from cctv_runtime import first_env
+
+
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 
 def scan_jindo_regex():
     print("Scanning UTIC Master List for '진도터미널' via Regex...")
     
-    url = "http://www.utic.go.kr/guide/cctvOpenData.do?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+    if not UTIC_KEY:
+        print("Missing UTIC_API_KEY/UTIC_KEY")
+        return
+
+    url = f"http://www.utic.go.kr/guide/cctvOpenData.do?key={UTIC_KEY}"
     try:
         res = requests.get(url, timeout=30)
         content = res.text

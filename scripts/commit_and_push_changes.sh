@@ -11,9 +11,9 @@ shift
 
 # Ensure no stale git rebase/merge directories are blockading the repository
 if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
-  echo "Stale git rebase state detected. Cleaning up..." >&2
+  echo "Stale git rebase state detected; refusing to discard worktree changes." >&2
   git rebase --abort || true
-  git reset --hard origin/main || true
+  exit 1
 fi
 
 # GitHub Actions bot identity by default; local callers may override via env.
@@ -50,30 +50,17 @@ for attempt in 1 2 3 4 5; do
     continue
   fi
 
-  echo "Rebase conflict detected on generated data. Initiating self-healing auto-reapply..." >&2
-  TMP_BACKUP="$(mktemp -d)"
-  for pattern in "${TARGET_PATTERNS[@]}"; do
-    if [ -e "$pattern" ]; then
-      mkdir -p "$TMP_BACKUP/$(dirname "$pattern")"
-      cp -r "$pattern" "$TMP_BACKUP/$pattern" 2>/dev/null || true
-    fi
-  done
-
+  echo "Rebase conflict detected on generated data. Reapplying only requested files..." >&2
   git rebase --abort || true
-  git reset --hard origin/main || true
-
+  git fetch origin main
+  # Keep the generated worktree intact while moving the branch base. Resetting
+  # only the index avoids deleting unrelated files during conflict recovery.
+  git reset --soft origin/main
+  git reset -- .
   for pattern in "${TARGET_PATTERNS[@]}"; do
-    if [ -e "$TMP_BACKUP/$pattern" ]; then
-      mkdir -p "$(dirname "$pattern")"
-      cp -r "$TMP_BACKUP/$pattern" "$pattern" 2>/dev/null || true
-      git add -- "$pattern" 2>/dev/null || true
-    fi
+    git add -- "$pattern" 2>/dev/null || true
   done
-  rm -rf "$TMP_BACKUP"
-
-  if ! git diff --cached --quiet; then
-    git commit -m "$MESSAGE (auto-reapplied)" || true
-  fi
+  git commit -m "$MESSAGE (auto-reapplied)" || true
 
   if git push origin HEAD:main; then
     echo "Self-healing push succeeded!"

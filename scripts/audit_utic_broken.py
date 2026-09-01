@@ -19,10 +19,12 @@ import urllib.error
 import ssl
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from cctv_runtime import worker_proxy_base
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CCTV_DATA = os.path.join(ROOT, "cctv_data.json")
 AUDIT_LOG = os.path.join(ROOT, "data", "utic_audit_history.json")
-WORKER = "https://cctv-proxy.pyw213.workers.dev/utic"
+WORKER = f"{worker_proxy_base()}/utic"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (cctv-audit/1.0; +https://pyw31337.github.io/cctv/)",
     "Origin": "https://pyw31337.github.io",

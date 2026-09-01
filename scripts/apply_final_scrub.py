@@ -1,7 +1,9 @@
 
 import json
+from cctv_runtime import first_env
 
 CUR_FILE = "cctv_data.json"
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 
 def main():
     print("Applying Final Fix: Revert Yeokgok & Neobudaegyo to Safe Wrappers...")
@@ -40,10 +42,7 @@ def main():
         # Constructing manually is safer to avoid downtime.
         # L030049 is Bucheon. Bucheon usually works with kind=1 on UTIC.
         if "역곡고가사거리" in item['name']:
-            # Construct standard UTIC URL
-            # https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=...&cctvid=L030049&cctvName=...&kind=1
-            base = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
-            key = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+            # Construct standard UTIC URL from the current environment key.
             # Name needs encoding? The sync script does it. Here strict ascii or encoded?
             # It's safer to just let the Sync script fix it? 
             # Or manually set it.
@@ -54,15 +53,16 @@ def main():
             # But user wants immediate fix.
             # Let's try generic UTIC wrapper.
             import urllib.parse
-            enc_name = urllib.parse.quote(item['name'].encode('euc-kr')) # UTIC uses EUC-KR often? Or UTF8?
+            if not UTIC_KEY:
+                raise RuntimeError("Missing UTIC_API_KEY/UTIC_KEY")
             # UTIC `openDataCctvStream.jsp` usually accepts UTF-8 in modern browsers but let's be careful.
             # Actually, standard UTIC URLs in JSON are mostly encoded.
             # Let's copy a standard format.
-            new_url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key={key}&cctvid={item['id']}&cctvName={item['name']}&kind=1"
-            # Wait, cctvName in URL should be URL-encoded.
-            # simple python quote
             enc_name = urllib.parse.quote(item['name'])
-            new_url = f"https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key={key}&cctvid={item['id']}&cctvName={enc_name}&kind=1"
+            new_url = (
+                "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
+                f"?key={UTIC_KEY}&cctvid={item['id']}&cctvName={enc_name}&kind=1"
+            )
 
             item['url'] = new_url
             tags = item.get('tags', [])

@@ -26,6 +26,8 @@ from urllib.parse import parse_qs, quote, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from cctv_runtime import public_proxy_base
+
 try:
     import requests
 except Exception:  # pragma: no cover - GitHub runner fallback path
@@ -47,7 +49,7 @@ UTIC_AUDIT_HISTORY_FILE = ROOT / "data" / "utic_audit_history.json"
 CANARY_STATUS_FILE = ROOT / "data" / "canary_status.json"
 OPS_STATUS_FILE = ROOT / "data" / "ops_status.json"
 CANARY_HISTORY_FILE = ROOT / "data" / "canary_history.json"
-ORACLE_BASE = "https://158.179.194.163.sslip.io"
+ORACLE_BASE = public_proxy_base()
 Z3_MAX_TRUSTED_AGE_HOURS = 8
 DEFAULT_TIMEOUT = (2.5, 6.0)
 HEADERS = {
@@ -148,10 +150,7 @@ def load_json(path: Path, fallback: Any) -> Any:
 
 
 def write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write_json(path, payload)
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -784,3 +783,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+from cctv_runtime import atomic_write_json

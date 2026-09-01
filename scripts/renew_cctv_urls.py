@@ -11,13 +11,21 @@ from datetime import datetime
 import re
 import os
 import sys
+from cctv_runtime import (
+    NAMYANGJU_GOLDEN_STREAMS,
+    apply_namyangju_golden_mappings,
+    atomic_write_json,
+    first_env,
+    sanitize_utic_payload,
+    validate_namyangju_golden_mappings,
+)
 
 # Configuration
 CCTV_DATA_FILE = "cctv_data.json"
 FAILED_STREAMS_FILE = "failed_streams.json"
 RENEWAL_REPORT_FILE = "renewal_report.json"
 API_URL = "https://www.utic.go.kr/map/getCctvInfoById.do"
-KEY = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Referer": "https://www.utic.go.kr/"
@@ -31,8 +39,7 @@ def load_json(filepath):
         return json.load(f)
 
 def save_json(filepath, data):
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    atomic_write_json(filepath, sanitize_utic_payload(data), sort_keys=False)
 
 def fetch_cctv_details(cctv_id):
     """Fetch fresh details from UTIC API"""
@@ -48,6 +55,8 @@ def fetch_cctv_details(cctv_id):
 def construct_url(cctv_id, details):
     """Re-construct the URL from fresh details (Logic from collect_cctv_data.py)"""
     if not details:
+        return None
+    if not KEY:
         return None
         
     cctv_ip = details.get("CCTVIP", "")
@@ -72,7 +81,6 @@ def construct_url(cctv_id, details):
     
     # Manually construct query string to ensure correct encoding
     params = {
-        "key": KEY,
         "cctvid": cctv_id,
         "cctvName": encoded_name,
         "kind": kind,
@@ -98,7 +106,7 @@ def construct_url(cctv_id, details):
     if str(cctv_id).startswith("L12") and details.get("ID", "").startswith("cctv_"):
          return f"https://trafficcctv.paju.go.kr/live/{details.get('ID')}.stream/playlist.m3u8"
 
-    query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+    query_string = urllib.parse.urlencode(params)
     return f"{base_url}?{query_string}"
 
 def main():
@@ -150,6 +158,10 @@ def main():
             continue
             
         print(f"Renewing {cctv_id}...", end=" ")
+
+        if cctv_id.upper() in NAMYANGJU_GOLDEN_STREAMS:
+            print("SKIPPED (verified Namyangju mapping)")
+            continue
         
         # Specific Logic for GITS
         if cctv_id.startswith("GITS_"):
@@ -244,6 +256,10 @@ def main():
     
     # Save back to file
     if renewed_count > 0:
+        apply_namyangju_golden_mappings(list(data_map.values()))
+        mapping_errors = validate_namyangju_golden_mappings(list(data_map.values()))
+        if mapping_errors:
+            raise RuntimeError("Golden stream mapping validation failed: " + "; ".join(mapping_errors))
         save_json(CCTV_DATA_FILE, list(data_map.values()))
         print(f"Saved updated data to {CCTV_DATA_FILE}")
     else:

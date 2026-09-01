@@ -26,6 +26,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from cctv_runtime import atomic_write_json
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -86,10 +88,7 @@ def load_json(path: Path, fallback: Any) -> Any:
 
 
 def write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write_json(path, payload)
 
 
 def compute_budget(total: int, window_hours: int = DEFAULT_WINDOW_HOURS, schedule_hours: int = DEFAULT_SCHEDULE_HOURS) -> int:

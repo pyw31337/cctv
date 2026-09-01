@@ -52,14 +52,20 @@ jobs:
           fi
           TMP_PATH="$tmp" python3 <<'PY'
           import json, os, datetime
+          from cctv_runtime import atomic_write_json
           tmp = os.environ['TMP_PATH']
           out = os.environ['OUTPUT_PATH']
           data = json.load(open(tmp))
           if not data.get('generated_at'):
               data['generated_at'] = datetime.datetime.utcnow().isoformat() + 'Z'
-          with open(out, 'w', encoding='utf-8') as fh:
-              json.dump(data, fh, ensure_ascii=False, indent=2, sort_keys=True)
-              fh.write('\n')
+          browser_path = 'data/browser_canary_report.json'
+          try:
+              browser = json.load(open(browser_path))
+          except (FileNotFoundError, json.JSONDecodeError):
+              browser = {}
+          if isinstance(browser, dict) and browser.get('summary'):
+              data['browser_canary'] = browser
+          atomic_write_json(out, data, sort_keys=True)
           print('Wrote', out, os.path.getsize(out), 'bytes')
           PY
 
@@ -83,8 +89,8 @@ jobs:
       - name: Commit if changed
         run: |
           set -euo pipefail
-          if ! git diff --quiet -- "$OUTPUT_PATH" data/status.json data/canary_status.json data/ops_status.json data/cache_status.json data/z3_cache.json data/workflow_status.json; then
-            scripts/commit_and_push_changes.sh "chore(data): refresh quality_summary.json [skip ci]" "$OUTPUT_PATH" data/status.json data/canary_status.json data/ops_status.json data/cache_status.json data/z3_cache.json data/workflow_status.json
+          if ! git diff --quiet -- "$OUTPUT_PATH" data/browser_canary_report.json data/status.json data/canary_status.json data/ops_status.json data/cache_status.json data/z3_cache.json data/workflow_status.json; then
+            scripts/commit_and_push_changes.sh "chore(data): refresh quality_summary.json [skip ci]" "$OUTPUT_PATH" data/browser_canary_report.json data/status.json data/canary_status.json data/ops_status.json data/cache_status.json data/z3_cache.json data/workflow_status.json
           else
             echo "No change in $OUTPUT_PATH — skipping commit."
           fi

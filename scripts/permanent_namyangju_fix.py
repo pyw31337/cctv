@@ -73,4 +73,7 @@ def main():
     print(f"\nSuccessfully fixed and locked {len(fixed_ids)} Namyangju CCTV mappings.")
 
 if __name__ == "__main__":
-    main()
+    # Keep this legacy command on the same ID-keyed authority as automation.
+    from apply_namyangju_golden_mappings import main as apply_golden_mappings
+
+    raise SystemExit(apply_golden_mappings())

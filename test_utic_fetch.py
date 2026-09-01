@@ -3,12 +3,13 @@ import json
 import requests
 import urllib.parse
 import sys
+from cctv_runtime import first_env
 
 # Configuration
 UTIC_API_URL = "https://www.utic.go.kr/map/mapcctv.do"
-UTIC_API_KEY = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+UTIC_API_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 UTIC_HEADERS = {
-    "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do?key=" + UTIC_API_KEY,
+    "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do" + (f"?key={UTIC_API_KEY}" if UTIC_API_KEY else ""),
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 

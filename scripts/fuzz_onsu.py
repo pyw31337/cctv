@@ -2,11 +2,12 @@
 import requests
 import json
 import urllib.parse
+from cctv_runtime import first_env
 
 # Target: Onsu (L010227)
 # Base URL parameters
 BASE_URL = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
-KEY = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 CCTV_ID = "L010227"
 CCTV_NAME_RAW = "온수"
 ENCODED_NAME = urllib.parse.quote(urllib.parse.quote(CCTV_NAME_RAW))
@@ -18,6 +19,8 @@ KINDS = ["MODE", "1", "2", "3", "a", "b", "c", "Z3", "C"]
 CH_VALS = ["51", "null"]
 
 print(f"Fuzzing Onsu ({CCTV_ID})...")
+if not KEY:
+    raise RuntimeError("Missing UTIC_API_KEY/UTIC_KEY")
 
 for k in KINDS:
     for ch in CH_VALS:
@@ -40,4 +43,3 @@ for k in KINDS:
             print(f"KIND={k}, CH={ch} -> {resp.status_code}")
         except Exception as e:
             print(f"KIND={k}, CH={ch} -> ERROR")
-

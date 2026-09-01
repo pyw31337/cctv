@@ -5,6 +5,7 @@ import urllib.parse
 import time
 import os
 import sys
+from cctv_runtime import first_env
 
 # Configuration
 CCTV_DATA_FILE = "cctv_data.json"
@@ -13,6 +14,7 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Referer": "https://www.utic.go.kr/"
 }
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 
 # IDs known to require special handling
 SPECIAL_PREFIXES = ["E60", "E61", "E62", "E63"] 
@@ -30,6 +32,8 @@ def fetch_details(cctv_id):
 
 def construct_robust_url(cctv_id, details):
     if not details: return None
+    if not UTIC_KEY:
+        return None
     
     # Special Cases (Flood Control)
     if "E61" in cctv_id: # Nakdong
@@ -52,7 +56,7 @@ def construct_robust_url(cctv_id, details):
     
     base_url = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
     params = {
-        "key": "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI",
+        "key": UTIC_KEY,
         "cctvid": cctv_id,
         "cctvName": encoded_name,
         "kind": kind,
@@ -62,7 +66,7 @@ def construct_robust_url(cctv_id, details):
         "cctvpasswd": details.get("PASSWD") or "null",
         "cctvport": details.get("PORT") or "null"
     }
-    qs = "&".join([f"{k}={v}" for k, v in params.items()])
+    qs = urllib.parse.urlencode(params)
     return f"{base_url}?{qs}"
 
 def main():

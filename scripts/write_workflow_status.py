@@ -8,10 +8,13 @@ workflow.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+from cctv_runtime import atomic_write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "data" / "workflow_status.json"
@@ -39,8 +42,6 @@ def main() -> int:
     args = parser.parse_args()
 
     path = args.output if args.output.is_absolute() else ROOT / args.output
-    payload = load(path)
-    events = payload.get("events") if isinstance(payload.get("events"), list) else []
     event = {
         "at": utc_stamp(),
         "workflow": args.workflow,
@@ -51,29 +52,38 @@ def main() -> int:
         "github_run_id": os.environ.get("GITHUB_RUN_ID"),
         "github_sha": os.environ.get("GITHUB_SHA"),
     }
-    events.append(event)
-    events = events[-200:]
-    payload = {
-        "generated_at": utc_stamp(),
-        "time": {
-            "generated_at": utc_stamp(),
-            "source_updated_at": event["at"],
-        "served_at": utc_stamp(),
-        "normalized_at": utc_stamp(),
-        "source_age_minutes_at_normalization": 0,
-        "schema": "cctv-quality-time-v1",
-        "source": "workflow-status",
-        },
-        "summary": {
-            "recent_events": len(events),
-            "recent_warnings": sum(1 for item in events[-50:] if item.get("status") == "warning"),
-            "recent_errors": sum(1 for item in events[-50:] if item.get("status") == "error"),
-            "service_impact_events": sum(1 for item in events[-50:] if item.get("impact") == "service"),
-        },
-        "events": events,
-    }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    # Multiple scheduled jobs can report into the same snapshot. Lock the
+    # read-modify-write cycle so events are not lost and JSON stays valid.
+    lock_path = path.with_name(f".{path.name}.lock")
+    with lock_path.open("a+") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        payload = load(path)
+        events = payload.get("events") if isinstance(payload.get("events"), list) else []
+        events = (events + [event])[-200:]
+        now = utc_stamp()
+        payload = {
+            "generated_at": now,
+            "time": {
+                "generated_at": now,
+                "source_updated_at": event["at"],
+                "served_at": now,
+                "normalized_at": now,
+                "source_age_minutes_at_normalization": 0,
+                "schema": "cctv-quality-time-v1",
+                "source": "workflow-status",
+            },
+            "summary": {
+                "recent_events": len(events),
+                "recent_warnings": sum(1 for item in events[-50:] if item.get("status") == "warning"),
+                "recent_errors": sum(1 for item in events[-50:] if item.get("status") == "error"),
+                "service_impact_events": sum(1 for item in events[-50:] if item.get("impact") == "service"),
+            },
+            "events": events,
+        }
+        atomic_write_json(path, payload)
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
     print(f"wrote {path} {event['workflow']} {event['status']} impact={event['impact']}")
     return 0
 

@@ -5,9 +5,7 @@ class NowJejuCollector:
     Collector for NowJejuplus (nowjejuplus.com) CCTV streams.
     Provides 16 high-quality Jeju coastal and Hallasan streams.
     """
-    
-    PROXY_BASE = "https://158.179.194.163.sslip.io/proxy"
-    
+
     LOCATIONS = {
         "15": {"name": "제주국제공항", "lat": 33.5111, "lng": 126.4928, "url": "http://123.140.197.51/stream/33/play.m3u8", "addr": "제주특별자치도 제주시 공항로 2"},
         "1": {"name": "용두암 해안", "lat": 33.5169, "lng": 126.5169, "url": "http://59.8.86.94:8080/media/api/v1/hls/vurix/192871/100003/0/1", "addr": "제주특별자치도 제주시 용두암길 15"},

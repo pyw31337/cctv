@@ -1,6 +1,8 @@
 import json
 import os
 
+from cctv_runtime import atomic_write_json
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CCTV_DATA_FILE = os.path.join(BASE_DIR, "cctv_data.json")
 CORE_OUTPUT_FILE = os.path.join(BASE_DIR, "data", "cctv_core.json")
@@ -8,12 +10,13 @@ EXTENDED_OUTPUT_FILE = os.path.join(BASE_DIR, "data", "cctv_extended.json")
 
 def main():
     if not os.path.exists(CCTV_DATA_FILE):
-        print(f"[Error] {CCTV_DATA_FILE} not found")
-        return
+        raise FileNotFoundError(CCTV_DATA_FILE)
 
     print("Loading cctv_data.json...")
     with open(CCTV_DATA_FILE, 'r', encoding='utf-8') as f:
         data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError("cctv_data.json must contain a list")
 
     print(f"Loaded {len(data)} items. Splitting...")
 
@@ -23,6 +26,8 @@ def main():
     core_keys = {"id", "name", "lat", "lng", "source", "url", "directUrl", "original_id"}
 
     for item in data:
+        if not isinstance(item, dict):
+            continue
         cid = item.get("id")
         if not cid:
             continue
@@ -47,12 +52,10 @@ def main():
     os.makedirs(os.path.dirname(CORE_OUTPUT_FILE), exist_ok=True)
 
     print("Writing cctv_core.json...")
-    with open(CORE_OUTPUT_FILE, 'w', encoding='utf-8') as f:
-        json.dump(core_data, f, ensure_ascii=False)
+    atomic_write_json(CORE_OUTPUT_FILE, core_data, sort_keys=False)
 
     print("Writing cctv_extended.json...")
-    with open(EXTENDED_OUTPUT_FILE, 'w', encoding='utf-8') as f:
-        json.dump(extended_data, f, ensure_ascii=False)
+    atomic_write_json(EXTENDED_OUTPUT_FILE, extended_data, sort_keys=False)
 
     print(f"Splitting completed successfully. Core items: {len(core_data)}, Extended items: {len(extended_data)}")
 

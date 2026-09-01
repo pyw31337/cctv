@@ -1,6 +1,8 @@
-name: Manual Browser Playback Canary
+name: Scheduled Browser Playback Canary
 
 on:
+  schedule:
+    - cron: '17 */6 * * *'
   workflow_dispatch:
     inputs:
       app_base:
@@ -16,7 +18,7 @@ env:
   CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   browser-canary:
@@ -34,11 +36,39 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Run real browser playback canary
         env:
-          CCTV_APP_BASE: ${{ inputs.app_base }}
+          CCTV_APP_BASE: ${{ inputs.app_base || 'https://pyw31337.github.io/cctv/' }}
+          BROWSER_CANARY_OUT: data/browser_canary_report.json
+        continue-on-error: true
         run: node scripts/browser_canary.mjs
+      - name: Commit browser canary report
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --short -- data/browser_canary_report.json)" ]]; then
+            echo 'No browser canary report change.'
+          else
+            scripts/commit_and_push_changes.sh "chore(data): refresh browser canary report [skip ci]" data/browser_canary_report.json
+          fi
       - name: Upload browser canary report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: browser-canary-report
           path: data/browser_canary_report.json
+      - name: Enforce canary result
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('data/browser_canary_report.json')
+          if not path.exists():
+              raise SystemExit('browser canary did not produce a report')
+          report = json.loads(path.read_text(encoding='utf-8'))
+          summary = report.get('summary') or {}
+          failed = int(summary.get('failed') or 0)
+          if failed:
+              raise SystemExit(f'browser playback canary failed for {failed} region(s)')
+          print(f"browser playback canary passed {summary.get('passed', 0)} region(s)")
+          PY

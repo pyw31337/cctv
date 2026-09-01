@@ -1,0 +1,50 @@
+name: Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check -r server/requirements.txt
+
+      - name: Run regression tests
+        run: python -m unittest discover -p 'test_*.py'
+
+      - name: Validate static data hygiene
+        run: python scripts/validate_static_data.py
+
+      - name: Compile Python
+        run: python -m compileall -q -x '(^|/)(node_modules|\\.git|venv)/' .
+
+      - name: Check JavaScript and service scripts
+        run: |
+          node --check js/app.js
+          node --check js/world-tour.js
+          node --check sw.js
+          bash -n scripts/local_z3_cache_refresh.sh scripts/commit_and_push_changes.sh
+          git diff --check

@@ -12,7 +12,7 @@
 // The CACHE_VERSION is hot-swapped by the deploy GHA so a new release purges
 // all prior caches even when a long-lived tab still holds the old SW.
 
-const CACHE_VERSION = 'v20260814-b69de665';
+const CACHE_VERSION = 'v20260901-playback1';
 const SHELL_CACHE = `cctv-shell-${CACHE_VERSION}`;
 const DATA_CACHE = `cctv-data-${CACHE_VERSION}`;
 const IMG_CACHE = `cctv-img-${CACHE_VERSION}`;
@@ -30,6 +30,10 @@ const SHELL_ASSETS = [
     'android-chrome-192x192.png',
     'pin.svg',
     'marker_gray.svg'
+];
+
+const LAZY_SHELL_PATHS = [
+    '/js/world-tour.js'
 ];
 
 // Paths whose JSON answer we serve fast from cache but revalidate in the
@@ -50,7 +54,8 @@ const STALE_WHILE_REVALIDATE_PATTERNS = [
 ];
 
 function isShellRequest(url) {
-    return SHELL_ASSETS.some(asset => url.pathname.endsWith(asset.replace('./', '/'))
+    return LAZY_SHELL_PATHS.some(path => url.pathname.endsWith(path))
+        || SHELL_ASSETS.some(asset => url.pathname.endsWith(asset.replace('./', '/'))
         || url.pathname.endsWith('/' + asset));
 }
 

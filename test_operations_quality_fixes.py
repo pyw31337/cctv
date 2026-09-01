@@ -3,6 +3,7 @@ import unittest
 from scripts.build_quality_summary_fallback import row_from_check_registry
 from scripts.canary_probe import select_candidates, summarize_region
 from scripts.ingest_gits import merge_gits_catalog
+from scripts.adaptive_collection import browser_grid_signal, effective_interval, source_quality_signal
 
 
 class GitsDeltaMergeTests(unittest.TestCase):
@@ -67,6 +68,36 @@ class CanarySelectionTests(unittest.TestCase):
         summary = summarize_region(self.REGION, candidates, results)
         self.assertEqual(summary["status"], "OK")
         self.assertEqual(summary["severity"], "ok")
+
+
+class AdaptiveQualityTests(unittest.TestCase):
+    def test_low_sample_telemetry_does_not_overreact(self):
+        signal = source_quality_signal({"sources": {"GITS": {"samples": 1, "failure_rate": 1}}}, "GITS")
+        self.assertLess(signal["confidence"], 0.1)
+
+    def test_repeated_runtime_failures_shorten_next_collection_interval(self):
+        data = [{"id": "G1", "source": "GITS", "status": "active", "url": "same", "name": "G1", "lat": 1, "lng": 1}]
+        record = {"last_snapshot": {"fingerprints": {"G1": {"url": "same", "name": "G1", "lat": 1, "lng": 1}}}}
+        healthy = {"sources": {"GITS": {"samples": 30, "failure_rate": 0, "slow_rate": 0, "avg_first_frame_ms": 1000}}}
+        unhealthy = {"sources": {"GITS": {"samples": 30, "failure_rate": 0.8, "slow_rate": 0.7, "avg_first_frame_ms": 11000}}}
+        self.assertLess(effective_interval("gits_ingest", record, data, unhealthy), effective_interval("gits_ingest", record, data, healthy))
+
+    def test_browser_canary_failure_shortens_full_refresh(self):
+        data = [{"id": "G1", "source": "GITS", "status": "active", "url": "same", "name": "G1", "lat": 1, "lng": 1}]
+        record = {"last_snapshot": {"count": 1, "fingerprints": {"G1": {"url": "same", "name": "G1", "lat": 1, "lng": 1}}}}
+        healthy = {"browser_canary": {"summary": {"checked": 4, "passed": 4}, "results": []}}
+        unhealthy = {"browser_canary": {"summary": {"checked": 4, "passed": 0}, "results": []}}
+        self.assertEqual(browser_grid_signal(healthy)["failure_rate"], 0)
+        self.assertLess(effective_interval("full_refresh", record, data, unhealthy), effective_interval("full_refresh", record, data, healthy))
+
+    def test_stale_browser_canary_loses_scheduling_influence(self):
+        stale = {
+            "browser_canary": {
+                "generated_at": "2020-01-01T00:00:00Z",
+                "summary": {"checked": 4, "passed": 0},
+            }
+        }
+        self.assertEqual(browser_grid_signal(stale)["confidence"], 0)
 
 
 if __name__ == "__main__":

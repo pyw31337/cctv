@@ -8,6 +8,8 @@ from collections import Counter
 import concurrent.futures
 import datetime as dt
 
+from cctv_runtime import public_proxy_base, public_proxy_prefix
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data' / 'world_tour_cams.json'
 
@@ -103,7 +105,7 @@ def deep_crawling_target(source_url, title):
             match_id = re.search(r'id:\s*(\d+),', page_html)
             if match_id:
                 cam_id = match_id.group(1)
-                hint_url = f"https://158.179.194.163.sslip.io/baltic?id={cam_id}&ext=.m3u8"
+                hint_url = f"{public_proxy_base()}/baltic?id={cam_id}&ext=.m3u8"
                 return None, hint_url
 
     # 2. SkylineWebcams (Clappr source parameter + trap bypass + referer bypass proxy)
@@ -117,7 +119,7 @@ def deep_crawling_target(source_url, title):
                 absolute_hls = f"https://hd-auth.skylinewebcams.com/{src_val}"
                 
                 # Wrap with referer-bypass proxy
-                proxied_url = f"https://158.179.194.163.sslip.io/proxy?url={urllib.parse.quote_plus(absolute_hls)}"
+                proxied_url = f"{public_proxy_prefix()}{urllib.parse.quote_plus(absolute_hls)}"
                 return None, proxied_url
 
     # 3. Resolve WorldCam redirection code if present

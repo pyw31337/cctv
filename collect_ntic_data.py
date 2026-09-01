@@ -4,9 +4,10 @@ import urllib.request
 import urllib.parse
 import ssl
 import sys
+from cctv_runtime import first_env
 
 # Configuration
-ITS_API_KEY = "8c86cb02ef2647d9a6484c47386549ae"
+ITS_API_KEY = first_env("ITS_API_KEY")
 ITS_API_URL = "https://openapi.its.go.kr:9443/cctvInfo"
 OUTPUT_FILE = "ntic_data.json"
 

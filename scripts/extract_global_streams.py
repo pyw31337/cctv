@@ -16,6 +16,8 @@ import urllib.parse
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from cctv_runtime import public_proxy_base
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger(__name__)
 
@@ -273,7 +275,7 @@ class BalticLiveCamExtractor:
             ids += re.findall(r'cam[_-]?id["\s]*[:=]\s*["\']?(\d+)', html, re.IGNORECASE)
             if ids:
                 cam_id = ids[0]
-                proxy_url = f"https://158.179.194.163.sslip.io/baltic?id={cam_id}&ext=.m3u8"
+                proxy_url = f"{public_proxy_base()}/baltic?id={cam_id}&ext=.m3u8"
                 return {'playUrl': proxy_url, 'directPlaybackStatus': 'direct_hls', 'balticCamId': cam_id}
         except Exception as e:
             log.warning(f"Baltic depth-1 failed for {source_url}: {e}")

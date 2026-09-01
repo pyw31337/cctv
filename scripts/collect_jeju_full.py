@@ -2,11 +2,13 @@ import requests
 import json
 import urllib3
 
+from cctv_runtime import public_proxy_base
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Jeju ITS API Enpoints
 LIST_API = "https://www.jejuits.go.kr/jido/getCurFeatures.do"
-PROXY_BASE = "https://158.179.194.163.sslip.io/jeju"
+PROXY_BASE = f"{public_proxy_base()}/jeju"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

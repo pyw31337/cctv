@@ -1,6 +1,8 @@
+import hashlib
+import re
+
 import requests
 import urllib3
-import re
 from bs4 import BeautifulSoup
 
 # Suppress SSL warnings
@@ -49,7 +51,7 @@ class IGEXCollector:
                 # Generate a unique ID based on the stream name in the URL
                 # Example: http://58.232.33.232:1935/live/CTN0101_l.stream/playlist.m3u8 -> CTN0101
                 match = re.search(r'/(CT[NS]\d+)', hls_url)
-                stream_id = match.group(1) if match else h = hashlib.md5(name.encode()).hexdigest()[:8]
+                stream_id = match.group(1) if match else hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
                 
                 normalized_data.append({
                     "id": f"IGEX_{stream_id}",
@@ -71,7 +73,6 @@ class IGEXCollector:
             return []
 
 if __name__ == "__main__":
-    import hashlib # Needed for fallback
     collector = IGEXCollector()
     data = collector.fetch_data()
     for item in data[:3]:

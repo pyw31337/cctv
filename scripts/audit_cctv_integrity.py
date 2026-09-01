@@ -9,12 +9,14 @@ import argparse
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib3
+from cctv_runtime import first_env
 
 # Disable warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configuration
-MAIN_URL = "https://www.utic.go.kr/guide/cctvOpenData.do?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
+MAIN_URL = f"https://www.utic.go.kr/guide/cctvOpenData.do?key={UTIC_KEY}" if UTIC_KEY else "https://www.utic.go.kr/guide/cctvOpenData.do"
 API_URL = "https://www.utic.go.kr/map/getCctvInfoById.do"
 HEADERS = {
     "Referer": MAIN_URL,
@@ -37,6 +39,8 @@ def load_local_data():
 def fetch_master_list():
     print("Fetching master ID list...")
     import re
+    if not UTIC_KEY:
+        raise RuntimeError("Missing UTIC_API_KEY/UTIC_KEY")
     try:
         resp = requests.get(MAIN_URL, headers=HEADERS, verify=False, timeout=30)
         ids = re.findall(r"javascript:test\('([^']+)'\)", resp.text)
@@ -66,7 +70,7 @@ def construct_url(cctv_id, details):
     encoded_name = urllib.parse.quote(urllib.parse.quote(cctv_name))
     base_url = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
     params = {
-        "key": "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI",
+        "key": UTIC_KEY or "",
         "cctvid": cctv_id,
         "cctvName": encoded_name,
         "kind": details.get("KIND", ""),
@@ -76,7 +80,7 @@ def construct_url(cctv_id, details):
         "cctvpasswd": details.get("PASSWD") or "null",
         "cctvport": details.get("PORT") or "null"
     }
-    qs = "&".join([f"{k}={v}" for k, v in params.items()])
+    qs = urllib.parse.urlencode(params)
     return f"{base_url}?{qs}"
 
 def process_id(cid):

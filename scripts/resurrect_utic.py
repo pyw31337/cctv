@@ -25,14 +25,15 @@ import urllib.request
 import urllib.error
 import ssl
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from cctv_runtime import atomic_write_json, first_env, sanitize_utic_payload, worker_proxy_base
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CCTV_DATA = os.path.join(ROOT, "cctv_data.json")
 AUDIT_LOG = os.path.join(ROOT, "data", "utic_audit_history.json")
 
 UTIC_INFO_URL = "https://www.utic.go.kr/map/getCctvInfoById.do"
-UTIC_KEY = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
-WORKER = "https://cctv-proxy.pyw213.workers.dev/utic"
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
+WORKER = f"{worker_proxy_base()}/utic"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (cctv-resurrect/1.0; +https://pyw31337.github.io/cctv/) Chrome/120",
@@ -95,10 +96,9 @@ def construct_url(cctv_id, info):
     if cctv_id.startswith("L12") and (info.get("ID", "").startswith("cctv_")):
         return f"https://trafficcctv.paju.go.kr/live/{info.get('ID')}.stream/playlist.m3u8"
 
-    # General: openDataCctvStream.jsp
+    # General: openDataCctvStream.jsp. The proxy injects the server-side key.
     encoded_name = urllib.parse.quote(urllib.parse.quote(cctv_name))
     params = [
-        ("key", UTIC_KEY),
         ("cctvid", cctv_id),
         ("cctvName", encoded_name),
         ("kind", kind),
@@ -223,8 +223,7 @@ def main():
 
     print(f"[resurrect] resurrected: {resurrected} cameras", flush=True)
 
-    with open(CCTV_DATA, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    atomic_write_json(CCTV_DATA, sanitize_utic_payload(data), sort_keys=False)
     print(f"[resurrect] wrote {CCTV_DATA}", flush=True)
 
     # audit history 에 resurrect 라인 추가
@@ -245,8 +244,7 @@ def main():
         "elapsed_sec": int(time.time() - t0),
     })
     history = history[-90:]
-    with open(AUDIT_LOG, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+    atomic_write_json(AUDIT_LOG, history, sort_keys=False)
 
 
 if __name__ == "__main__":

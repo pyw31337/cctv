@@ -4,15 +4,16 @@ import requests
 import urllib.parse
 import os
 import time
+from cctv_runtime import atomic_write_json, first_env, sanitize_utic_payload
 
 # Configuration
 ITS_API_URL = "https://openapi.its.go.kr:9443/cctvInfo"
-ITS_API_KEY = "8c86cb02ef2647d9a6484c47386549ae"
+ITS_API_KEY = first_env("ITS_API_KEY")
 
 UTIC_API_URL = "https://www.utic.go.kr/map/mapcctv.do"
-UTIC_API_KEY = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+UTIC_API_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 UTIC_HEADERS = {
-    "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do?key=" + UTIC_API_KEY,
+    "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do" + (f"?key={UTIC_API_KEY}" if UTIC_API_KEY else ""),
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
@@ -110,13 +111,12 @@ def fetch_utic_data():
                 continue
 
             # Construct URL
-            # Url format: https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=...&cctvid=...
+            # Url format: https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?cctvid=...
             # Parameters need to be URL encoded
             
             # Using urllib.parse.quote for values
             def q(v): return urllib.parse.quote(str(v or ''))
             
-            # Note: The 'key' in the url param is the API key.
             # Other params: cctvid, cctvName, kind, cctvip, cctvch, id, cctvpasswd, cctvport
             
             # Determine parameters
@@ -130,7 +130,6 @@ def fetch_utic_data():
                 kind = "Seoul"
 
             params = {
-                "key": UTIC_API_KEY,
                 "cctvid": item.get("CCTVID"),
                 "cctvName": name, 
                 "kind": kind,
@@ -297,8 +296,7 @@ def main():
 
     # 5. Save
     try:
-        with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-            json.dump(final_merged, f, indent=2, ensure_ascii=False)
+        atomic_write_json(OUTPUT_FILE, sanitize_utic_payload(final_merged), sort_keys=False)
         print(f"Successfully saved updated data to {OUTPUT_FILE}")
     except Exception as e:
         print(f"Error saving data: {e}")

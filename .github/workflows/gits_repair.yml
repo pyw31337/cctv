@@ -6,8 +6,8 @@ name: GITS Daily Ingest
 
 on:
   schedule:
-    # 매일 06:05 KST (= 21:05 UTC 전날). CultureFlow/CCTV 감사 작업과 시간 분리.
-    - cron: '05 21 * * *'
+    # Six-hour wake-up; adaptive_collection decides whether GITS is due.
+    - cron: '05 */6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -37,10 +37,25 @@ jobs:
       - name: Snapshot current dataset
         run: cp cctv_data.json /tmp/cctv_data.before.json
 
+      - name: Plan adaptive collection
+        id: plan
+        run: python scripts/adaptive_collection.py plan --github-output
+
       - name: Run GITS ingest
         id: gits_ingest
+        if: steps.plan.outputs.due_gits_ingest == 'true'
+        continue-on-error: true
         run: |
           python scripts/ingest_gits.py
+
+      - name: Record adaptive collection result
+        if: always() && steps.plan.outputs.due_gits_ingest == 'true'
+        run: |
+          if [[ "${{ steps.gits_ingest.outcome }}" == "success" ]]; then
+            python scripts/adaptive_collection.py record --task gits_ingest --result success
+          else
+            python scripts/adaptive_collection.py record --task gits_ingest --result failure
+          fi
 
       - name: Guard data preservation
         run: |
@@ -52,6 +67,13 @@ jobs:
             --impact none \
             --message "GITS delta ingest accepted; refreshed streams merged and missing IDs preserved for recheck"
 
+      - name: Validate persisted data integrity
+        run: python scripts/validate_static_data.py cctv_data.json
+
       - name: Commit changes
         run: |
-          scripts/commit_and_push_changes.sh "chore: daily GITS ingest [skip ci]" cctv_data.json data/workflow_status.json
+          if git diff --quiet -- cctv_data.json data/workflow_status.json data/collection_schedule.json; then
+            echo "No GITS or scheduler changes"
+          else
+            scripts/commit_and_push_changes.sh "chore: adaptive GITS ingest [skip ci]" cctv_data.json data/workflow_status.json data/collection_schedule.json
+          fi

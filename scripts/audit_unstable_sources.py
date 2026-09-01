@@ -24,9 +24,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
+from cctv_runtime import public_proxy_base
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = ROOT / "cctv_data.json"
-ORACLE_BASE = "https://158.179.194.163.sslip.io"
+ORACLE_BASE = public_proxy_base()
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 TIMEOUT = 4.0
 

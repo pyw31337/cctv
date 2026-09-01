@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Manual browser playback canary.
+ * Scheduled browser playback canary.
  *
  * This is intentionally not scheduled by default because headless Chromium runs
  * are expensive in GitHub Actions minutes. Use it when we need proof that the
@@ -59,33 +59,65 @@ async function main() {
         first_frame_ms: null,
         playing_count: 0,
         video_count: 0,
+        ready_panel_count: 0,
+        panel_count: 0,
         error_text: null,
       };
       try {
         await page.goto(result.url, { waitUntil: 'domcontentloaded', timeout: TIMEOUT_MS });
         await page.waitForFunction(() => {
-          const videos = Array.from(document.querySelectorAll('video'));
-          const iframes = Array.from(document.querySelectorAll('iframe'));
-          return videos.some(video => video.readyState >= 2 && video.videoWidth > 0)
-            || iframes.some(frame => frame.clientWidth > 100 && frame.clientHeight > 100);
+          const panels = Array.from(document.querySelectorAll('.video-panel'));
+          return panels.length >= 4 && panels.every(panel => {
+            const video = panel.querySelector('video');
+            const iframe = panel.querySelector('iframe');
+            return (video && video.readyState >= 2 && video.videoWidth > 0)
+              || (iframe && iframe.clientWidth > 100 && iframe.clientHeight > 100);
+          });
         }, { timeout: TIMEOUT_MS });
         const metrics = await page.evaluate(() => {
           const videos = Array.from(document.querySelectorAll('video'));
+          const panels = Array.from(document.querySelectorAll('.video-panel'));
+          const readyPanels = panels.filter(panel => {
+            const video = panel.querySelector('video');
+            const iframe = panel.querySelector('iframe');
+            return (video && video.readyState >= 2 && video.videoWidth > 0)
+              || (iframe && iframe.clientWidth > 100 && iframe.clientHeight > 100);
+          });
           return {
             video_count: videos.length,
             playing_count: videos.filter(video => video.readyState >= 2 && video.videoWidth > 0).length,
+            ready_panel_count: readyPanels.length,
+            panel_count: panels.length,
           };
         });
-        result.ok = metrics.playing_count > 0 || metrics.video_count === 0;
+        result.ok = metrics.panel_count >= 4 && metrics.ready_panel_count >= 4;
         result.first_frame_ms = Date.now() - started;
         result.video_count = metrics.video_count;
         result.playing_count = metrics.playing_count;
+        result.ready_panel_count = metrics.ready_panel_count;
+        result.panel_count = metrics.panel_count;
       } catch (error) {
         result.error_text = String(error?.message || error).slice(0, 300);
+        const metrics = await page.evaluate(() => {
+          const panels = Array.from(document.querySelectorAll('.video-panel'));
+          const readyPanels = panels.filter(panel => {
+            const video = panel.querySelector('video');
+            const iframe = panel.querySelector('iframe');
+            return (video && video.readyState >= 2 && video.videoWidth > 0)
+              || (iframe && iframe.clientWidth > 100 && iframe.clientHeight > 100);
+          });
+          return {
+            panel_count: panels.length,
+            ready_panel_count: readyPanels.length,
+            video_count: document.querySelectorAll('video').length,
+            playing_count: Array.from(document.querySelectorAll('video')).filter(video => video.readyState >= 2 && video.videoWidth > 0).length,
+          };
+        }).catch(() => null);
+        if (metrics) Object.assign(result, metrics);
       } finally {
         await page.close().catch(() => {});
       }
-      console.log(`[browser-canary] ${region.key} ok=${result.ok} first=${result.first_frame_ms ?? '-'}ms videos=${result.playing_count}/${result.video_count}`);
+      console.log(`[browser-canary] ${region.key} ok=${result.ok} first=${result.first_frame_ms ?? '-'}ms panels=${result.ready_panel_count}/${result.panel_count} videos=${result.playing_count}/${result.video_count}`);
       results.push(result);
     }
   } finally {

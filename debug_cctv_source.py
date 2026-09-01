@@ -2,11 +2,16 @@ import requests
 import json
 import urllib3
 
+from cctv_runtime import first_env
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def check_utic():
     url = "https://www.utic.go.kr/map/mapcctv.do"
-    key = "yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+    key = first_env("UTIC_API_KEY", "UTIC_KEY")
+    if not key:
+        print("Missing UTIC_API_KEY/UTIC_KEY")
+        return
     headers = {
         "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do?key=" + key,
         "User-Agent": "Mozilla/5.0"
@@ -43,7 +48,10 @@ def check_utic():
 
 def check_its():
     url = "https://openapi.its.go.kr:9443/cctvInfo"
-    key = "8c86cb02ef2647d9a6484c47386549ae"
+    key = first_env("ITS_API_KEY")
+    if not key:
+        print("Missing ITS_API_KEY")
+        return
     params = {
         "apiKey": key,
         "type": "all",

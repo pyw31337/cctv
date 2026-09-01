@@ -5,27 +5,43 @@ import subprocess
 import shutil
 import logging
 import threading
+import ipaddress
+import socket
 import hashlib
 import json
 import re
 import base64
-from datetime import datetime, timedelta
-from urllib.parse import quote, urlencode, urljoin, unquote
+import copy
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote, urlencode, urljoin, unquote, urlparse, parse_qsl
 import flask
 from flask import Flask, request, Response, send_from_directory, abort
 import requests
+from cctv_runtime import build_proxy_url, env_float, env_int, first_env, public_proxy_base, worker_proxy_base
 
 TRANSIENT_UPSTREAM_STATUSES = {502, 503, 504}
 
 # Configuration
 HLS_DIR = os.environ.get('HLS_DIR', '/tmp/hls')
-IDLE_TIMEOUT = 30  # Seconds to keep stream alive without viewers
-MAX_STREAMS = 2    # Hard limit on concurrent FFmpeg processes (CPU safety)
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+IDLE_TIMEOUT = env_int('IDLE_TIMEOUT', 30)  # Seconds to keep stream alive without viewers
+MAX_STREAMS = env_int('MAX_STREAMS', 2)    # Hard limit on concurrent FFmpeg processes (CPU safety)
+STREAM_START_TIMEOUT = env_float('STREAM_START_TIMEOUT', 3.0)
+MAX_PROXY_RESPONSE_BYTES = env_int('MAX_PROXY_RESPONSE_BYTES', 16 * 1024 * 1024)
+RATE_LIMIT_WINDOW_SECONDS = env_int('RATE_LIMIT_WINDOW_SECONDS', 60)
+RATE_LIMIT_MAX_REQUESTS = env_int('RATE_LIMIT_MAX_REQUESTS', 120)
+ROOT_DIR = os.environ.get(
+    'CCTV_ROOT_DIR',
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+)
+STATIC_ROOT = os.environ.get('STATIC_ROOT', ROOT_DIR)
 HEALTH_STATUS_FILE = os.environ.get('HEALTH_STATUS_FILE', os.path.join(ROOT_DIR, 'data', 'status.json'))
 CANARY_STATUS_FILE = os.environ.get('CANARY_STATUS_FILE', os.path.join(ROOT_DIR, 'data', 'canary_status.json'))
 OPS_STATUS_FILE = os.environ.get('OPS_STATUS_FILE', os.path.join(ROOT_DIR, 'data', 'ops_status.json'))
 CANARY_HISTORY_FILE = os.environ.get('CANARY_HISTORY_FILE', os.path.join(ROOT_DIR, 'data', 'canary_history.json'))
+PUBLIC_PROXY_BASE = public_proxy_base()
+WORKER_PROXY_BASE = worker_proxy_base()
+UTIC_API_KEY = first_env('UTIC_API_KEY', 'UTIC_KEY')
+STARTUP_JOBS_ENABLED = os.environ.get('CCTV_DISABLE_STARTUP_JOBS', '0') != '1'
 
 # App initialized below with static folder config
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +50,10 @@ logger = logging.getLogger(__name__)
 # Global state
 streams = {}  # { stream_id: { 'process': Popen, 'last_access': time, 'url': url } }
 lock = threading.Lock()
+status_snapshot_lock = threading.Lock()
+status_snapshot_cache = {}
+rate_limit_lock = threading.Lock()
+rate_limit_buckets = {}
 
 from functools import wraps
 def timed_cache(seconds: int = 60, maxsize: int = 128):
@@ -58,6 +78,129 @@ def timed_cache(seconds: int = 60, maxsize: int = 128):
             return val
         return wrapper
     return decorator
+
+
+def get_utic_api_key():
+    return first_env('UTIC_API_KEY', 'UTIC_KEY')
+
+
+def build_public_proxy_url(target_url, route='proxy'):
+    return build_proxy_url(PUBLIC_PROXY_BASE, target_url, route=route)
+
+
+def redact_url_for_log(target_url):
+    """Hide common credentials and tokens before a URL reaches logs."""
+    try:
+        parsed = urlparse(target_url)
+        sensitive = {'key', 'api_key', 'apikey', 'token', 'access_token', 'signature'}
+        query = [
+            (name, '[REDACTED]' if name.lower() in sensitive else value)
+            for name, value in parse_qsl(parsed.query, keep_blank_values=True)
+        ]
+        redacted_query = urlencode(query, doseq=True)
+        return parsed._replace(query=redacted_query).geturl()
+    except Exception:
+        return '<invalid-url>'
+
+
+def add_utic_api_key(target_url):
+    """Inject the server-side UTIC key without shipping it in static data."""
+    key = get_utic_api_key()
+    if not key:
+        return target_url
+    try:
+        parsed = urlparse(target_url)
+        if parsed.hostname != 'www.utic.go.kr':
+            return target_url
+        query = parse_qsl(parsed.query, keep_blank_values=True)
+        if any(name.lower() == 'key' for name, _ in query):
+            return target_url
+        query.append(('key', key))
+        return parsed._replace(query=urlencode(query, doseq=True)).geturl()
+    except Exception:
+        return target_url
+
+
+def _ip_is_public(ip_text):
+    try:
+        addr = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return False
+    return not (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_reserved
+        or addr.is_unspecified
+    )
+
+
+@timed_cache(seconds=300, maxsize=512)
+def _resolve_host_ips(hostname):
+    try:
+        infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return ()
+
+    ips = []
+    seen = set()
+    for info in infos:
+        sockaddr = info[4]
+        if not sockaddr:
+            continue
+        ip_text = sockaddr[0]
+        if ip_text in seen:
+            continue
+        seen.add(ip_text)
+        ips.append(ip_text)
+    return tuple(ips)
+
+
+def _is_safe_network_target(target_url, allowed_schemes):
+    if not target_url:
+        return False
+
+    try:
+        parsed = urlparse(target_url)
+    except Exception:
+        return False
+
+    if parsed.scheme not in allowed_schemes:
+        return False
+    if not parsed.hostname:
+        return False
+    if parsed.username or parsed.password:
+        return False
+
+    hostname = parsed.hostname.strip().lower()
+    if hostname in {'localhost', 'localhost.localdomain'}:
+        return False
+    if hostname.endswith(('.local', '.internal', '.lan', '.home', '.test')):
+        return False
+
+    try:
+        parsed_ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        parsed_ip = None
+
+    if parsed_ip is not None:
+        return _ip_is_public(hostname)
+
+    resolved_ips = _resolve_host_ips(hostname)
+    if not resolved_ips:
+        return False
+    return all(_ip_is_public(ip_text) for ip_text in resolved_ips)
+
+
+def is_safe_proxy_target(target_url):
+    return _is_safe_network_target(target_url, {'http', 'https'})
+
+
+def is_safe_stream_target(target_url):
+    # FFmpeg can open more than HTTP, but all remote stream schemes still need
+    # the same public-address guard to prevent the endpoint becoming an SSRF.
+    return _is_safe_network_target(target_url, {'http', 'https', 'rtsp', 'rtsps'})
 
 # === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
 _z3_cache = {
@@ -108,7 +251,8 @@ JEJU_ID_MAP = load_jeju_id_map()
 
 
 def utc_now():
-    return datetime.utcnow()
+    # Keep internal timestamps naive for compatibility with existing snapshots.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def parse_z3_fetched(value):
@@ -377,11 +521,13 @@ def get_z3_cache_payload():
             'data': data,
         }
 
-# Pre-warm Z3 cache on startup
 def _prewarm_z3():
     with _z3_cache['lock']:
         _refresh_z3_cache()
-threading.Thread(target=_prewarm_z3, daemon=True).start()
+
+
+if STARTUP_JOBS_ENABLED:
+    threading.Thread(target=_prewarm_z3, daemon=True).start()
 
 
 def get_stream_id(url):
@@ -395,8 +541,12 @@ def kill_stream(stream_id):
             try:
                 proc.send_signal(signal.SIGTERM)
                 proc.wait(timeout=5)
-            except:
-                proc.kill()
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                except (OSError, subprocess.TimeoutExpired):
+                    logger.warning("Could not fully stop stream process: %s", stream_id)
             
             # Cleanup files
             stream_dir = os.path.join(HLS_DIR, stream_id)
@@ -405,6 +555,29 @@ def kill_stream(stream_id):
             
             del streams[stream_id]
 
+def cleanup_orphan_hls_dirs():
+    """Remove stream directories left behind by a previous process."""
+    if not os.path.isdir(HLS_DIR):
+        return
+    cutoff = time.time() - max(IDLE_TIMEOUT * 2, 120)
+    try:
+        entries = os.scandir(HLS_DIR)
+    except OSError as exc:
+        logger.warning("Could not scan HLS directory: %s", exc)
+        return
+
+    with entries:
+        for entry in entries:
+            if not entry.is_dir() or not re.fullmatch(r'[a-f0-9]{32}', entry.name):
+                continue
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    shutil.rmtree(entry.path, ignore_errors=True)
+                    logger.info("Removed orphan HLS directory: %s", entry.name)
+            except OSError as exc:
+                logger.warning("Could not remove orphan HLS directory %s: %s", entry.name, exc)
+
+
 def cleanup_loop():
     while True:
         time.sleep(5)
@@ -412,16 +585,58 @@ def cleanup_loop():
         to_kill = []
         with lock:
             for sid, data in streams.items():
-                if now - data['last_access'] > IDLE_TIMEOUT:
+                process_exited = data['process'].poll() is not None
+                idle = now - data['last_access'] > IDLE_TIMEOUT
+                if process_exited or idle:
                     to_kill.append(sid)
         
         for sid in to_kill:
             kill_stream(sid)
 
-# Start background cleanup
-threading.Thread(target=cleanup_loop, daemon=True).start()
+if STARTUP_JOBS_ENABLED:
+    cleanup_orphan_hls_dirs()
+    threading.Thread(target=cleanup_loop, daemon=True).start()
 
-app = Flask(__name__, static_folder='../', static_url_path='')
+app = Flask(__name__, static_folder=STATIC_ROOT, static_url_path='')
+
+RATE_LIMITED_PATHS = {
+    '/proxy', '/stream', '/daejeon', '/baltic', '/skyline', '/whatsupcam',
+    '/roundshot', '/jeju', '/jeju2', '/utic', '/kb', '/gits',
+}
+
+
+@app.before_request
+def limit_upstream_requests():
+    """Bound expensive upstream requests without throttling HLS playback."""
+    if request.path not in RATE_LIMITED_PATHS:
+        return None
+
+    now = time.monotonic()
+    client_key = request.remote_addr or 'unknown'
+    bucket_key = (client_key, request.path)
+    with rate_limit_lock:
+        window_start, count = rate_limit_buckets.get(bucket_key, (now, 0))
+        if now - window_start >= max(1, RATE_LIMIT_WINDOW_SECONDS):
+            window_start, count = now, 0
+
+        if count >= max(1, RATE_LIMIT_MAX_REQUESTS):
+            retry_after = max(1, int(RATE_LIMIT_WINDOW_SECONDS - (now - window_start)))
+            response = Response('Rate limit exceeded', 429)
+            response.headers['Retry-After'] = str(retry_after)
+            return response
+
+        rate_limit_buckets[bucket_key] = (window_start, count + 1)
+
+        # Keep this in-process fallback bounded when clients rotate addresses.
+        if len(rate_limit_buckets) > 4096:
+            cutoff = now - max(1, RATE_LIMIT_WINDOW_SECONDS)
+            stale_keys = [
+                key for key, (started, _) in rate_limit_buckets.items()
+                if started < cutoff
+            ]
+            for key in stale_keys:
+                rate_limit_buckets.pop(key, None)
+    return None
 
 @app.after_request
 def add_cors_headers(response):
@@ -433,64 +648,83 @@ def add_cors_headers(response):
 def serve_index():
     return send_from_directory(app.static_folder, 'index.html')
 
-@app.route('/health-status')
-def serve_health_status():
-    try:
-        with open(HEALTH_STATUS_FILE, 'r', encoding='utf-8') as handle:
-            data = json.load(handle)
-        data['_served_by'] = 'oracle-proxy'
-        data['_served_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-        return Response(
-            json.dumps(data, ensure_ascii=False),
-            200,
-            {
-                'Content-Type': 'application/json; charset=utf-8',
-                'Cache-Control': 'public, max-age=120'
-            }
-        )
-    except FileNotFoundError:
-        return Response(
-            json.dumps({'regions': {}, 'last_updated': None, 'error': 'status-not-found'}),
-            404,
-            {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
-        )
-    except Exception as exc:
-        logger.error("Health status read failed: %s", exc)
-        return Response(
-            json.dumps({'regions': {}, 'last_updated': None, 'error': 'status-read-failed'}),
-            500,
-            {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
-        )
+
+@app.route('/health')
+def health_check():
+    with lock:
+        active_streams = len(streams)
+    return {
+        'status': 'ok',
+        'active_streams': active_streams,
+        'max_streams': MAX_STREAMS,
+    }
 
 
-def serve_json_file(path, missing_payload, served_by='oracle-proxy', max_age=120):
+def read_status_snapshot(path, fallback):
     try:
         with open(path, 'r', encoding='utf-8') as handle:
             data = json.load(handle)
-        if isinstance(data, dict):
-            data['_served_by'] = served_by
-            data['_served_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-        return Response(
-            json.dumps(data, ensure_ascii=False),
-            200,
-            {
-                'Content-Type': 'application/json; charset=utf-8',
-                'Cache-Control': f'public, max-age={max_age}'
-            }
-        )
+        with status_snapshot_lock:
+            status_snapshot_cache[path] = copy.deepcopy(data)
+        return data, None
     except FileNotFoundError:
+        error = 'status-not-found'
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.error("Status snapshot read failed for %s: %s", path, exc)
+        error = 'status-read-failed'
+
+    with status_snapshot_lock:
+        cached = copy.deepcopy(status_snapshot_cache.get(path))
+    if cached is not None:
+        return cached, f'{error}-serving-stale'
+    return copy.deepcopy(fallback), error
+
+
+@app.route('/health-status')
+def serve_health_status():
+    data, error = read_status_snapshot(
+        HEALTH_STATUS_FILE,
+        {'regions': {}, 'last_updated': None, 'service_status': 'UNKNOWN'},
+    )
+    if isinstance(data, dict):
+        data['_served_by'] = 'oracle-proxy'
+        data['_served_at'] = utc_now().strftime('%Y-%m-%dT%H:%M:%SZ')
+        if error:
+            data['error'] = error
+            data['_stale'] = error.endswith('-serving-stale')
+    return Response(
+        json.dumps(data, ensure_ascii=False),
+        200,
+        {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store' if error else 'public, max-age=120'
+        }
+    )
+
+
+def serve_json_file(path, missing_payload, served_by='oracle-proxy', max_age=120):
+    data, error = read_status_snapshot(path, missing_payload)
+    if error == 'status-not-found':
         return Response(
             json.dumps(missing_payload, ensure_ascii=False),
             404,
             {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
         )
-    except Exception as exc:
-        logger.error("JSON endpoint read failed for %s: %s", path, exc)
-        return Response(
-            json.dumps({'error': 'json-read-failed'}, ensure_ascii=False),
-            500,
-            {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
-        )
+
+    if isinstance(data, dict):
+        data['_served_by'] = served_by
+        data['_served_at'] = utc_now().strftime('%Y-%m-%dT%H:%M:%SZ')
+        if error:
+            data['error'] = error
+            data['_stale'] = error.endswith('-serving-stale')
+    return Response(
+        json.dumps(data, ensure_ascii=False),
+        200,
+        {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store' if error else f'public, max-age={max_age}'
+        }
+    )
 
 
 @app.route('/canary-status')
@@ -545,34 +779,87 @@ def serve_z3_cache():
 def serve_static(path):
     return send_from_directory(app.static_folder, path)
 
-def fetch_upstream(url, headers, attempts=3):
-    last_error = None
-    for attempt in range(1, attempts + 1):
-        try:
-            resp = requests.get(
-                url,
-                timeout=(5, 20),
-                verify=False,
-                headers=headers,
-                allow_redirects=True,
-            )
-            if resp.status_code in TRANSIENT_UPSTREAM_STATUSES and attempt < attempts:
-                time.sleep(0.25 * attempt)
-                continue
-            return resp
-        except requests.RequestException as exc:
-            last_error = exc
-            if attempt < attempts:
-                time.sleep(0.25 * attempt)
-                continue
+def fetch_upstream(url, headers, attempts=3, max_redirects=5):
+    current_url = url
+    for redirect_count in range(max_redirects + 1):
+        if not is_safe_proxy_target(current_url):
+            raise ValueError(f"Blocked unsafe proxy target: {current_url}")
+
+        last_error = None
+        resp = None
+        for attempt in range(1, attempts + 1):
+            try:
+                resp = requests.get(
+                    current_url,
+                    timeout=(5, 20),
+                    verify=False,
+                    headers=headers,
+                    allow_redirects=False,
+                    stream=True,
+                )
+                if resp.status_code in TRANSIENT_UPSTREAM_STATUSES and attempt < attempts:
+                    resp.close()
+                    time.sleep(0.25 * attempt)
+                    continue
+                break
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt < attempts:
+                    time.sleep(0.25 * attempt)
+                    continue
+                raise
+
+        if resp is None:
+            if last_error:
+                raise last_error
+            raise RuntimeError(f"Failed to fetch upstream URL: {current_url}")
+
+        if resp.is_redirect or resp.is_permanent_redirect:
+            location = resp.headers.get('Location')
+            if not location:
+                return resp
+            next_url = urljoin(current_url, location)
+            if not is_safe_proxy_target(next_url):
+                resp.close()
+                raise ValueError(f"Blocked unsafe redirect target: {next_url}")
+            resp.close()
+            current_url = next_url
+            continue
+
+        return resp
+
+    raise ValueError(f"Too many redirects while fetching {url}")
+
+
+def read_upstream_body(response):
+    """Read a proxied response with a hard memory bound."""
+    content_length = response.headers.get('Content-Length')
+    try:
+        if content_length is not None and int(content_length) > MAX_PROXY_RESPONSE_BYTES:
+            raise ValueError('Upstream response is too large')
+    except ValueError as exc:
+        if str(exc) == 'Upstream response is too large':
             raise
-    raise last_error
+
+    chunks = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=64 * 1024):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_PROXY_RESPONSE_BYTES:
+            raise ValueError('Upstream response is too large')
+        chunks.append(chunk)
+    return b''.join(chunks)
 
 @app.route('/stream')
 def stream_video():
     url = request.args.get('url')
     if not url:
         return "Missing URL", 400
+    if not is_safe_stream_target(url):
+        logger.warning("Stream target rejected by safety filter: %s", redact_url_for_log(url))
+        return "Unsafe stream target", 400
     
     stream_id = get_stream_id(url)
     stream_dir = os.path.join(HLS_DIR, stream_id)
@@ -604,7 +891,7 @@ def stream_video():
                 '-sc_threshold', '0',
                 '-hls_time', '2',
                 '-hls_list_size', '3',
-                '-hls_flags', 'delete_segments',
+                '-hls_flags', 'delete_segments+temp_file',
                 '-f', 'hls',
                 os.path.join(stream_dir, 'index.m3u8')
             ]
@@ -617,8 +904,36 @@ def stream_video():
                 'url': url
             }
             
-            # Wait a bit for the first segment
-            time.sleep(3)
+    # Do not hold the global stream lock while FFmpeg produces its first
+    # segment. Other requests must still be able to refresh or stop streams.
+    deadline = time.monotonic() + max(0.0, STREAM_START_TIMEOUT)
+    while not os.path.exists(playlist_path) and time.monotonic() < deadline:
+        with lock:
+            current = streams.get(stream_id)
+            if current is None:
+                return "Stream stopped", 503
+            if current['process'].poll() is not None:
+                break
+            current['last_access'] = time.time()
+        time.sleep(0.1)
+
+    with lock:
+        current = streams.get(stream_id)
+        if current is None:
+            return "Stream stopped", 503
+        if current['process'].poll() is not None and not os.path.exists(playlist_path):
+            proc = current['process']
+            del streams[stream_id]
+        else:
+            proc = None
+
+    if proc is not None:
+        try:
+            proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        shutil.rmtree(stream_dir, ignore_errors=True)
+        return "Stream failed to start", 502
 
     # Redirect to the HLS endpoint so relative TS segments work
     return flask.redirect(f"/hls/{stream_id}/index.m3u8")
@@ -641,12 +956,21 @@ def proxy_stream():
     target_url = request.args.get('url')
     if not target_url:
         return "Missing URL", 400
+    if not is_safe_proxy_target(target_url):
+        logger.warning("Proxy target rejected by safety filter: %s", redact_url_for_log(target_url))
+        return "Unsafe proxy target", 400
+    target_url = add_utic_api_key(target_url)
         
     try:
         # Some servers need specific Headers
         headers = {}
+        utic_key = get_utic_api_key()
         if 'utic.go.kr' in target_url:
-             headers["Referer"] = "https://www.utic.go.kr/guide/cctvOpenData.do?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI"
+             headers["Referer"] = (
+                 f"https://www.utic.go.kr/guide/cctvOpenData.do?key={utic_key}"
+                 if utic_key
+                 else "https://www.utic.go.kr/guide/cctvOpenData.do"
+             )
              headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         elif 'jejuits.go.kr' in target_url:
              headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -674,7 +998,10 @@ def proxy_stream():
         )
         
         if is_manifest:
-            content = resp.text
+            try:
+                content = read_upstream_body(resp).decode('utf-8', 'replace')
+            finally:
+                resp.close()
             # Rewrite relative paths to absolute proxied paths
             # Jeju uses /hls/....ts
             # Replace lines starting with / or not starting with http
@@ -691,7 +1018,7 @@ def proxy_stream():
                     ):
                         base_url = target_url + '/'
                     full_segment_url = urljoin(base_url, line.strip())
-                    new_lines.append(f"https://158.179.194.163.sslip.io/proxy?url={quote(full_segment_url, safe='')}")
+                    new_lines.append(build_public_proxy_url(full_segment_url))
                 else:
                     new_lines.append(line)
             
@@ -714,10 +1041,14 @@ def proxy_stream():
         resp_headers.append(('Access-Control-Allow-Origin', '*'))
         resp_headers.append(('Cache-Control', 'no-store, max-age=0'))
         
-        return Response(resp.content, resp.status_code, resp_headers)
+        try:
+            body = read_upstream_body(resp)
+        finally:
+            resp.close()
+        return Response(body, resp.status_code, resp_headers)
     except Exception as e:
-        logger.error(f"Proxy error for {target_url}: {e}")
-        return f"Proxy error: {str(e)}", 502
+        logger.error("Proxy error for %s: %s", redact_url_for_log(target_url), e)
+        return "Proxy unavailable", 502
 
 # === Daejeon Proxy Logic ===
 @app.route('/daejeon')
@@ -749,7 +1080,7 @@ def proxy_daejeon():
 
     # Daejeon publishes minute MP4 files with a short delay. Probe recent
     # timestamps so playback does not fail just because the newest file is late.
-    now = datetime.utcnow() + timedelta(hours=9)
+    now = utc_now() + timedelta(hours=9)
     last_url = None
     probe_headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -822,7 +1153,7 @@ def proxy_baltic():
         for line in lines:
             if line.strip() and not line.startswith('#'):
                 full_segment_url = urljoin(raw_hls_url, line.strip())
-                new_lines.append(f"https://158.179.194.163.sslip.io/proxy?url={quote(full_segment_url, safe='')}")
+                new_lines.append(build_public_proxy_url(full_segment_url))
             else:
                 new_lines.append(line)
                 
@@ -838,7 +1169,7 @@ def proxy_baltic():
         
     except Exception as e:
         logger.error(f"Baltic proxy error for cam {cam_id}: {e}")
-        return f"Baltic proxy error: {str(e)}", 502
+        return "Baltic proxy unavailable", 502
 
 
 # === SkylineWebcams Dynamic Token Proxy ===
@@ -888,14 +1219,15 @@ def get_cached_skyline_manifest(source_url: str) -> tuple:
         for line in lines:
             if line.strip() and not line.startswith('#'):
                 full_url = urljoin(hls_url, line.strip())
-                new_lines.append(f"https://158.179.194.163.sslip.io/proxy?url={quote(full_url, safe='')}")
+                new_lines.append(build_public_proxy_url(full_url))
             else:
                 new_lines.append(line)
 
         rewritten = "\n".join(new_lines).encode('utf-8')
         return rewritten, 200
     except Exception as e:
-        return f"Skyline error: {str(e)}", 502
+        logger.error("Skyline manifest error: %s", e)
+        return "Skyline unavailable", 502
 
 @app.route('/skyline')
 def proxy_skyline():
@@ -956,7 +1288,7 @@ def get_cached_whatsupcam_manifest(source_url: str, slug_override: str) -> tuple
         for line in lines:
             if line.strip() and not line.startswith('#'):
                 full_url = urljoin(hls_url, line.strip())
-                new_lines.append(f"https://158.179.194.163.sslip.io/proxy?url={quote(full_url, safe='')}")
+                new_lines.append(build_public_proxy_url(full_url))
             else:
                 new_lines.append(line)
 
@@ -1024,8 +1356,8 @@ def proxy_roundshot():
         
         return flask.redirect(target_img_url, code=302)
     except Exception as e:
-        logger.error(f"Roundshot proxy error for {source_url}: {e}")
-        return f"Roundshot proxy error: {str(e)}", 502
+        logger.error("Roundshot proxy error for %s: %s", redact_url_for_log(source_url), e)
+        return "Roundshot unavailable", 502
 
 
 # === Jeju Proxy Logic ===
@@ -1108,10 +1440,10 @@ def proxy_jeju():
 
     except requests.RequestException as e:
         logger.error(f"Jeju Proxy Upstream Failed: {e}")
-        return f"Jeju Proxy Error: {str(e)}", 502
+        return "Jeju upstream unavailable", 502
     except Exception as e:
         logger.error(f"Jeju Proxy Final Failed: {e}")
-        return f"Server Error: {str(e)}", 500
+        return "Jeju proxy unavailable", 500
 
 # === UTIC/NTIC Proxy Logic ===
 @app.route('/utic')
@@ -1160,11 +1492,15 @@ def proxy_utic():
 
         except Exception as e:
             logger.error(f"Z3 Proxy Failed ({cctv_id}): {e}")
-            return f"Server Error: {str(e)}", 500
+            return "Z3 proxy unavailable", 500
 
     # === General UTIC: scrape the JSP page for an m3u8 URL ===
+    utic_key = get_utic_api_key()
+    if not utic_key:
+        return "UTIC API key not configured", 500
+
     params = {
-        "key": os.environ.get('UTIC_KEY', 'yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI'),
+        "key": utic_key,
         "cctvid": cctv_id,
         "cctvName": request.args.get('cctvName', ''),
         "kind": kind,
@@ -1213,7 +1549,7 @@ def proxy_utic():
 
     except Exception as e:
         logger.error(f"UTIC Proxy Failed: {e}")
-        return f"Server Error: {str(e)}", 500
+        return "UTIC proxy unavailable", 500
 
 
 # === KB / Loomex (경기도·부산 CCTV via kbsapi.loomex.net) Proxy Logic ===
@@ -1295,7 +1631,7 @@ def proxy_kb():
 
     except Exception as e:
         logger.error(f"KB Proxy Failed ({cctvip}): {e}")
-        return f"Server Error: {str(e)}", 500
+        return "KB proxy unavailable", 500
 
 
 # === GiTS (경기도 교통정보서비스) Proxy Logic ===
@@ -1359,7 +1695,7 @@ def proxy_gits():
 
     except Exception as e:
         logger.error(f"GiTS Proxy Failed ({cctvip}): {e}")
-        return f"Server Error: {str(e)}", 500
+        return "GiTS proxy unavailable", 500
 
 
 if __name__ == '__main__':

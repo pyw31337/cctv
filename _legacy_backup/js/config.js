@@ -1,6 +1,6 @@
 // Configuration & Constants
 const KAKAO_API_KEY = "0236cfffa7cfef34abacd91a6d7c73c0"; // JavaScript Key
-const ITS_API_KEY = "8c86cb02ef2647d9a6484c47386549ae";
+const ITS_API_KEY = ""; // legacy backup snapshot only
 
 // Global State
 let currentLat = 37.566826;

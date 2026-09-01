@@ -31,6 +31,7 @@ jobs:
 
       - name: Prepare deploy directory
         run: |
+          python scripts/validate_static_data.py cctv_data.json
           python scripts/split_cctv_data.py
           mkdir -p _site
           # Copy only web-serving files (HTML, JS, CSS, JSON data, images, manifests)
@@ -57,9 +58,11 @@ jobs:
             . _site/
           # Copy data directory fully (needed for app)
           mkdir -p _site/data
-          cp -r data/*.json _site/data/ 2>/dev/null || true
-          cp -r js/ _site/js/ 2>/dev/null || true
-          cp -r css/ _site/css/ 2>/dev/null || true
+          cp data/*.json _site/data/
+          test -f _site/index.html
+          test -d _site/js
+          test -d _site/css
+          test -f _site/data/cctv_core.json
           echo "=== Deploy size ==="
           du -sh _site/
           echo "=== File count ==="

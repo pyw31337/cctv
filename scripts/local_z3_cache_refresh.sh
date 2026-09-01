@@ -11,7 +11,6 @@ MAX_AGE_MINUTES="${CCTV_Z3_MAX_AGE_MINUTES:-25}"
 FALLBACK_HOURS="${CCTV_Z3_FALLBACK_HOURS:-8}"
 GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES="${CCTV_Z3_GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES:-60}"
 GITHUB_FALLBACK_STATE_FILE="${CCTV_Z3_GITHUB_FALLBACK_STATE_FILE:-$ROOT/logs/local_z3_cache_refresh.last_github_push}"
-ORACLE_BASE="${CCTV_ORACLE_BASE:-https://158.179.194.163.sslip.io}"
 
 stamp() {
   date -u "+%Y-%m-%dT%H:%M:%SZ"
@@ -56,6 +55,15 @@ else
   PYTHON="python3"
 fi
 
+get_public_proxy_base() {
+  "$PYTHON" - <<'PY'
+from cctv_runtime import public_proxy_base
+print(public_proxy_base())
+PY
+}
+
+ORACLE_BASE="${CCTV_ORACLE_BASE:-$(get_public_proxy_base)}"
+
 if [ -f "$KEY_FILE" ]; then
   chmod 600 "$KEY_FILE" || true
 fi
@@ -86,6 +94,7 @@ import json
 import sys
 
 source, target = sys.argv[1], sys.argv[2]
+from cctv_runtime import atomic_write_json
 with open(source, encoding="utf-8") as f:
     data = json.load(f)
 try:
@@ -100,9 +109,7 @@ if isinstance(previous, dict) and isinstance(data, dict):
     for key in ("camera_checks", "coverage", "sampling_policy"):
         if key not in data and key in previous:
             data[key] = previous[key]
-with open(target, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-    f.write("\n")
+atomic_write_json(target, data)
 PY
       rm -f "$tmp"
       echo "[$(stamp)] refreshed static fallback ${output} from Oracle ${endpoint}"

@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
+from cctv_runtime import public_proxy_base
+
 import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -36,7 +38,7 @@ DEFAULT_SENTINEL_MAX_WORKERS = 32
 DEFAULT_SENTINEL_ORACLE_MAX_WORKERS = 8
 DAEJEON_MP4_OFFSETS = [2, 4, 6, 8, 10, 1]
 DAEJEON_REQUEST_TIMEOUT = (1.0, 1.5)
-ORACLE_BASE = 'https://158.179.194.163.sslip.io'
+ORACLE_BASE = public_proxy_base()
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
 }
@@ -442,7 +444,7 @@ def check_jeju_stream(cctv):
     if not ((source == 'UTIC' and kind == 'K' and parsed_id) or source == 'JEJU' or 'jejuits.go.kr' in url):
         return check_generic_stream(cctv)
 
-    proxy_url = f"https://158.179.194.163.sslip.io/jeju?id={stream_id}"
+    proxy_url = f"{ORACLE_BASE}/jeju?id={stream_id}"
     try:
         # The Oracle server can resolve Jeju tokens reliably, but its egress to
         # media*.jejuits.go.kr:7001 is often slower than real browsers. Treat a

@@ -2,6 +2,8 @@ import requests
 import urllib3
 from datetime import datetime, timedelta
 
+from cctv_runtime import first_env
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 HEADERS = {
@@ -21,9 +23,16 @@ def test_url(url, label):
     except Exception as e:
         print(f"Error: {e}")
 
-# UTIC API Sample
-utic_url = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI&cctvid=E970016&cctvName=%EC%84%9C%EC%9A%B8%EA%B4%91%EC%9E%A5&kind=Seoul&cctvch=53&id=274"
-test_url(utic_url, "UTIC_API")
+utic_key = first_env("UTIC_API_KEY", "UTIC_KEY")
+if utic_key:
+    utic_url = (
+        "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
+        f"?key={utic_key}&cctvid=E970016&cctvName=%EC%84%9C%EC%9A%B8%EA%B4%91%EC%9E%A5"
+        "&kind=Seoul&cctvch=53&id=274"
+    )
+    test_url(utic_url, "UTIC_API")
+else:
+    print("Missing UTIC_API_KEY/UTIC_KEY")
 
 # Daejeon Sample
 # Need to generate current ones

@@ -1,7 +1,9 @@
 
 import json
+from cctv_runtime import first_env
 
 CUR_FILE = "cctv_data.json"
+UTIC_KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 
 def main():
     print("Applying Mixed Fix: Restore Guri (Direct) & Revert Wangsvuk (Wrapper)...")
@@ -15,7 +17,13 @@ def main():
         if "구리 왕숙천" in item['name']:
             # The Pre-Audit URL (from debug_guri_pre.py):
             # https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?...&kind=KB&cctvip=9974
-            target_url = "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp?key=yjEgVGKAyWZGHyTy0gqNA8ZAq6IudLYWVqk8frqUI&cctvid=L933067&cctvName=%EA%B5%AC%EB%A6%AC+%EC%99%95%EC%88%99%EC%B2%9C&kind=KB&cctvip=9974"
+            if not UTIC_KEY:
+                raise RuntimeError("Missing UTIC_API_KEY/UTIC_KEY")
+            target_url = (
+                "https://www.utic.go.kr/jsp/map/openDataCctvStream.jsp"
+                f"?key={UTIC_KEY}&cctvid=L933067&cctvName=%EA%B5%AC%EB%A6%AC+%EC%99%95%EC%88%99%EC%B2%9C"
+                "&kind=KB&cctvip=9974"
+            )
             
             if item['url'] != target_url:
                 print(f"Fixing Guri: {item['name']}")

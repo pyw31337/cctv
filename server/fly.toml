@@ -4,6 +4,7 @@ app = "cctv-proxy-hoon-001"  # Updated to user's unique app name
 primary_region = "nrt"     # Tokyo (nearest to Korea)
 
 [build]
+  dockerfile = "server/Dockerfile"
 
 [http_service]
   internal_port = 8080
@@ -24,7 +25,7 @@ primary_region = "nrt"     # Tokyo (nearest to Korea)
     grace_period = "5s"
     interval = "15s"
     method = "GET"
-    path = "/"
+    path = "/health"
     port = 8080
     timeout = "2s"
     type = "http"

@@ -12,6 +12,8 @@ import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+
+from cctv_runtime import atomic_write_json
 from urllib.parse import urlparse
 from typing import Any
 
@@ -21,6 +23,7 @@ CANARY_FILE = ROOT / "data" / "canary_status.json"
 OPS_FILE = ROOT / "data" / "ops_status.json"
 STATUS_FILE = ROOT / "data" / "status.json"
 OUTPUT_FILE = ROOT / "data" / "quality_summary.json"
+BROWSER_CANARY_FILE = ROOT / "data" / "browser_canary_report.json"
 SOURCE_ONLY_CATEGORIES = {"frame_only", "frame_or_bad_content", "html_or_frame"}
 SOURCE_ONLY_REASONS = {"iframe_only_source", "html_not_direct_video"}
 SOURCE_ONLY_SOURCES = {"GANGWON", "GIGAEYES", "KNPS", "CCTVWORLD"}
@@ -314,6 +317,7 @@ def main() -> int:
     canary = load_json(CANARY_FILE, {})
     ops = load_json(OPS_FILE, {})
     status = load_json(STATUS_FILE, {})
+    browser_canary = load_json(BROWSER_CANARY_FILE, {})
     catalog_index = camera_index(catalog if isinstance(catalog, list) else [])
     cameras: dict[str, Any] = {}
     source_buckets: dict[str, Any] = defaultdict(lambda: defaultdict(int))
@@ -372,11 +376,12 @@ def main() -> int:
         "status_region_count": len(status.get("regions", {}) or {}),
         "sampling_policy": status.get("sampling_policy") or {},
         "coverage": status.get("coverage") or {},
+        "browser_canary": browser_canary if isinstance(browser_canary, dict) else {},
         "cameras": cameras,
         "sources": {key: finalize_rollup(value) for key, value in source_buckets.items()},
         "regions": {key: finalize_rollup(value) for key, value in region_buckets.items()},
     }
-    OUTPUT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    atomic_write_json(OUTPUT_FILE, payload)
     print(f"wrote {OUTPUT_FILE} cameras={len(cameras)} sources={len(payload['sources'])} regions={len(payload['regions'])}")
     return 0
 

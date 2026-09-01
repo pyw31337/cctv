@@ -19,6 +19,8 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urljoin, urlparse
 
+from cctv_runtime import public_proxy_prefix
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / 'data/world_tour_cams.json'
 GEOCODE_CACHE_PATH = ROOT / '.cache/world_tour_geocode_cache.json'
@@ -202,7 +204,7 @@ WORLD_TOUR_SOURCE_ENRICH_LIMIT = int(os.getenv('WORLD_TOUR_SOURCE_ENRICH_LIMIT',
 WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS = int(os.getenv('WORLD_TOUR_COLLECTOR_TIMEOUT_SECONDS', '150'))
 WORLD_TOUR_HTTP_HLS_PROXY_BASE = os.getenv(
     'WORLD_TOUR_HTTP_HLS_PROXY_BASE',
-    'https://158.179.194.163.sslip.io/proxy?url=',
+    public_proxy_prefix(),
 )
 WORLD_TOUR_ONGJIN_PROXY_BASE = os.getenv('WORLD_TOUR_ONGJIN_PROXY_BASE', WORLD_TOUR_HTTP_HLS_PROXY_BASE)
 WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT = int(os.getenv('WORLD_TOUR_LIVEWORLDWEBCAMS_LIMIT', '24'))

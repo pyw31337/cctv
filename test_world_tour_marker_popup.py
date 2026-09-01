@@ -2,12 +2,21 @@ import json
 import re
 from pathlib import Path
 
+from cctv_runtime import public_proxy_prefix
+
 
 ROOT = Path(__file__).resolve().parent
 
 
+def read_world_tour_frontend():
+    return "\n".join(
+        (ROOT / path).read_text(encoding="utf-8")
+        for path in ("js/app.js", "js/world-tour.js")
+    )
+
+
 def test_world_tour_circle_marker_popup_opens_on_click_only():
-    app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    app_js = read_world_tour_frontend()
     marker_block = re.search(
         r"visibleCams\.forEach\(cam => \{.*?worldTourLeafletMarkers\.push\(marker\);",
         app_js,
@@ -24,7 +33,7 @@ def test_world_tour_circle_marker_popup_opens_on_click_only():
 
 
 def test_world_tour_markers_use_only_green_or_red_playback_status_colors():
-    app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    app_js = read_world_tour_frontend()
     marker_style = re.search(
         r"function getWorldTourMarkerStyle\(cam, isSelected\) \{.*?\n\}",
         app_js,
@@ -47,7 +56,7 @@ def test_world_tour_markers_use_only_green_or_red_playback_status_colors():
 
 
 def test_refused_hdontap_originals_are_removed_and_hls_is_preferred():
-    app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    app_js = read_world_tour_frontend()
     world_tour = json.loads((ROOT / "data/world_tour_cams.json").read_text(encoding="utf-8"))
     items = world_tour["items"]
 
@@ -67,7 +76,7 @@ def test_refused_hdontap_originals_are_removed_and_hls_is_preferred():
 
 
 def test_forbidden_viewsurf_embeds_are_source_site_only():
-    app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    app_js = read_world_tour_frontend()
     build_py = (ROOT / "scripts/build_world_tour_cams.py").read_text(encoding="utf-8")
     audit_py = (ROOT / "scripts/audit_world_tour_playability.py").read_text(encoding="utf-8")
     world_tour = json.loads((ROOT / "data/world_tour_cams.json").read_text(encoding="utf-8"))
@@ -122,7 +131,7 @@ def test_source_only_expansion_adds_verified_batched_items():
 
 
 def test_world_tour_http_hls_is_proxied_for_https_pages():
-    app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    app_js = read_world_tour_frontend()
     build_py = (ROOT / "scripts/build_world_tour_cams.py").read_text(encoding="utf-8")
     world_tour = json.loads((ROOT / "data/world_tour_cams.json").read_text(encoding="utf-8"))
 
@@ -144,14 +153,14 @@ def test_world_tour_http_hls_is_proxied_for_https_pages():
 
     ongjin = [item for item in world_tour["items"] if item.get("sourceType") == "ongjin"]
     assert ongjin
-    assert all(item.get("playUrl", "").startswith("https://158.179.194.163.sslip.io/proxy?url=") for item in ongjin)
+    assert all(item.get("playUrl", "").startswith(public_proxy_prefix()) for item in ongjin)
     assert all(item.get("directPlaybackStatus") in {"direct_hls", "proxied_hls"} for item in ongjin)
     assert all(item.get("playbackStatus") == "verified" and not item.get("sourceOnly") for item in ongjin)
 
 
 def test_world_tour_header_switch_is_next_to_close_button():
     index_html = (ROOT / "index.html").read_text(encoding="utf-8")
-    app_js = (ROOT / "js/app.js").read_text(encoding="utf-8")
+    app_js = read_world_tour_frontend()
     style_css = (ROOT / "css/style.css").read_text(encoding="utf-8")
 
     assert '<div id="world-tour-header-switch" class="world-tour-header-switch"' in index_html
@@ -165,6 +174,16 @@ def test_world_tour_header_switch_is_next_to_close_button():
     assert ".world-tour-header-switch .world-tour-mode-switch" in style_css
     assert "--world-tour-action-height: 38px;" in style_css
     assert "background: #31c690;" in style_css
+
+
+def test_world_tour_large_lists_are_render_bounded():
+    app_js = read_world_tour_frontend()
+
+    assert "const WORLD_TOUR_RAIL_LIMIT = 120;" in app_js
+    assert "const WORLD_TOUR_LIST_RENDER_LIMIT = 200;" in app_js
+    assert "const WORLD_TOUR_MAP_MARKER_LIMIT = 600;" in app_js
+    assert "items.slice(0, WORLD_TOUR_LIST_RENDER_LIMIT).map" in app_js
+    assert "getWorldTourMapCams(visibleCams, selected.id)" in app_js
 
 
 def test_click_only_marker_popup_cache_bust_is_deployed():

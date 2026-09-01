@@ -2,8 +2,8 @@ name: Update CCTV Data
 
 on:
   schedule:
-    # Weekly full data refresh: Sunday 09:20 KST (= 00:20 UTC), away from daily data jobs.
-    - cron: '20 0 * * 0'
+    # Twelve-hour wake-up; adaptive_collection decides whether full refresh is due.
+    - cron: '20 */12 * * *'
   workflow_dispatch:
 
 env:
@@ -33,16 +33,24 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --disable-pip-version-check --no-cache-dir -r requirements.txt || true
+          pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
 
       - name: Snapshot current dataset
         run: cp cctv_data.json /tmp/cctv_data.before.json
 
+      - name: Plan adaptive collection
+        id: plan
+        run: python scripts/adaptive_collection.py plan --github-output
+
       - name: Run optimized sync
+        if: steps.plan.outputs.due_full_refresh == 'true'
+        id: full_refresh
+        continue-on-error: true
         run: python collect_cctv_data.py --force --duration 3.0
 
       - name: Validate CCTV data
         id: validate
+        if: steps.plan.outputs.due_full_refresh == 'true' && steps.full_refresh.outcome == 'success'
         run: |
           echo "Running validation..."
           python validate_cctv_data.py
@@ -65,11 +73,24 @@ jobs:
             echo "preservation_passed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Validate persisted data hygiene
+        if: steps.validate.outputs.validation_passed == 'true' && steps.preservation.outputs.preservation_passed == 'true'
+        run: python scripts/validate_static_data.py cctv_data.json
+
+      - name: Record adaptive collection result
+        if: always() && steps.plan.outputs.due_full_refresh == 'true'
+        run: |
+          if [[ "${{ steps.full_refresh.outcome }}" == "success" && "${{ steps.validate.outputs.validation_passed }}" == "true" && "${{ steps.preservation.outputs.preservation_passed }}" == "true" ]]; then
+            python scripts/adaptive_collection.py record --task full_refresh --result success
+          else
+            python scripts/adaptive_collection.py record --task full_refresh --result failure
+          fi
+
       - name: Check for changes
         id: check_changes
         if: steps.validate.outputs.validation_passed == 'true' && steps.preservation.outputs.preservation_passed == 'true'
         run: |
-          if [[ -n "$(git status -s cctv_data.json)" ]]; then
+          if [[ -n "$(git status -s cctv_data.json data/collection_schedule.json)" ]]; then
             echo "changes_detected=true" >> "$GITHUB_OUTPUT"
           else
             echo "changes_detected=false" >> "$GITHUB_OUTPUT"
@@ -78,4 +99,8 @@ jobs:
       - name: Commit and push changes
         if: steps.check_changes.outputs.changes_detected == 'true'
         run: |
-          scripts/commit_and_push_changes.sh "Auto-update: CCTV data (Validated) [skip ci]" cctv_data.json
+          if git diff --quiet -- cctv_data.json data/collection_schedule.json; then
+            echo "No full refresh or scheduler changes"
+          else
+            scripts/commit_and_push_changes.sh "Auto-update: adaptive CCTV data (Validated) [skip ci]" cctv_data.json data/collection_schedule.json
+          fi

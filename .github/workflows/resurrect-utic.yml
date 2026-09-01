@@ -49,6 +49,9 @@ jobs:
       - name: Guard data preservation
         run: python scripts/guard_data_preservation.py --previous /tmp/cctv_data.before.json --fix-statuses
 
+      - name: Validate persisted data hygiene
+        run: python scripts/validate_static_data.py cctv_data.json
+
       - name: Commit results
         run: |
           scripts/commit_and_push_changes.sh "chore: daily UTIC resurrect [skip ci]" cctv_data.json data/utic_audit_history.json data/workflow_status.json
