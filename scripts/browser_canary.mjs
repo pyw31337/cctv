@@ -2,10 +2,7 @@
 /**
  * Scheduled browser playback canary.
  *
- * This is intentionally not scheduled by default because headless Chromium runs
- * are expensive in GitHub Actions minutes. Use it when we need proof that the
- * public app can start playback in a real browser, not just that stream URLs
- * respond from the server.
+ * Scheduled checks prove that four visible panels use four distinct streams.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -61,6 +58,9 @@ async function main() {
         video_count: 0,
         ready_panel_count: 0,
         panel_count: 0,
+        unique_stream_count: 0,
+        duplicate_stream_keys: [],
+        mapping_errors: [],
         error_text: null,
       };
       try {
@@ -74,7 +74,19 @@ async function main() {
               || (iframe && iframe.clientWidth > 100 && iframe.clientHeight > 100);
           });
         }, { timeout: TIMEOUT_MS });
-        const metrics = await page.evaluate(() => {
+        const metrics = await page.evaluate(async () => {
+          const key = (url) => {
+            try {
+              const parsed = new URL(String(url || ''), location.href);
+              const media = parsed.pathname.match(/\/media\/(L\d+)/i);
+              if (media) return `${parsed.hostname.toLowerCase()}:${media[1].toUpperCase()}`;
+              const id = parsed.searchParams.get('cctvid') || parsed.searchParams.get('id');
+              if (id) return `${parsed.hostname.toLowerCase()}:${id.toUpperCase()}`;
+              return parsed.protocol && parsed.hostname ? `${parsed.protocol}//${parsed.hostname}${parsed.pathname}` : '';
+            } catch (_) { return ''; }
+          };
+          const catalog = await fetch(new URL('cctv_data.json', location.href)).then(r => r.ok ? r.json() : []).catch(() => []);
+          const byId = new Map((Array.isArray(catalog) ? catalog : []).map(item => [String(item?.id || ''), item]));
           const videos = Array.from(document.querySelectorAll('video'));
           const panels = Array.from(document.querySelectorAll('.video-panel'));
           const readyPanels = panels.filter(panel => {
@@ -83,19 +95,34 @@ async function main() {
             return (video && video.readyState >= 2 && video.videoWidth > 0)
               || (iframe && iframe.clientWidth > 100 && iframe.clientHeight > 100);
           });
+          const streamKeys = panels.map(panel => {
+            const item = byId.get(panel.dataset.cctvId || '');
+            return key(item?.directUrl || item?.url || panel.querySelector('video')?.currentSrc || panel.querySelector('iframe')?.src);
+          });
+          const counts = new Map();
+          streamKeys.filter(Boolean).forEach(value => counts.set(value, (counts.get(value) || 0) + 1));
           return {
             video_count: videos.length,
             playing_count: videos.filter(video => video.readyState >= 2 && video.videoWidth > 0).length,
             ready_panel_count: readyPanels.length,
             panel_count: panels.length,
+            stream_keys: streamKeys,
+            unique_stream_count: new Set(streamKeys.filter(Boolean)).size,
+            duplicate_stream_keys: [...counts.entries()].filter(([, count]) => count > 1).map(([value]) => value),
+            mapping_errors: streamKeys.map((value, index) => value ? null : panels[index]?.dataset.cctvId || '<missing>').filter(Boolean),
           };
         });
-        result.ok = metrics.panel_count >= 4 && metrics.ready_panel_count >= 4;
+        result.ok = metrics.panel_count >= 4 && metrics.ready_panel_count >= 4
+          && metrics.unique_stream_count >= 4 && metrics.duplicate_stream_keys.length === 0
+          && metrics.mapping_errors.length === 0;
         result.first_frame_ms = Date.now() - started;
         result.video_count = metrics.video_count;
         result.playing_count = metrics.playing_count;
         result.ready_panel_count = metrics.ready_panel_count;
         result.panel_count = metrics.panel_count;
+        result.unique_stream_count = metrics.unique_stream_count;
+        result.duplicate_stream_keys = metrics.duplicate_stream_keys;
+        result.mapping_errors = metrics.mapping_errors;
       } catch (error) {
         result.error_text = String(error?.message || error).slice(0, 300);
         const metrics = await page.evaluate(() => {
@@ -128,7 +155,7 @@ async function main() {
     generated_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     app_base: APP_BASE,
     timeout_ms: TIMEOUT_MS,
-    mode: 'manual_real_browser_playback',
+    mode: 'scheduled_real_browser_playback',
     results,
     summary: {
       checked: results.length,

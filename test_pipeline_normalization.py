@@ -8,6 +8,8 @@ from cctv_runtime import (
     apply_namyangju_golden_mappings,
     validate_namyangju_golden_mappings,
     validate_stream_identity,
+    validate_stream_mapping_registry,
+    validate_unique_playback_streams,
 )
 
 
@@ -35,6 +37,16 @@ class PipelineNormalizationTests(unittest.TestCase):
 
         errors = validate_namyangju_golden_mappings(items, require_all=True)
         self.assertTrue(any("L180076" in error and "L180009" in error for error in errors))
+
+    def test_locked_registry_rejects_catalog_identity_drift(self):
+        item = {"id": "L180074", "name": "마석사거리(웹)", "source": "UTIC", "lat": 37.65, "lng": 127.30,
+                "url": "https://211.57.45.101/media/L180188/chunklist.m3u8"}
+        self.assertTrue(any("name mismatch" in error for error in validate_stream_mapping_registry([item])))
+
+    def test_duplicate_playback_stream_is_rejected(self):
+        items = [{"id": "L180074", "url": "https://211.57.45.101/media/L180188/chunklist.m3u8"},
+                 {"id": "L180999", "url": "https://211.57.45.101/media/L180188/chunklist.m3u8"}]
+        self.assertEqual(len(validate_unique_playback_streams(items)), 1)
 
     def test_utic_url_camera_id_mismatch_is_rejected(self):
         items = [{

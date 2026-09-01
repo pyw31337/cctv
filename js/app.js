@@ -4146,7 +4146,8 @@ function updateNearestCctvs() {
     const canaryAware = applyCoreCanarySuccessPriority(ordered, lat, lng);
     const localAware = applyLocalPlacePriority(canaryAware, lat, lng);
 
-    state.nearestCctvs = dedupeSceneCandidates(localAware, NEAREST_RESULT_LIMIT);
+    const sceneAware = dedupeSceneCandidates(localAware, GEO_CANDIDATE_TARGET);
+    state.nearestCctvs = dedupePlaybackCandidates(sceneAware, NEAREST_RESULT_LIMIT);
 }
 
 function getCurrentSearchContextKeyword() {
@@ -4274,6 +4275,33 @@ function getCctvSceneKey(cctv) {
         return `point:${Math.round(lat * 8000)}:${Math.round(lng * 8000)}`;
     }
     return cctv.id ? `id:${cctv.id}` : '';
+}
+
+function getCctvPlaybackKey(cctv) {
+    if (!cctv || !isDirectVideoPlaybackCandidate(cctv) || isFrameOnlyPlaybackCandidate(cctv)) return '';
+    try {
+        const parsed = new URL(String(cctv.directUrl || cctv.url || ''), window.location.href);
+        const media = parsed.pathname.match(/\/media\/(L\d+)/i)?.[1];
+        if (media) return `stream:${(parsed.hostname || '').toLowerCase()}:${media.toUpperCase()}`;
+        const cctvId = parsed.searchParams.get('cctvid');
+        if (cctvId) return `camera:${(parsed.hostname || '').toLowerCase()}:${cctvId.toUpperCase()}`;
+        const id = parsed.searchParams.get('id');
+        if (id && /^L\d+$/i.test(id)) return `stream:${(parsed.hostname || '').toLowerCase()}:${id.toUpperCase()}`;
+        return parsed.protocol && parsed.hostname ? `url:${parsed.protocol}//${parsed.hostname}${parsed.pathname}` : '';
+    } catch (_) { return ''; }
+}
+
+function dedupePlaybackCandidates(candidates, limit = NEAREST_RESULT_LIMIT) {
+    const selected = [];
+    const seen = new Set();
+    for (const candidate of candidates || []) {
+        const key = getCctvPlaybackKey(candidate);
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        selected.push(candidate);
+        if (selected.length >= limit) break;
+    }
+    return selected;
 }
 
 function dedupeSceneCandidates(candidates, limit = NEAREST_RESULT_LIMIT) {

@@ -384,7 +384,7 @@ def apply_golden_overrides(
             if item.get("id") not in override_map:
                 continue
             ovr = override_map[item["id"]]
-            for key in ("url", "name", "aspectRatio", "status", "lat", "lng", "address", "canonical_id", "original_id", "source_id"):
+            for key in ("url", "directUrl", "name", "aspectRatio", "status", "lat", "lng", "address", "canonical_id", "original_id", "source_id", "stream_id", "golden_stream_id"):
                 if key in ovr:
                     item[key] = ovr[key]
             override_count += 1

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
 
-from cctv_runtime import validate_namyangju_golden_mappings, validate_stream_identity
+from cctv_runtime import validate_namyangju_golden_mappings, validate_stream_identity, validate_stream_mapping_registry
 
 
 DEFAULT_FILES = (
@@ -19,6 +19,7 @@ DEFAULT_FILES = (
     'cctv_overrides.json',
     'cctv_data_pre_audit_v2.json',
     'data/status.json',
+    'data/stream_mappings.json',
 )
 
 
@@ -43,6 +44,13 @@ def validate_file(path: Path) -> int:
     except json.JSONDecodeError as exc:
         print(f'{path}: invalid JSON ({exc})', file=sys.stderr)
         return 1
+
+    if path.name == 'stream_mappings.json':
+        errors = validate_stream_mapping_registry(None, path)
+        for error in errors:
+            print(f'{path}: {error}', file=sys.stderr)
+        if errors:
+            return 1
 
     embedded = count_embedded_utic_keys(payload)
     if embedded:

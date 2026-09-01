@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from cctv_runtime import public_proxy_base
+from cctv_runtime import public_proxy_base, validate_namyangju_golden_mappings, validate_stream_identity
 
 try:
     import requests
@@ -318,6 +318,12 @@ def read_probe_prefix(probe_url: str) -> tuple[SimpleResponse, bytes]:
 
 def probe_camera(cam: dict, z3_cache: dict) -> dict:
     started = time.monotonic()
+    mapping_errors = validate_namyangju_golden_mappings([cam]) + validate_stream_identity([cam])
+    if mapping_errors:
+        return {"id": cam.get("id"), "name": cam.get("name"), "source": source_of(cam), "status": cam.get("status"),
+                "resolver": "mapping_validation", "ok": False, "reason": "camera/stream mapping failed validation",
+                "category": "mapping_error", "issue_type": "mapping_error", "mapping_errors": mapping_errors,
+                "elapsed_ms": 0, "http_status": None, "content_type": None, "probe_url": None, "meta": {}, "checked_at": utc_stamp()}
     probe_url, resolver, meta = resolve_probe_url(cam, z3_cache)
     result = {
         "id": cam.get("id"),
@@ -328,6 +334,7 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
         "ok": False,
         "reason": "not_checked",
         "category": "not_checked",
+        "issue_type": "unknown",
         "elapsed_ms": None,
         "http_status": None,
         "content_type": None,
@@ -336,7 +343,7 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
         "checked_at": utc_stamp(),
     }
     if not probe_url:
-        result.update({"reason": "missing_url", "category": "data_error", "elapsed_ms": 0})
+        result.update({"reason": "missing_url", "category": "data_error", "issue_type": "mapping_error", "elapsed_ms": 0})
         return result
 
     try:
@@ -347,6 +354,7 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
             "ok": ok,
             "reason": reason,
             "category": category,
+            "issue_type": "healthy" if ok else "upstream_outage",
             "elapsed_ms": elapsed_ms,
             "http_status": resp.status_code,
             "content_type": resp.headers.get("Content-Type"),
@@ -355,6 +363,7 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
         result.update({
             "reason": "timeout",
             "category": "timeout",
+            "issue_type": "upstream_outage",
             "elapsed_ms": int((time.monotonic() - started) * 1000),
             "detail": str(error)[:180],
         })
@@ -363,6 +372,7 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
         result.update({
             "reason": "request_error",
             "category": category,
+            "issue_type": "upstream_outage",
             "elapsed_ms": int((time.monotonic() - started) * 1000),
             "detail": str(error)[:180],
         })
@@ -370,6 +380,7 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
         result.update({
             "reason": "request_error",
             "category": "network_error",
+            "issue_type": "upstream_outage",
             "elapsed_ms": int((time.monotonic() - started) * 1000),
             "detail": str(error)[:180],
         })

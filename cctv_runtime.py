@@ -13,6 +13,7 @@ import os
 import re
 import tempfile
 import unicodedata
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
@@ -20,10 +21,11 @@ DEFAULT_PUBLIC_PROXY_BASE = "https://158.179.194.163.sslip.io"
 DEFAULT_WORKER_PROXY_BASE = "https://cctv-proxy.pyw213.workers.dev"
 DEFAULT_QUALITY_TELEMETRY_ENDPOINT = "https://cctv-quality.pyw31337.workers.dev/v1/events"
 DEFAULT_QUALITY_SUMMARY_URL = "https://cctv-quality.pyw31337.workers.dev/v1/summary"
+STREAM_MAPPING_REGISTRY_FILE = Path(__file__).resolve().parent / "data" / "stream_mappings.json"
 
 # Verified Namyangju UTIC mapping. These IDs are deliberately keyed by the
 # stable catalog camera ID, not by a mutable display name.
-NAMYANGJU_GOLDEN_STREAMS: dict[str, tuple[str, str]] = {
+_DEFAULT_GOLDEN_STREAMS: dict[str, tuple[str, str]] = {
     "L180074": ("록원교회(웹)", "L180188"),
     "L180075": ("마석사거리(웹)", "L180111"),
     "L180076": ("마석윗3", "L180009"),
@@ -36,6 +38,19 @@ NAMYANGJU_GOLDEN_STREAMS: dict[str, tuple[str, str]] = {
     "L180115": ("샛터3 (1)", "L180021"),
     "L180116": ("샛터3 (2)", "L180075"),
 }
+
+def load_locked_stream_mappings(path: Path = STREAM_MAPPING_REGISTRY_FILE) -> dict[str, tuple[str, str]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        mappings = payload.get("mappings") if isinstance(payload, dict) else []
+        result = {str(item["camera_id"]).upper(): (str(item["name"]), str(item["stream_id"]).upper())
+                  for item in mappings if isinstance(item, dict) and item.get("locked") is True and item.get("status") == "verified"
+                  and item.get("camera_id") and item.get("name") and item.get("stream_id")}
+        return result or dict(_DEFAULT_GOLDEN_STREAMS)
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, KeyError):
+        return dict(_DEFAULT_GOLDEN_STREAMS)
+
+NAMYANGJU_GOLDEN_STREAMS: dict[str, tuple[str, str]] = load_locked_stream_mappings()
 KNOWN_CAMERA_ID_ALIASES: dict[str, str] = {
     # Historical typo: the verified UTIC record is L933067.
     "L933066": "L933067",
@@ -245,7 +260,7 @@ def apply_camera_id_aliases(items: list[dict[str, Any]]) -> int:
 
 
 def validate_stream_identity(items: list[dict[str, Any]]) -> list[str]:
-    """Reject records whose URL points to a different stable camera ID."""
+    """Reject records whose URL disagrees with declared camera/stream identity."""
     errors: list[str] = []
     for item in items:
         if not isinstance(item, dict):
@@ -256,6 +271,10 @@ def validate_stream_identity(items: list[dict[str, Any]]) -> list[str]:
         embedded_id = url_camera_id(url)
         if source == "UTIC" and embedded_id and embedded_id != camera_id:
             errors.append(f"{camera_id}: URL cctvid={embedded_id}")
+        declared = str(item.get("stream_id") or item.get("golden_stream_id") or "").upper()
+        actual = stream_id_from_url(url)
+        if declared and actual and declared != actual:
+            errors.append(f"{camera_id}: declared stream={declared}, URL stream={actual}")
     return errors
 
 
@@ -283,6 +302,9 @@ def apply_namyangju_golden_mappings(items: list[dict[str, Any]]) -> int:
             if tag not in tags:
                 tags.append(tag)
         item["tags"] = tags
+        item["stream_id"] = stream_id
+        item["mapping_locked"] = True
+        item["mapping_status"] = "verified"
         item["golden_stream_id"] = stream_id
     return changed
 
@@ -310,6 +332,52 @@ def validate_namyangju_golden_mappings(
         actual_stream = stream_id_from_url(item.get("directUrl") or item.get("url"))
         if actual_stream != expected_stream:
             errors.append(f"{camera_id}: stream={actual_stream or '<missing>'}, expected={expected_stream}")
+        declared = str(item.get("stream_id") or item.get("golden_stream_id") or "").upper()
+        if declared and declared != expected_stream:
+            errors.append(f"{camera_id}: declared stream={declared}, expected={expected_stream}")
+    return errors
+
+def stream_playback_key(url: Any) -> str:
+    value = str(url or "").strip()
+    stream_id = stream_id_from_url(value)
+    if stream_id:
+        return f"{(urlparse(value).hostname or '').lower()}:{stream_id}"
+    parsed = urlparse(value)
+    return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path, "", "")) if parsed.scheme and parsed.netloc else ""
+
+def validate_stream_mapping_registry(items: list[dict[str, Any]] | None, path: Path = STREAM_MAPPING_REGISTRY_FILE) -> list[str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        mappings = payload.get("mappings") if isinstance(payload, dict) else None
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return [f"missing or invalid mapping registry: {path}"]
+    if not isinstance(mappings, list): return ["mapping registry must contain a mappings list"]
+    by_id = {str(item.get("id") or "").upper(): item for item in (items or []) if isinstance(item, dict)}
+    errors, seen = [], {}
+    for entry in mappings:
+        if not isinstance(entry, dict): errors.append("mapping registry contains a non-object entry"); continue
+        cid, sid = str(entry.get("camera_id") or "").upper(), str(entry.get("stream_id") or "").upper()
+        if not cid or not sid or entry.get("locked") is not True or entry.get("status") != "verified": errors.append(f"{cid or '<missing>'}: mapping must be locked and verified"); continue
+        if sid in seen and seen[sid] != cid: errors.append(f"{cid}: stream {sid} is already mapped to {seen[sid]}")
+        seen[sid] = cid
+        item = by_id.get(cid)
+        if items is None: continue
+        if not item: errors.append(f"{cid}: missing mapped camera"); continue
+        if str(item.get("source") or "").upper() != str(entry.get("source") or "").upper(): errors.append(f"{cid}: source mismatch")
+        if item.get("name") != entry.get("name"): errors.append(f"{cid}: name mismatch")
+        if stream_id_from_url(item.get("directUrl") or item.get("url")) != sid: errors.append(f"{cid}: stream mismatch")
+        for coordinate in ("lat", "lng"):
+            try:
+                if abs(float(item.get(coordinate)) - float(entry.get(coordinate))) > 0.001: errors.append(f"{cid}: {coordinate} mismatch")
+            except (TypeError, ValueError): errors.append(f"{cid}: missing {coordinate}")
+    return errors
+
+def validate_unique_playback_streams(items: list[dict[str, Any]]) -> list[str]:
+    seen, errors = {}, []
+    for item in items:
+        key, cid = stream_playback_key(item.get("directUrl") or item.get("url")), str(item.get("id") or "<missing>")
+        if key and key in seen and seen[key] != cid: errors.append(f"duplicate playback stream {key}: {seen[key]} and {cid}")
+        if key: seen[key] = cid
     return errors
 
 
