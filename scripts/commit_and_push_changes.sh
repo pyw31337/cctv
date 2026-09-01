@@ -71,6 +71,13 @@ done
 echo "Failed to push after 5 attempts." >&2
 if [ "${CCTV_COMMIT_PUSH_SOFT_FAIL:-1}" = "1" ]; then
   echo "Soft-fail mode enabled: generated-data push failure is treated as a warning." >&2
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "### :warning: Data push failed (soft-fail)"
+      echo "\`${MESSAGE}\` could not be pushed to \`main\` after 5 rebase/retry attempts."
+      echo "The job is reporting success, but this data refresh was silently dropped."
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
   exit 0
 fi
 exit 1

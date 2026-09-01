@@ -13,7 +13,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: cctv-repo-writes
+  # Own group: this is the only workflow that ever writes
+  # data/kma_precip_current.json, so it can't race with anything in
+  # cctv-repo-writes. Splitting it out means the 30-min cadence no longer
+  # queues behind long-running jobs (e.g. update_cctv.yml's weekly 4h run)
+  # in that shared group.
+  group: cctv-kma-writes
   cancel-in-progress: false
 
 env:

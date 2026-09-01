@@ -14,7 +14,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: cctv-repo-writes
+  # Shared only with world-tour-playability-audit.yml (both write
+  # data/world_tour_cams.json). Neither touches cctv_data.json or the
+  # status/quality/canary/z3 files the rest of cctv-repo-writes shares, so
+  # splitting this pair out removes them from that queue without any new
+  # write-race risk.
+  group: cctv-world-tour-writes
   cancel-in-progress: false
 
 jobs:
