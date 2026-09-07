@@ -649,7 +649,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateNearestCctvs();
         renderServiceStatusBanner();
         if (!document.body.classList.contains('world-tour-active')) {
-            renderVideoGrid();
+            refreshVisiblePanelHealth();
         }
         renderMapMarkers();
     });
@@ -658,14 +658,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!loaded) return;
         updateNearestCctvs();
         renderServiceStatusBanner();
-        renderVideoGrid();
+        refreshVisiblePanelHealth();
         renderMapMarkers();
     });
 
     loadZ3Cache().then(() => {
         updateNearestCctvs();
         renderServiceStatusBanner();
-        renderVideoGrid();
+        refreshVisiblePanelHealth();
         renderMapMarkers();
     });
 });
@@ -3476,6 +3476,13 @@ function updatePanelHealthUi(panel, cctv) {
     renderSelectTrigger(panel, cctv);
     renderPanelHealthBadge(panel, cctv);
     populateSelectOptions(panel, Number(panel.dataset.cctvIndex || panel.dataset.slotIndex || 0));
+}
+
+function refreshVisiblePanelHealth() {
+    document.querySelectorAll('.video-panel').forEach(panel => {
+        const cctv = getPanelCctv(panel);
+        if (cctv) updatePanelHealthUi(panel, cctv);
+    });
 }
 
 function updateVideoLayerHealthUi(cctv) {
