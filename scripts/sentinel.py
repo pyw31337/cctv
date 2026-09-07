@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
-from cctv_runtime import public_proxy_base
+from cctv_runtime import public_proxy_base, sanitize_utic_payload
 
 import urllib3
 
@@ -138,6 +138,8 @@ def get_region_max_workers(region_name):
 
 
 def save_json(filepath, data):
+    # Health samples may carry the original UTIC URL; never persist its API key.
+    data = sanitize_utic_payload(data)
     with open(filepath, 'w', encoding='utf-8') as handle:
         json.dump(data, handle, indent=2, ensure_ascii=False)
         handle.write('\n')
