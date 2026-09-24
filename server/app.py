@@ -29,6 +29,10 @@ STREAM_START_TIMEOUT = env_float('STREAM_START_TIMEOUT', 3.0)
 MAX_PROXY_RESPONSE_BYTES = env_int('MAX_PROXY_RESPONSE_BYTES', 16 * 1024 * 1024)
 RATE_LIMIT_WINDOW_SECONDS = env_int('RATE_LIMIT_WINDOW_SECONDS', 60)
 RATE_LIMIT_MAX_REQUESTS = env_int('RATE_LIMIT_MAX_REQUESTS', 120)
+# /proxy carries every manifest reload and segment of proxied HLS playback
+# (~60/min per 2s-segment stream, ~240/min for a 4-panel grid), so it needs
+# far more headroom than the token resolvers.
+RATE_LIMIT_PROXY_MAX_REQUESTS = env_int('RATE_LIMIT_PROXY_MAX_REQUESTS', 600)
 ROOT_DIR = os.environ.get(
     'CCTV_ROOT_DIR',
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -780,7 +784,8 @@ def limit_upstream_requests():
         if now - window_start >= max(1, RATE_LIMIT_WINDOW_SECONDS):
             window_start, count = now, 0
 
-        if count >= max(1, RATE_LIMIT_MAX_REQUESTS):
+        limit = RATE_LIMIT_PROXY_MAX_REQUESTS if request.path == '/proxy' else RATE_LIMIT_MAX_REQUESTS
+        if count >= max(1, limit):
             retry_after = max(1, int(RATE_LIMIT_WINDOW_SECONDS - (now - window_start)))
             response = Response('Rate limit exceeded', 429)
             response.headers['Retry-After'] = str(retry_after)

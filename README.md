@@ -63,7 +63,10 @@ npm run browser:canary
 - `MAX_PROXY_RESPONSE_BYTES`: 공개 프록시가 메모리에 읽는 최대 응답 크기
 - `RATE_LIMIT_WINDOW_SECONDS`: 동적 upstream 요청 제한 윈도우
 - `RATE_LIMIT_MAX_REQUESTS`: IP·엔드포인트별 윈도우당 최대 요청 수
+- `RATE_LIMIT_PROXY_MAX_REQUESTS`: `/proxy` 전용 한도(기본 600). HLS manifest·segment가 모두 `/proxy`를 거치므로 리졸버보다 넉넉하게 둡니다
 - `Z3_LOCAL_CACHE_FILE`: 로컬 Z3 캐시 경로
+- `Z3_REFRESH_RETRY_SECONDS`: Z3 캐시 갱신이 실패했을 때 다시 시도하기까지의 최소 간격(기본 300초). 그 사이에는 기존 캐시로 즉시 응답합니다
+- `CCTV_SENTINEL_MAX_RUNTIME_SECONDS`: Sentinel 실행 시간 상한(기본 600초). 도달하면 점검을 멈추고 그때까지의 결과를 저장합니다
 - `JEJU_ID_MAP_PATH`: 제주 short-id 매핑 파일
 - `CCTV_DISABLE_STARTUP_JOBS`: 테스트 시 백그라운드 잡 비활성화
 

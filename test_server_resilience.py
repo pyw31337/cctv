@@ -45,8 +45,8 @@ class ServerResilienceTests(unittest.TestCase):
         self.assertNotIn(b'private detail', response.data)
 
     def test_rate_limit_returns_retry_after(self):
-        original_limit = server_app.RATE_LIMIT_MAX_REQUESTS
-        server_app.RATE_LIMIT_MAX_REQUESTS = 1
+        original_limit = server_app.RATE_LIMIT_PROXY_MAX_REQUESTS
+        server_app.RATE_LIMIT_PROXY_MAX_REQUESTS = 1
         try:
             client = server_app.app.test_client()
             self.assertEqual(client.get('/proxy').status_code, 400)
@@ -54,7 +54,16 @@ class ServerResilienceTests(unittest.TestCase):
             self.assertEqual(response.status_code, 429)
             self.assertIn('Retry-After', response.headers)
         finally:
-            server_app.RATE_LIMIT_MAX_REQUESTS = original_limit
+            server_app.RATE_LIMIT_PROXY_MAX_REQUESTS = original_limit
+
+    def test_proxy_playback_has_more_headroom_than_resolvers(self):
+        original = (server_app.RATE_LIMIT_MAX_REQUESTS, server_app.RATE_LIMIT_PROXY_MAX_REQUESTS)
+        server_app.RATE_LIMIT_MAX_REQUESTS, server_app.RATE_LIMIT_PROXY_MAX_REQUESTS = 2, 5
+        self.addCleanup(lambda: setattr(server_app, 'RATE_LIMIT_MAX_REQUESTS', original[0]))
+        self.addCleanup(lambda: setattr(server_app, 'RATE_LIMIT_PROXY_MAX_REQUESTS', original[1]))
+        client = server_app.app.test_client()
+        self.assertEqual([client.get('/kb').status_code for _ in range(3)], [400, 400, 429])
+        self.assertEqual([client.get('/proxy').status_code for _ in range(5)], [400] * 5)
 
     def test_corrupt_status_serves_last_good_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -220,9 +229,9 @@ class ServerResilienceTests(unittest.TestCase):
             self.assertEqual(server_app.get_z3_app_url('E1'), 'https://cctvsec.ktict.co.kr/E1/newer')
 
     def test_rate_limit_separates_clients_behind_local_proxy(self):
-        original_limit = server_app.RATE_LIMIT_MAX_REQUESTS
-        server_app.RATE_LIMIT_MAX_REQUESTS = 1
-        self.addCleanup(setattr, server_app, 'RATE_LIMIT_MAX_REQUESTS', original_limit)
+        original_limit = server_app.RATE_LIMIT_PROXY_MAX_REQUESTS
+        server_app.RATE_LIMIT_PROXY_MAX_REQUESTS = 1
+        self.addCleanup(setattr, server_app, 'RATE_LIMIT_PROXY_MAX_REQUESTS', original_limit)
         client = server_app.app.test_client()
         via_caddy = lambda ip: {'X-Forwarded-For': ip}  # noqa: E731 - test client peer is 127.0.0.1
         self.assertEqual(client.get('/proxy', headers=via_caddy('198.51.100.1')).status_code, 400)
@@ -230,9 +239,9 @@ class ServerResilienceTests(unittest.TestCase):
         self.assertEqual(client.get('/proxy', headers=via_caddy('198.51.100.1')).status_code, 429)
 
     def test_rate_limit_ignores_forwarded_header_from_direct_clients(self):
-        original_limit = server_app.RATE_LIMIT_MAX_REQUESTS
-        server_app.RATE_LIMIT_MAX_REQUESTS = 1
-        self.addCleanup(setattr, server_app, 'RATE_LIMIT_MAX_REQUESTS', original_limit)
+        original_limit = server_app.RATE_LIMIT_PROXY_MAX_REQUESTS
+        server_app.RATE_LIMIT_PROXY_MAX_REQUESTS = 1
+        self.addCleanup(setattr, server_app, 'RATE_LIMIT_PROXY_MAX_REQUESTS', original_limit)
         client = server_app.app.test_client()
         direct = {'REMOTE_ADDR': '203.0.113.9'}
         self.assertEqual(client.get('/proxy', headers={'X-Forwarded-For': '1.1.1.1'}, environ_base=direct).status_code, 400)
