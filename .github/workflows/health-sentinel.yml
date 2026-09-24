@@ -44,8 +44,14 @@ jobs:
           CCTV_SENTINEL_MAX_WORKERS: '24'
           CCTV_SENTINEL_ORACLE_MAX_WORKERS: '8'
           CCTV_SENTINEL_REQUEST_TIMEOUT_SECONDS: '10'
+          # Stop dispatching checks well inside the 30-minute job timeout so the
+          # partial results are saved instead of being killed with the job.
+          CCTV_SENTINEL_MAX_RUNTIME_SECONDS: '1200'
         run: |
-          python3 scripts/sentinel.py || true
+          if ! python3 scripts/sentinel.py; then
+            echo "::error title=Sentinel failed::scripts/sentinel.py exited with an error, so data/status.json was not updated. See the log above."
+            exit 1
+          fi
 
       - name: Refresh quality dashboard fallback
         run: |
