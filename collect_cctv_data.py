@@ -1,9 +1,4 @@
 import concurrent.futures
-import gc
-import json
-import os
-import re
-import sys
 import time
 import urllib.parse
 from functools import partial
@@ -27,7 +22,7 @@ from collectors.gigaeyes import GigaEyesCollector
 from collectors.youtube_custom import YoutubeCustomCollector
 from collectors.spatic import SpaticCollector
 from collectors.trendworld import TrendWorldCollector
-from cctv_runtime import append_query_parameter, atomic_write_json, build_proxy_url, camera_identity, camera_source_id, first_env, public_proxy_base, require_env, sanitize_utic_payload
+from cctv_runtime import atomic_write_json, build_proxy_url, camera_identity, camera_source_id, first_env, public_proxy_base, require_env, sanitize_utic_payload
 from collectors.pipeline import (
     SOURCE_PRIORITY as PIPELINE_PRIORITY,
     collect_in_parallel,
@@ -284,107 +279,6 @@ def fetch_utic_data():
     except Exception as e:
         print(f"Error fetching UTIC data: {e}")
         return []
-
-def load_existing_data(filepath):
-    if not os.path.exists(filepath):
-        return {}
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            # Return as dict keyed by id for easy lookup
-            return {item['id']: item for item in data}
-    except Exception as e:
-        print(f"Error loading existing data: {e}")
-        return {}
-
-def refine_cctv_data(cctv_list):
-    """
-    Iterates through the list, finds items with generic JSP URLs,
-    and tries to find the real HLS URL (Deep Inspection).
-    Used when reusing existing data or to ensure everything is optimized.
-    """
-    print(f"Refining {len(cctv_list)} items for Deep Inspection...")
-    
-    # 1. Apply Direct Pattern Construction FIRST (Instant, no server request)
-    optimized_count = 0
-    for item in cctv_list:
-        url = item.get('url', '')
-        if item.get('source') == 'UTIC' and 'jsp' in url:
-            
-            # CRITICAL: DO NOT auto-match URL to CCTVID for Namyangju (211.57.45.101)
-            # This causes scrambles where one camera's ID is another's Stream ID.
-            # Let the original URL from UTIC or overrides stand.
-            """
-            if 'cctvip=211.57.45.101' in url:
-                match = re.search(r'cctvid=([^&]+)', url)
-                if match:
-                    cctvid = match.group(1)
-                    item['url'] = f"https://211.57.45.101/media/{cctvid}/chunklist.m3u8"
-                    optimized_count += 1
-            """
-            
-            # Pattern B: 210.95.12.126, 211.114.87.164 (uses id param)
-            if 'cctvip=210.95.12.126' in url or 'cctvip=211.114.87.164' in url:
-                match = re.search(r'[?&]id=([^&]+)', url)
-                if match:
-                    real_id = match.group(1)
-                    ip = '210.95.12.126' if 'cctvip=210.95.12.126' in url else '211.114.87.164'
-                    item['url'] = f"http://{ip}/media/{real_id}/chunklist.m3u8"
-                    optimized_count += 1
-    
-    print(f"Direct Pattern Optimization applied to {optimized_count} items (Instant).")
-
-    # 2. Filter items that need inspection (UTIC source, JSP url OR HRFCO popup)
-    targets = [
-        item for item in cctv_list 
-        if item.get('source') == 'UTIC' and ('openDataCctvStream.jsp' in item.get('url', '') or 'cctvPopup.do' in item.get('url', ''))
-    ]
-    
-    print(f"Found {len(targets)} items needing Deep Inspection (JSP wrapper/HRFCO).")
-    if not targets:
-        return cctv_list
-
-    def inspect_item(item):
-        # Reduced sleep to just 0.1s jitter to avoid hammering, but rely on concurrency control
-        time.sleep(0.1) 
-        url = item['url']
-        try:
-            request_url = append_query_parameter(url, 'key', utic_api_key)
-            resp = requests.get(request_url, timeout=4, verify=False)
-            if resp.status_code == 200:
-                html = resp.text
-                
-                # Regex patterns (same as process_utic_item + HRFCO vars)
-                patterns = [
-                    r'src="([^"]+\.m3u8[^"]*)"',
-                    r'src="([^"]+\.mp4[^"]*)"',
-                    r'source\s+src="([^"]+)"\s+type="application/x-mpegURL"',
-                    r'var\s+[lh]url\s*=\s*"([^"]+)"'  # HRFCO: var lurl = "..."
-                ]
-                
-                for pat in patterns:
-                    match = re.search(pat, html)
-                    if match:
-                        new_url = match.group(1)
-                        if new_url.startswith("http"):
-                            item['url'] = new_url
-                            return True # Modified
-        except Exception as e:
-            # removed long sleep, just pass
-            pass
-            
-        return False # Not modified
-
-    # Process in parallel using ThreadPoolExecutor
-    modified_count = 0
-    print(f"Starting concurrent inspection of {len(targets)} items...")
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        results = list(executor.map(inspect_item, targets))
-        modified_count = sum(results)
-
-    print(f"Deep Inspection completed. Optimized {modified_count} URLs.")
-    return cctv_list
 
 def fetch_kbs_data():
     try:
