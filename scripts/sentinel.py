@@ -4,9 +4,11 @@ import os
 import random
 import re
 import requests
+import shutil
 import sys
+import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
@@ -36,6 +38,10 @@ DEFAULT_SENTINEL_MAX_REGION_CHECKS = 240
 DEFAULT_SENTINEL_MIN_REGION_CHECKS = 2
 DEFAULT_SENTINEL_MAX_WORKERS = 32
 DEFAULT_SENTINEL_ORACLE_MAX_WORKERS = 8
+# Results are only written at the end of a run, so a run killed by the
+# workflow/cron timeout loses every check. Stop dispatching well before that.
+DEFAULT_SENTINEL_MAX_RUNTIME_SECONDS = 600
+RUN_DEADLINE = None  # time.monotonic() deadline for the current run
 DAEJEON_MP4_OFFSETS = [2, 4, 6, 8, 10, 1]
 DAEJEON_REQUEST_TIMEOUT = (1.0, 1.5)
 ORACLE_BASE = public_proxy_base()
@@ -106,6 +112,59 @@ def load_json(filepath):
         return {}
     with open(filepath, 'r', encoding='utf-8') as handle:
         return json.load(handle)
+
+
+def resolve_conflict_markers(text):
+    """Keep the first side of each git conflict hunk; None if there is none or it is malformed."""
+    kept, state, found = [], 'normal', False
+    for line in text.split('\n'):
+        if line.startswith('<<<<<<< ') and state == 'normal':
+            state, found = 'ours', True
+        elif line == '=======' and state == 'ours':
+            state = 'theirs'
+        elif line.startswith('>>>>>>> ') and state == 'theirs':
+            state = 'normal'
+        elif state != 'theirs':
+            kept.append(line)
+    if not found or state != 'normal':
+        return None
+    return '\n'.join(kept)
+
+
+def load_status_file(filepath):
+    """Load the status registry, recovering instead of freezing when it is corrupt.
+
+    A conflict-marked status.json once made every run abort before checking
+    anything, so the published status stayed frozen for weeks.
+    """
+    try:
+        return load_json(filepath)
+    except ValueError as error:
+        log(f'[WARN] {filepath} is not valid JSON ({error}); attempting recovery')
+    with open(filepath, 'r', encoding='utf-8') as handle:
+        recovered = resolve_conflict_markers(handle.read())
+    if recovered is not None:
+        try:
+            data = json.loads(recovered)
+            log('[WARN] recovered status by keeping the first side of each git conflict hunk')
+            return data
+        except ValueError:
+            pass
+    backup = f"{filepath}.corrupt-{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}"
+    shutil.copyfile(filepath, backup)
+    log(f'[ERROR] could not recover {filepath}; kept a copy at {backup} and starting a fresh status registry')
+    return {}
+
+
+def seconds_left():
+    if RUN_DEADLINE is None:
+        return None
+    return RUN_DEADLINE - time.monotonic()
+
+
+def deadline_passed():
+    remaining = seconds_left()
+    return remaining is not None and remaining <= 0
 
 
 def env_int(name, default, minimum=None, maximum=None):
@@ -739,7 +798,13 @@ def allocate_region_sample_sizes(region_map):
 
 def check_camera_safe(region_name, cam):
     try:
-        return bool(check_camera(region_name, cam))
+        ok = bool(check_camera(region_name, cam))
+        probe = get_probe_result(cam)
+        if not ok and probe.get('status_code') == 429:
+            # The proxy's rate limit says nothing about the camera itself.
+            probe['reason'] = 'rate_limited'
+            probe['category'] = 'rate_limited'
+        return ok
     except Exception as error:
         set_probe_result(
             cam,
@@ -1208,29 +1273,49 @@ def test_region(region_name, cameras, current_status=None, target_size=None):
     checked_results = []
     if len(sample) <= 1 or max_workers <= 1:
         for cam in sample:
+            if deadline_passed():
+                break
             checked_results.append((cam, check_camera_safe(region_name, cam)))
     else:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        try:
             future_to_camera = {
                 executor.submit(check_camera_safe, region_name, cam): cam
                 for cam in sample
             }
-            for future in as_completed(future_to_camera):
-                cam = future_to_camera[future]
-                try:
-                    success = bool(future.result())
-                except Exception as error:
-                    set_probe_result(
-                        cam,
-                        False,
-                        reason='check_exception',
-                        category='check_exception',
-                        detail=f'{type(error).__name__}: {error}'
-                    )
-                    success = False
-                checked_results.append((cam, success))
+            remaining = seconds_left()
+            try:
+                for future in as_completed(future_to_camera, timeout=None if remaining is None else max(0, remaining)):
+                    cam = future_to_camera[future]
+                    try:
+                        success = bool(future.result())
+                    except Exception as error:
+                        set_probe_result(
+                            cam,
+                            False,
+                            reason='check_exception',
+                            category='check_exception',
+                            detail=f'{type(error).__name__}: {error}'
+                        )
+                        success = False
+                    checked_results.append((cam, success))
+            except FuturesTimeoutError:
+                log(f'[WARN] {region_name}: run deadline reached; skipping unfinished checks')
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
 
-    for cam, success in checked_results:
+    # Cameras never probed (deadline) or refused by the proxy rate limit were not
+    # checked; counting them as failures would paint healthy cameras red.
+    probed = [
+        (cam, success) for cam, success in checked_results
+        if get_probe_result(cam).get('reason') != 'rate_limited'
+    ]
+    skipped = len(sample) - len(probed)
+    sample_ids = [cam.get('id') for cam, _ in probed if cam.get('id')]
+    if skipped:
+        log(f'{region_name}: {skipped} sampled cameras were not checked (deadline or rate limit)')
+
+    for cam, success in probed:
         checked_samples.append({
             'id': cam.get('id'),
             'name': cam.get('name'),
@@ -1246,7 +1331,7 @@ def test_region(region_name, cameras, current_status=None, target_size=None):
             failed_ids.append(cam.get('id'))
             failed_samples.append(build_failed_sample(region_name, cam))
 
-    checked = len(sample)
+    checked = len(probed)
     status, failure_ratio = evaluate_region_health(checked, passed)
     failed = checked - passed
     failure_breakdown = summarize_failed_samples(failed_samples)
@@ -1273,7 +1358,8 @@ def test_region(region_name, cameras, current_status=None, target_size=None):
             'policy': 'least_recently_checked_rotation',
             'max_workers': max_workers
         },
-        'target_size': target_size
+        'target_size': target_size,
+        'skipped': skipped
     }
 
 
@@ -1298,8 +1384,11 @@ def resolve_active_source(region_name, region_status, config):
 
 
 def run_sentinel():
+    global RUN_DEADLINE
     try:
         log('--- Sentinel Started ---')
+        max_runtime = env_int('CCTV_SENTINEL_MAX_RUNTIME_SECONDS', DEFAULT_SENTINEL_MAX_RUNTIME_SECONDS, minimum=30, maximum=6 * 3600)
+        RUN_DEADLINE = time.monotonic() + max_runtime
 
         cctv_data = load_json(DATA_FILE)
         if not cctv_data:
@@ -1307,7 +1396,7 @@ def run_sentinel():
             return
 
         config = load_json(CONFIG_FILE)
-        current_status = load_json(STATUS_FILE)
+        current_status = load_status_file(STATUS_FILE)
         if not isinstance(current_status, dict):
             log('Status file is not a dict. Initializing.')
             current_status = {}
@@ -1319,10 +1408,20 @@ def run_sentinel():
         all_regions = set(region_map.keys()) | set(config.keys()) | set(current_status['regions'].keys())
         log(f'Discovered {len(all_regions)} regions: {sorted(all_regions)}')
 
-        for region_name in sorted(all_regions):
+        # Least recently checked regions go first, so regions cut off by the run
+        # deadline are first in line next time instead of always being skipped.
+        def region_priority(name):
+            entry = current_status['regions'].get(name)
+            checked_at = entry.get('checked_at') if isinstance(entry, dict) else None
+            return (checked_at or '', name)
+
+        for region_name in sorted(all_regions, key=region_priority):
             cameras = region_map.get(region_name, [])
             if not cameras:
                 log(f'Skipping {region_name}: no cameras discovered in current dataset.')
+                continue
+            if deadline_passed():
+                log(f'Skipping {region_name}: run deadline ({max_runtime}s) reached; keeping its previous status.')
                 continue
 
             result = test_region(
@@ -1331,6 +1430,9 @@ def run_sentinel():
                 current_status=current_status,
                 target_size=region_budgets.get(region_name)
             )
+            if result['checked'] == 0 and result.get('skipped'):
+                log(f'{region_name}: nothing was checked this run; keeping its previous status.')
+                continue
             status_entry = current_status['regions'].setdefault(region_name, {})
             status_entry.update(result)
             status_entry['active_source'] = resolve_active_source(region_name, result['status'], config)
@@ -1356,12 +1458,9 @@ def run_sentinel():
     except Exception as error:
         log(f'FATAL ERROR in run_sentinel: {error}')
         log(traceback.format_exc())
-        sys.exit(0)
+        # Exiting 0 here hid a weeks-long outage behind green workflow runs.
+        sys.exit(1)
 
 
 if __name__ == '__main__':
-    try:
-        run_sentinel()
-    except Exception as e:
-        print(f"[sentinel] Handled exception: {e}")
-        sys.exit(0)
+    run_sentinel()

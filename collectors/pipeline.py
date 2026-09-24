@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import math
 import os
 import re
 import time
@@ -107,6 +108,112 @@ def find_duplicate_index(new_item: dict[str, Any], existing_items: list[dict[str
     return -1
 
 
+_GRID_DEGREES = 0.002
+
+
+def _grid_cell(lat: float, lng: float) -> tuple[int, int]:
+    return math.floor(lat / _GRID_DEGREES), math.floor(lng / _GRID_DEGREES)
+
+
+class DuplicateIndex:
+    """Answers find_duplicate_index() for one target list without scanning it.
+
+    find_duplicate_index() rescans every record for every new camera, which
+    made merging the ~21k-camera catalog quadratic. This keeps identity and
+    coarse-grid lookups in sync with the list and returns exactly the index the
+    scan would: the first record matching by identity or by proximity, or -1
+    when the scan would have hit a record whose lat/lng (or identity) raises
+    before reaching any match.
+    """
+
+    def __init__(self, items: list[dict[str, Any]]):
+        self._entries: list[tuple[Any, ...] | None] = []
+        self._by_identity: dict[str, set[int]] = {}
+        self._grid: dict[tuple[int, int], set[int]] = {}
+        self._broken: set[int] = set()
+        for idx, item in enumerate(items):
+            self.add(idx, item)
+
+    def add(self, idx: int, item: dict[str, Any]) -> None:
+        if idx == len(self._entries):
+            self._entries.append(None)
+        try:
+            identity = camera_identity(item)
+        except Exception:
+            identity = None
+        try:
+            source = str(item.get("source", "")).upper()
+            source_id = camera_source_id(item)
+        except Exception:
+            source, source_id, identity = "", "", None
+        try:
+            coords: tuple[float, float] | None = (float(item["lat"]), float(item["lng"]))
+        except Exception:
+            coords = None
+
+        cell = None
+        if identity is not None:
+            self._by_identity.setdefault(identity, set()).add(idx)
+        if identity is None or coords is None:
+            self._broken.add(idx)
+        elif all(math.isfinite(value) for value in coords):
+            # Non-finite coordinates can never satisfy the proximity checks.
+            cell = _grid_cell(*coords)
+            self._grid.setdefault(cell, set()).add(idx)
+        self._entries[idx] = (identity, source, source_id, coords, cell)
+
+    def update(self, idx: int, item: dict[str, Any]) -> None:
+        identity, _, _, _, cell = self._entries[idx]
+        if identity is not None:
+            self._by_identity[identity].discard(idx)
+        if cell is not None:
+            self._grid[cell].discard(idx)
+        self._broken.discard(idx)
+        self.add(idx, item)
+
+    def find(self, new_item: dict[str, Any]) -> int:
+        try:
+            nlat = float(new_item["lat"])
+            nlng = float(new_item["lng"])
+            nid = camera_source_id(new_item)
+            nsource = str(new_item.get("source", "")).upper()
+            nkey = camera_identity(new_item)
+        except Exception:
+            return -1
+
+        def skipped(idx: int) -> bool:
+            _, source, source_id, _, _ = self._entries[idx]
+            return bool(nsource == source and nid and source_id and nid != source_id)
+
+        matches = self._by_identity.get(nkey)
+        best = min(matches) if matches else None
+
+        if math.isfinite(nlat) and math.isfinite(nlng):
+            row, col = _grid_cell(nlat, nlng)
+            # Two cells either side absorbs float rounding at cell edges; the
+            # exact box/distance tests below decide the match.
+            for d_row in range(-2, 3):
+                for d_col in range(-2, 3):
+                    for idx in self._grid.get((row + d_row, col + d_col), ()):
+                        if (best is not None and idx >= best) or skipped(idx):
+                            continue
+                        elat, elng = self._entries[idx][3]
+                        if abs(nlat - elat) > 0.002 or abs(nlng - elng) > 0.002:
+                            continue
+                        if _distance_meters(nlat, nlng, elat, elng) < 200:
+                            best = idx
+
+        for idx in self._broken:
+            if best is not None and idx >= best:
+                continue
+            identity = self._entries[idx][0]
+            # The scan raises on this record (before any match) unless the
+            # same-source/different-id rule skips it first.
+            if identity is None or not skipped(idx):
+                return -1
+        return -1 if best is None else best
+
+
 def _backup_entry(item: dict[str, Any]) -> dict[str, Any]:
     backup = {"source": item.get("source"), "url": item.get("url")}
     original_id = camera_source_id(item)
@@ -166,20 +273,38 @@ def merge_cctv_item(
     target_list: list[dict[str, Any]],
     new_item: dict[str, Any],
     priority_map: dict[str, int] | None = None,
+    index: DuplicateIndex | None = None,
 ) -> str:
-    """Merge a single camera record into target_list."""
+    """Merge a single camera record into target_list.
+
+    Pass a DuplicateIndex built over target_list to avoid rescanning it; the
+    index is kept in sync with every change made here.
+    """
 
     priority_map = priority_map or SOURCE_PRIORITY
     new_item = normalize_cctv_record(new_item)
 
-    idx = find_duplicate_index(new_item, target_list)
+    idx = index.find(new_item) if index is not None else find_duplicate_index(new_item, target_list)
     if idx == -1:
         target_list.append(new_item)
+        if index is not None:
+            index.add(len(target_list) - 1, new_item)
         return "added"
 
     existing = normalize_cctv_record(target_list[idx])
     target_list[idx] = existing
+    try:
+        return _merge_into_existing(existing, new_item, priority_map)
+    finally:
+        if index is not None:
+            index.update(idx, existing)
 
+
+def _merge_into_existing(
+    existing: dict[str, Any],
+    new_item: dict[str, Any],
+    priority_map: dict[str, int],
+) -> str:
     p_new = priority_map.get(str(new_item.get("source")), 99)
     p_old = priority_map.get(str(existing.get("source")), 99)
 
@@ -245,11 +370,12 @@ def merge_named_batches(
     """Merge multiple named batches and return per-batch stats."""
 
     priority_map = priority_map or SOURCE_PRIORITY
+    index = DuplicateIndex(target_list)
     stats_by_name: dict[str, dict[str, int]] = {}
     for name, data in batches:
         stats = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0, "skipped_duplicate_url": 0}
         for item in data or []:
-            result = merge_cctv_item(target_list, item, priority_map=priority_map)
+            result = merge_cctv_item(target_list, item, priority_map=priority_map, index=index)
             stats[result] = stats.get(result, 0) + 1
         stats_by_name[name] = stats
         print(f"Merged {name}: {stats}")

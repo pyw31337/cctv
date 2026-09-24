@@ -124,5 +124,70 @@ class PipelineNormalizationTests(unittest.TestCase):
         self.assertNotIn("probe-only-secret", item["url"])
 
 
+def _scan_merge(batches, priority_map=None):
+    """Reference: the original quadratic merge (a full scan per camera)."""
+    merged, all_stats = [], {}
+    for name, data in batches:
+        stats = {"added": 0, "upgraded": 0, "added_backup": 0, "skipped": 0, "skipped_duplicate_url": 0}
+        for item in data:
+            result = merge_cctv_item(merged, item, priority_map=priority_map)
+            stats[result] = stats.get(result, 0) + 1
+        all_stats[name] = stats
+    return merged, all_stats
+
+
+class IndexedMergeEquivalenceTests(unittest.TestCase):
+    def _random_batches(self, rng, count):
+        sources = ["UTIC", "NTIC", "GITS", "BUSAN_ITS", "KBS"]
+        base_lat, base_lng = 37.5, 127.0
+        batches = []
+        for source in sources:
+            items = []
+            for _ in range(count):
+                lat = base_lat + rng.choice([0, 0.0005, 0.0019, 0.002, 0.0021, 0.004]) * rng.choice([-1, 1]) + rng.random() * 0.01
+                lng = base_lng + rng.choice([0, 0.0015, 0.002, 0.0025]) * rng.choice([-1, 1]) + rng.random() * 0.01
+                item = {
+                    "source": rng.choice([source, source, rng.choice(sources)]),
+                    "name": f"cam{rng.randrange(40)}",
+                    "lat": lat,
+                    "lng": lng,
+                    "url": rng.choice([f"https://h/{rng.randrange(60)}.m3u8", f"https://h/{rng.randrange(60)}.jsp"]),
+                }
+                if rng.random() < 0.7:
+                    item["id"] = f"ID{rng.randrange(80)}"
+                roll = rng.random()
+                if roll < 0.03:
+                    item["lat"] = None
+                elif roll < 0.05:
+                    item["lat"] = "not-a-number"
+                elif roll < 0.06:
+                    item["lng"] = float("nan")
+                elif roll < 0.07:
+                    del item["lng"]
+                elif roll < 0.10:
+                    item["lat"] = f"{lat:.6f}"  # string coordinates are accepted
+                items.append(item)
+            batches.append((source, items))
+        return batches
+
+    def test_indexed_merge_matches_full_scan(self):
+        import copy
+        import io
+        import random
+        from contextlib import redirect_stdout
+
+        from collectors.pipeline import merge_named_batches
+
+        for seed in range(40):
+            rng = random.Random(seed)
+            batches = self._random_batches(rng, 60)
+            expected, expected_stats = _scan_merge(copy.deepcopy(batches))
+            merged = []
+            with redirect_stdout(io.StringIO()):
+                stats = merge_named_batches(merged, copy.deepcopy(batches))
+            self.assertEqual(merged, expected, f"seed {seed}")
+            self.assertEqual(stats, expected_stats, f"seed {seed}")
+
+
 if __name__ == "__main__":
     unittest.main()
