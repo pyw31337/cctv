@@ -2,8 +2,11 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
+
+import requests
 
 
 os.environ.setdefault('CCTV_DISABLE_STARTUP_JOBS', '1')
@@ -165,6 +168,75 @@ class ServerResilienceTests(unittest.TestCase):
             self.assertEqual(response.headers['Location'], 'https://zermatt.roundshot.com/cams/2091')
             with patch.object(server_app.requests, 'get', return_value=Page('https://attacker.example/x.jpg')):
                 self.assertEqual(client.get(source).status_code, 502)
+
+    def _stale_z3_state(self):
+        saved = {key: value for key, value in server_app._z3_cache.items() if key != 'lock'}
+        self.addCleanup(server_app._z3_cache.update, saved)
+        server_app.set_z3_cache_data(
+            {'E1': 'https://cctvsec.ktict.co.kr/E1/old'}, 'github-stale',
+            server_app.parse_z3_fetched('2026-09-07T12:01:51Z'),
+        )
+        server_app._z3_cache['fetched'] = server_app.utc_now() - timedelta(hours=1)
+        server_app._z3_cache['last_attempt'] = None
+        server_app._z3_cache['last_forced_attempt'] = None
+
+    def test_failed_z3_refresh_is_not_retried_by_every_request(self):
+        self._stale_z3_state()
+        with patch.object(server_app, 'load_z3_cache_payload', return_value=(None, None)), \
+                patch.object(server_app.requests, 'get', side_effect=requests.ConnectionError('github down')), \
+                patch.object(server_app, '_refresh_z3_from_its', return_value=False) as its_refresh:
+            for _ in range(5):
+                self.assertEqual(server_app.get_z3_app_url('E1'), 'https://cctvsec.ktict.co.kr/E1/old')
+        self.assertEqual(its_refresh.call_count, 1)
+
+    def test_z3_lookup_does_not_wait_for_in_flight_refresh(self):
+        self._stale_z3_state()
+        lock = server_app._z3_cache['lock']
+        lock.acquire()  # another request is mid-refresh
+        try:
+            with patch.object(server_app, '_refresh_z3_cache', side_effect=AssertionError('must not refresh')):
+                self.assertEqual(server_app.get_z3_app_url('E1'), 'https://cctvsec.ktict.co.kr/E1/old')
+        finally:
+            lock.release()
+
+    def test_expired_z3_tokens_force_one_its_refresh_per_window(self):
+        self._stale_z3_state()
+        with patch.object(server_app, '_refresh_z3_from_its', return_value=False) as its_refresh:
+            for _ in range(4):
+                response, refreshed = server_app.retry_z3_with_fresh_cache(
+                    'E1', 'NTIC_1', 'HTTP 403', 'https://cctvsec.ktict.co.kr/E1/old'
+                )
+                self.assertIsNone(response)
+                self.assertFalse(refreshed)
+        self.assertEqual(its_refresh.call_count, 1)
+
+    def test_newer_stale_local_z3_cache_replaces_older_memory(self):
+        self._stale_z3_state()
+        newer = server_app.parse_z3_fetched('2026-09-20T00:00:00Z')
+        with patch.object(server_app, 'load_z3_cache_payload',
+                          return_value=({'E1': 'https://cctvsec.ktict.co.kr/E1/newer'}, newer)), \
+                patch.object(server_app.requests, 'get', side_effect=requests.ConnectionError('github down')), \
+                patch.object(server_app, '_refresh_z3_from_its', return_value=False):
+            self.assertEqual(server_app.get_z3_app_url('E1'), 'https://cctvsec.ktict.co.kr/E1/newer')
+
+    def test_rate_limit_separates_clients_behind_local_proxy(self):
+        original_limit = server_app.RATE_LIMIT_MAX_REQUESTS
+        server_app.RATE_LIMIT_MAX_REQUESTS = 1
+        self.addCleanup(setattr, server_app, 'RATE_LIMIT_MAX_REQUESTS', original_limit)
+        client = server_app.app.test_client()
+        via_caddy = lambda ip: {'X-Forwarded-For': ip}  # noqa: E731 - test client peer is 127.0.0.1
+        self.assertEqual(client.get('/proxy', headers=via_caddy('198.51.100.1')).status_code, 400)
+        self.assertEqual(client.get('/proxy', headers=via_caddy('198.51.100.2')).status_code, 400)
+        self.assertEqual(client.get('/proxy', headers=via_caddy('198.51.100.1')).status_code, 429)
+
+    def test_rate_limit_ignores_forwarded_header_from_direct_clients(self):
+        original_limit = server_app.RATE_LIMIT_MAX_REQUESTS
+        server_app.RATE_LIMIT_MAX_REQUESTS = 1
+        self.addCleanup(setattr, server_app, 'RATE_LIMIT_MAX_REQUESTS', original_limit)
+        client = server_app.app.test_client()
+        direct = {'REMOTE_ADDR': '203.0.113.9'}
+        self.assertEqual(client.get('/proxy', headers={'X-Forwarded-For': '1.1.1.1'}, environ_base=direct).status_code, 400)
+        self.assertEqual(client.get('/proxy', headers={'X-Forwarded-For': '2.2.2.2'}, environ_base=direct).status_code, 429)
 
     def test_kill_stream_removes_terminated_process_and_files(self):
         class TerminatedProcess:

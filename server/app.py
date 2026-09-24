@@ -299,9 +299,14 @@ _z3_cache = {
     'data_fetched': None,  # datetime embedded in the cache payload
     'local_mtime': None,   # filesystem mtime for the local JSON that populated memory
     'source': None,     # local, github, its.go.kr, or stale fallback source
+    'last_attempt': None,         # monotonic time of the last refresh-chain attempt
+    'last_forced_attempt': None,  # monotonic time of the last forced its.go.kr refresh
     'lock': threading.Lock()
 }
 Z3_CACHE_TTL_MINUTES = 50
+# A refresh chain that fails (its.go.kr geo-blocked, GitHub copy stale) is not
+# retried more often than this, so failures cannot turn into a retry storm.
+Z3_REFRESH_RETRY_SECONDS = env_int('Z3_REFRESH_RETRY_SECONDS', 300)
 Z3_CACHE_STALE_HOURS = 2   # If GitHub data is older than this, try its.go.kr directly
 Z3_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/pyw31337/cctv/main/data/z3_cache.json'
 Z3_LOCAL_CACHE_FILE = os.environ.get('Z3_LOCAL_CACHE_FILE', os.path.join(ROOT_DIR, 'data', 'z3_cache.json'))
@@ -531,7 +536,7 @@ def _refresh_z3_cache():
                 age_str = f"{cache_age_hours:.1f}h" if cache_age_hours is not None else "unknown"
                 logger.warning(f"Z3: GitHub cache is stale ({age_str} old) — trying its.go.kr directly")
                 # Use stale data as temporary fallback while we try to refresh
-                if cctvip_map and _z3_cache['data'] is None:
+                if cctvip_map and z3_is_newer_than_memory(fetched_dt):
                     set_z3_cache_data(cctvip_map, 'github-stale', fetched_dt)
         else:
             logger.error(f"Z3: GitHub raw fetch failed: {resp.status_code}")
@@ -540,25 +545,65 @@ def _refresh_z3_cache():
 
     # Step 3: Try direct its.go.kr (works if server IP is not geo-blocked)
     if not _refresh_z3_from_its():
-        if local_map and _z3_cache['data'] is None:
-            set_z3_cache_data(local_map, 'local-stale', local_fetched)
+        if local_map and z3_is_newer_than_memory(local_fetched):
+            set_z3_cache_data(local_map, 'local-stale', local_fetched, local_mtime)
             logger.error("Z3: direct refresh failed — using stale local cache as emergency fallback")
             return
+        # Only a later rewrite of the local file should trigger another refresh.
+        _z3_cache['local_mtime'] = local_mtime
         logger.error("Z3: All refresh sources failed — using existing cached data if available")
+
+
+def z3_is_newer_than_memory(candidate_fetched):
+    """A stale fallback is still worth loading when it beats what memory holds."""
+    if _z3_cache['data'] is None:
+        return True
+    current = _z3_cache.get('data_fetched')
+    return bool(candidate_fetched and current and candidate_fetched > current)
+
+
+def z3_cache_needs_refresh():
+    fetched = _z3_cache['fetched']
+    return (
+        _z3_cache['data'] is None
+        or fetched is None
+        or utc_now() - fetched > timedelta(minutes=Z3_CACHE_TTL_MINUTES)
+        or z3_local_cache_updated()
+    )
+
+
+def z3_retry_window_open(key):
+    last = _z3_cache.get(key)
+    return last is None or time.monotonic() - last >= Z3_REFRESH_RETRY_SECONDS
+
+
+def ensure_z3_cache_fresh():
+    """Refresh the appUrl map without letting a failing upstream stall requests.
+
+    A failed refresh used to leave the cache marked stale, so every Z3 request
+    re-ran the GitHub + its.go.kr chain (minutes of timeouts) while holding
+    the lock, and all Z3 playback queued behind it.
+    """
+    def due():
+        return z3_cache_needs_refresh() and (z3_local_cache_updated() or z3_retry_window_open('last_attempt'))
+
+    if not due():
+        return
+    lock = _z3_cache['lock']
+    # With data in hand, serve it instead of queueing behind an in-flight refresh.
+    if not lock.acquire(blocking=_z3_cache['data'] is None):
+        return
+    try:
+        if due():
+            _z3_cache['last_attempt'] = time.monotonic()
+            _refresh_z3_cache()
+    finally:
+        lock.release()
 
 
 def get_z3_app_url(cctvip):
     """Return appUrl for given cctvip, refreshing cache if needed."""
-    with _z3_cache['lock']:
-        now = utc_now()
-        needs_refresh = (
-            _z3_cache['data'] is None or
-            _z3_cache['fetched'] is None or
-            now - _z3_cache['fetched'] > timedelta(minutes=Z3_CACHE_TTL_MINUTES) or
-            z3_local_cache_updated()
-        )
-        if needs_refresh:
-            _refresh_z3_cache()
+    ensure_z3_cache_fresh()
     return (_z3_cache['data'] or {}).get(str(cctvip))
 
 
@@ -574,46 +619,48 @@ def fetch_z3_hls_url(app_url):
     )
 
 
-def retry_z3_with_fresh_cache(cctvip, cctv_id, reason):
-    logger.warning("Z3: refreshing its.go.kr cache for cctvip=%s (%s) after %s", cctvip, cctv_id, reason)
-    with _z3_cache['lock']:
-        refreshed = _refresh_z3_from_its()
-        fresh_url = (_z3_cache['data'] or {}).get(str(cctvip)) if refreshed else None
+def retry_z3_with_fresh_cache(cctvip, cctv_id, reason, failed_app_url=None):
+    # Every expired-token camera used to force a full its.go.kr refresh (up to
+    # ~135s) under the lock. Allow one forced refresh per retry window; other
+    # requests reuse whatever a recent refresh put in the cache.
+    refreshed = False
+    lock = _z3_cache['lock']
+    if z3_retry_window_open('last_forced_attempt') and lock.acquire(blocking=False):
+        try:
+            logger.warning("Z3: refreshing its.go.kr cache for cctvip=%s (%s) after %s", cctvip, cctv_id, reason)
+            _z3_cache['last_forced_attempt'] = time.monotonic()
+            refreshed = _refresh_z3_from_its()
+        finally:
+            lock.release()
+
+    fresh_url = (_z3_cache['data'] or {}).get(str(cctvip))
+    if not refreshed and fresh_url == failed_app_url:
+        fresh_url = None  # nothing newer to try
     if not fresh_url:
-        logger.error("Z3: cctvip=%s not found after forced refresh", cctvip)
+        if refreshed:
+            logger.error("Z3: cctvip=%s not found after forced refresh", cctvip)
         return None, refreshed
     return fetch_z3_hls_url(fresh_url), refreshed
 
 
 def get_z3_cache_payload():
-    with _z3_cache['lock']:
-        now = utc_now()
-        needs_refresh = (
-            _z3_cache['data'] is None or
-            _z3_cache['fetched'] is None or
-            now - _z3_cache['fetched'] > timedelta(minutes=Z3_CACHE_TTL_MINUTES) or
-            z3_local_cache_updated()
-        )
-        if needs_refresh:
-            _refresh_z3_cache()
-
-        data = _z3_cache.get('data') or {}
-        fetched = _z3_cache.get('data_fetched') or _z3_cache.get('fetched')
-        fetched_text = fetched.strftime('%Y-%m-%dT%H:%M:%SZ') if fetched else None
-        age_minutes = None
-        if fetched:
-            age_minutes = round((utc_now() - fetched).total_seconds() / 60, 1)
-        return {
-            'fetched': fetched_text,
-            'entries': len(data),
-            'source': _z3_cache.get('source') or 'unknown',
-            'age_minutes': age_minutes,
-            'data': data,
-        }
+    ensure_z3_cache_fresh()
+    data = _z3_cache.get('data') or {}
+    fetched = _z3_cache.get('data_fetched') or _z3_cache.get('fetched')
+    fetched_text = fetched.strftime('%Y-%m-%dT%H:%M:%SZ') if fetched else None
+    age_minutes = None
+    if fetched:
+        age_minutes = round((utc_now() - fetched).total_seconds() / 60, 1)
+    return {
+        'fetched': fetched_text,
+        'entries': len(data),
+        'source': _z3_cache.get('source') or 'unknown',
+        'age_minutes': age_minutes,
+        'data': data,
+    }
 
 def _prewarm_z3():
-    with _z3_cache['lock']:
-        _refresh_z3_cache()
+    ensure_z3_cache_fresh()
 
 
 if STARTUP_JOBS_ENABLED:
@@ -697,6 +744,28 @@ RATE_LIMITED_PATHS = {
 }
 
 
+def rate_limit_client_key():
+    """Identify the real client for rate limiting.
+
+    On Oracle, Caddy proxies to gunicorn over loopback, so remote_addr is
+    127.0.0.1 for everyone and all users shared one bucket. Caddy sets the
+    rightmost X-Forwarded-For entry itself, so trust it only for loopback peers;
+    direct connections keep using the socket address and cannot spoof it.
+    """
+    remote = request.remote_addr or 'unknown'
+    try:
+        is_loopback = ipaddress.ip_address(remote).is_loopback
+    except ValueError:
+        return remote
+    if not is_loopback:
+        return remote
+    forwarded = request.headers.get('X-Forwarded-For', '').split(',')[-1].strip()
+    try:
+        return str(ipaddress.ip_address(forwarded))
+    except ValueError:
+        return remote
+
+
 @app.before_request
 def limit_upstream_requests():
     """Bound expensive upstream requests without throttling HLS playback."""
@@ -704,7 +773,7 @@ def limit_upstream_requests():
         return None
 
     now = time.monotonic()
-    client_key = request.remote_addr or 'unknown'
+    client_key = rate_limit_client_key()
     bucket_key = (client_key, request.path)
     with rate_limit_lock:
         window_start, count = rate_limit_buckets.get(bucket_key, (now, 0))
@@ -1582,7 +1651,7 @@ def proxy_utic():
             # Force a direct its.go.kr refresh once before declaring the camera broken.
             first_body = hls_resp.text.strip() if hls_resp.status_code < 400 else ''
             if hls_resp.status_code >= 400 or not first_body.startswith('http'):
-                retry_resp, refreshed = retry_z3_with_fresh_cache(cctvip, cctv_id, f"HTTP {hls_resp.status_code}")
+                retry_resp, refreshed = retry_z3_with_fresh_cache(cctvip, cctv_id, f"HTTP {hls_resp.status_code}", app_url)
                 if retry_resp is not None:
                     hls_resp = retry_resp
                 elif refreshed:
