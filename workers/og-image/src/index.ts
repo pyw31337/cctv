@@ -50,15 +50,29 @@ function isSafeSnapshotUrl(raw: string): boolean {
     return true;
 }
 
+const MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024;
+
+// Spreading a whole image into String.fromCharCode overflows the call stack
+// above a few hundred KB, which silently dropped most CCTV snapshots.
+function bytesToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary);
+}
+
 async function snapshotToDataUri(url: string): Promise<string | null> {
     if (!isSafeSnapshotUrl(url)) return null;
     try {
         const res = await fetch(url, { cf: { cacheTtl: 1800 } as any });
         if (!res.ok) return null;
-        const ct = res.headers.get('content-type') || 'image/jpeg';
+        const ct = (res.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+        if (!ct.startsWith('image/')) return null;
+        if (Number(res.headers.get('content-length') || 0) > MAX_SNAPSHOT_BYTES) return null;
         const buf = await res.arrayBuffer();
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-        return `data:${ct};base64,${b64}`;
+        if (buf.byteLength > MAX_SNAPSHOT_BYTES) return null;
+        return `data:${ct};base64,${bytesToBase64(new Uint8Array(buf))}`;
     } catch {
         return null;
     }

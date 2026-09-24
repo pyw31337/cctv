@@ -88,19 +88,84 @@ def build_public_proxy_url(target_url, route='proxy'):
     return build_proxy_url(PUBLIC_PROXY_BASE, target_url, route=route)
 
 
+SENSITIVE_QUERY_NAMES = {'key', 'api_key', 'apikey', 'token', 'access_token', 'signature'}
+SENSITIVE_QUERY_PATTERN = re.compile(
+    r'(?i)\b(' + '|'.join(sorted(SENSITIVE_QUERY_NAMES)) + r')=[^&\s\'"]+'
+)
+UTIC_GUIDE_REFERER = 'https://www.utic.go.kr/guide/cctvOpenData.do'
+BROWSER_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+
 def redact_url_for_log(target_url):
     """Hide common credentials and tokens before a URL reaches logs."""
     try:
         parsed = urlparse(target_url)
-        sensitive = {'key', 'api_key', 'apikey', 'token', 'access_token', 'signature'}
         query = [
-            (name, '[REDACTED]' if name.lower() in sensitive else value)
+            (name, '[REDACTED]' if name.lower() in SENSITIVE_QUERY_NAMES else value)
             for name, value in parse_qsl(parsed.query, keep_blank_values=True)
         ]
         redacted_query = urlencode(query, doseq=True)
         return parsed._replace(query=redacted_query).geturl()
     except Exception:
         return '<invalid-url>'
+
+
+def redact_text_for_log(text):
+    """requests exceptions embed the full request URL, including injected keys."""
+    return SENSITIVE_QUERY_PATTERN.sub(lambda m: f'{m.group(1)}=[REDACTED]', str(text))
+
+
+def host_matches(hostname, domain):
+    hostname = (hostname or '').lower().rstrip('.')
+    return hostname == domain or hostname.endswith('.' + domain)
+
+
+def url_host_matches(target_url, *domains):
+    try:
+        hostname = urlparse(target_url).hostname
+    except ValueError:
+        return False
+    return any(host_matches(hostname, domain) for domain in domains)
+
+
+def build_proxy_headers(target_url):
+    """Per-provider headers, chosen by the real hostname rather than a substring
+    so a crafted URL cannot receive the key-bearing UTIC Referer."""
+    if url_host_matches(target_url, 'utic.go.kr'):
+        utic_key = get_utic_api_key()
+        return {
+            'Referer': f"{UTIC_GUIDE_REFERER}?key={utic_key}" if utic_key else UTIC_GUIDE_REFERER,
+            'User-Agent': BROWSER_USER_AGENT,
+        }
+    if url_host_matches(target_url, 'jejuits.go.kr'):
+        return {
+            'User-Agent': BROWSER_USER_AGENT,
+            'Referer': 'https://www.jejuits.go.kr/jido/mainView.do',
+            'Accept': '*/*',
+            'Connection': 'close',
+        }
+    if url_host_matches(target_url, 'cctvsec.ktict.co.kr'):
+        return {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://its.go.kr/',
+        }
+    if url_host_matches(target_url, 'kbsapi.loomex.net', 'kbscctv-cache.loomex.net'):
+        return {
+            'User-Agent': BROWSER_USER_AGENT,
+            'Referer': UTIC_GUIDE_REFERER,
+            'Accept': '*/*',
+        }
+    return {}
+
+
+def headers_for_redirect_hop(headers, hop_url):
+    """Keep the key-bearing UTIC Referer on utic.go.kr hops only."""
+    referer = headers.get('Referer', '')
+    if not referer.startswith(UTIC_GUIDE_REFERER + '?') or url_host_matches(hop_url, 'utic.go.kr'):
+        return headers
+    hop_headers = dict(headers)
+    hop_headers['Referer'] = UTIC_GUIDE_REFERER
+    return hop_headers
 
 
 def add_utic_api_key(target_url):
@@ -201,6 +266,31 @@ def is_safe_stream_target(target_url):
     # FFmpeg can open more than HTTP, but all remote stream schemes still need
     # the same public-address guard to prevent the endpoint becoming an SSRF.
     return _is_safe_network_target(target_url, {'http', 'https', 'rtsp', 'rtsps'})
+
+
+SKYLINE_DOMAINS = ('skylinewebcams.com',)
+WHATSUPCAM_DOMAINS = ('whatsupcams.com',)
+ROUNDSHOT_DOMAINS = ('roundshot.com',)
+SAFE_ID_PATTERN = re.compile(r'[A-Za-z0-9._-]{1,64}')
+
+
+def is_allowed_provider_url(target_url, domains):
+    return url_host_matches(target_url, *domains) and is_safe_proxy_target(target_url)
+
+
+def fetch_provider_page(source_url, domains, headers, timeout, max_redirects=3):
+    """Fetch a caller-supplied provider page without letting it (or its
+    redirects) reach hosts outside that provider."""
+    current_url = source_url
+    for _ in range(max_redirects + 1):
+        if not is_allowed_provider_url(current_url, domains):
+            raise ValueError('Provider URL outside allowed domains')
+        resp = requests.get(current_url, headers=headers, timeout=timeout, allow_redirects=False)
+        if not resp.is_redirect:
+            return resp
+        resp.close()
+        current_url = urljoin(current_url, resp.headers['Location'])
+    raise ValueError('Too many provider redirects')
 
 # === Z3 Stream Cache (its.go.kr CCTV appUrl map) ===
 _z3_cache = {
@@ -597,7 +687,9 @@ if STARTUP_JOBS_ENABLED:
     cleanup_orphan_hls_dirs()
     threading.Thread(target=cleanup_loop, daemon=True).start()
 
-app = Flask(__name__, static_folder=STATIC_ROOT, static_url_path='')
+# Flask's built-in static route would serve every file under STATIC_ROOT and
+# shadow serve_static below, so it is disabled in favour of the allowlist.
+app = Flask(__name__, static_folder=None)
 
 RATE_LIMITED_PATHS = {
     '/proxy', '/stream', '/daejeon', '/baltic', '/skyline', '/whatsupcam',
@@ -646,7 +738,7 @@ def add_cors_headers(response):
 
 @app.route('/')
 def serve_index():
-    return send_from_directory(app.static_folder, 'index.html')
+    return send_from_directory(STATIC_ROOT, 'index.html')
 
 
 @app.route('/health')
@@ -775,9 +867,30 @@ def serve_z3_cache():
             {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
         )
 
+# STATIC_ROOT is a full git checkout on the Oracle host (.git, deploy keys,
+# logs, .env), so only the public web assets that GitHub Pages also publishes
+# may be served from it.
+PUBLIC_STATIC_EXTENSIONS = {'.html', '.js', '.css', '.json', '.png', '.ico', '.svg', '.webmanifest'}
+PRIVATE_STATIC_DIRS = {
+    'venv', 'scripts', 'server', 'rtsp-server', 'workers', 'ops', 'utils', 'docs', 'logs',
+    'node_modules', 'collectors', 'artifacts_backup', '_legacy_backup', 'debug_html', '__pycache__',
+}
+
+
+def is_public_static_path(path):
+    parts = path.replace('\\', '/').split('/')
+    if any(not part or part.startswith('.') for part in parts):
+        return False
+    if parts[0] in PRIVATE_STATIC_DIRS:
+        return False
+    return os.path.splitext(parts[-1])[1].lower() in PUBLIC_STATIC_EXTENSIONS
+
+
 @app.route('/<path:path>')
 def serve_static(path):
-    return send_from_directory(app.static_folder, path)
+    if not is_public_static_path(path):
+        abort(404)
+    return send_from_directory(STATIC_ROOT, path)
 
 def fetch_upstream(url, headers, attempts=3, max_redirects=5):
     current_url = url
@@ -785,6 +898,7 @@ def fetch_upstream(url, headers, attempts=3, max_redirects=5):
         if not is_safe_proxy_target(current_url):
             raise ValueError(f"Blocked unsafe proxy target: {current_url}")
 
+        hop_headers = headers_for_redirect_hop(headers, current_url)
         last_error = None
         resp = None
         for attempt in range(1, attempts + 1):
@@ -793,7 +907,7 @@ def fetch_upstream(url, headers, attempts=3, max_redirects=5):
                     current_url,
                     timeout=(5, 20),
                     verify=False,
-                    headers=headers,
+                    headers=hop_headers,
                     allow_redirects=False,
                     stream=True,
                 )
@@ -962,31 +1076,8 @@ def proxy_stream():
     target_url = add_utic_api_key(target_url)
         
     try:
-        # Some servers need specific Headers
-        headers = {}
-        utic_key = get_utic_api_key()
-        if 'utic.go.kr' in target_url:
-             headers["Referer"] = (
-                 f"https://www.utic.go.kr/guide/cctvOpenData.do?key={utic_key}"
-                 if utic_key
-                 else "https://www.utic.go.kr/guide/cctvOpenData.do"
-             )
-             headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        elif 'jejuits.go.kr' in target_url:
-             headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-             headers["Referer"] = "https://www.jejuits.go.kr/jido/mainView.do"
-             headers["Accept"] = "*/*"
-             headers["Connection"] = "close"
-        elif 'cctvsec.ktict.co.kr' in target_url:
-             headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-             headers["Referer"] = "https://its.go.kr/"
-        elif 'kbsapi.loomex.net' in target_url or 'kbscctv-cache.loomex.net' in target_url:
-             headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-             headers["Referer"] = "https://www.utic.go.kr/guide/cctvOpenData.do"
-             headers["Accept"] = "*/*"
-
         # Fetch fully before responding so transient upstream resets can be retried.
-        resp = fetch_upstream(target_url, headers)
+        resp = fetch_upstream(target_url, build_proxy_headers(target_url))
         
         # Use stream=False for manifest rewriting if it's a small text file
         # But for video segments (TS), we want streaming.
@@ -1047,7 +1138,7 @@ def proxy_stream():
             resp.close()
         return Response(body, resp.status_code, resp_headers)
     except Exception as e:
-        logger.error("Proxy error for %s: %s", redact_url_for_log(target_url), e)
+        logger.error("Proxy error for %s: %s", redact_url_for_log(target_url), redact_text_for_log(e))
         return "Proxy unavailable", 502
 
 # === Daejeon Proxy Logic ===
@@ -1063,6 +1154,8 @@ def proxy_daejeon():
     if clean_id.startswith("CCTV"):
         num = clean_id[4:] # "08"
         stream_id = f"CTV{num.zfill(4)}"
+    if not SAFE_ID_PATTERN.fullmatch(stream_id):
+        return "Invalid ID", 400
 
     def get_media_path(stream):
         cctvip = request.args.get('cctvip', '')
@@ -1136,6 +1229,8 @@ def proxy_baltic():
             return "m3u8 stream url not found in Baltic Live Cam response", 502
             
         raw_hls_url = m3u8_match.group(0).replace('\\/', '/').replace('\\u0026', '&')
+        if not is_safe_proxy_target(raw_hls_url):
+            return "Baltic Live Cam returned an unsafe stream URL", 502
         
         # 3. Request the m3u8 file contents
         stream_headers = {
@@ -1181,7 +1276,7 @@ def get_cached_skyline_manifest(source_url: str) -> tuple:
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     }
     try:
-        resp = requests.get(source_url, headers=headers, timeout=8)
+        resp = fetch_provider_page(source_url, SKYLINE_DOMAINS, headers, 8)
         if resp.status_code != 200:
             return f"SkylineWebcams page fetch failed: {resp.status_code}", 502
 
@@ -1201,7 +1296,7 @@ def get_cached_skyline_manifest(source_url: str) -> tuple:
         # [Self-healing] If the initial stream fetch fails, try to recrawl the page once more
         if stream_resp.status_code != 200:
             logger.warning(f"Skyline: HLS token invalid or expired (status={stream_resp.status_code}). Recrawling...")
-            resp = requests.get(source_url, headers=headers, timeout=8)
+            resp = fetch_provider_page(source_url, SKYLINE_DOMAINS, headers, 8)
             if resp.status_code == 200:
                 html = resp.text
                 tokens = _re.findall(r'hd-auth\.skylinewebcams\.com/live\.m3u8\?a=([a-zA-Z0-9]+)', html) or _re.findall(r'live\.m3u8\?a=([a-zA-Z0-9]+)', html)
@@ -1235,7 +1330,9 @@ def proxy_skyline():
     source_url = request.args.get('url')
     if not source_url:
         return "Missing source URL", 400
-    
+    if not is_allowed_provider_url(source_url, SKYLINE_DOMAINS):
+        return "Unsupported source URL", 400
+
     result, status = get_cached_skyline_manifest(source_url)
     if status == 200:
         return Response(result, 200, [
@@ -1257,13 +1354,14 @@ def get_cached_whatsupcam_manifest(source_url: str, slug_override: str) -> tuple
     slug = slug_override
     if not slug:
         try:
-            resp = requests.get(source_url, headers=headers, timeout=8)
+            resp = fetch_provider_page(source_url, WHATSUPCAM_DOMAINS, headers, 8)
             slugs = _re.findall(r'services\.whatsupcams\.com/wgt/([a-zA-Z0-9_-]+)', resp.text)
             if not slugs:
                 return "WhatUpCam: widget slug not found in page", 502
             slug = slugs[0]
         except Exception as e:
-            return f"WhatUpCam depth-1 error: {e}", 502
+            logger.error("WhatUpCam page error for %s: %s", redact_url_for_log(source_url), e)
+            return "WhatUpCam page unavailable", 502
 
     api_url = f"https://services.whatsupcams.com/streams/{slug}?jsonp=true"
     try:
@@ -1274,7 +1372,10 @@ def get_cached_whatsupcam_manifest(source_url: str, slug_override: str) -> tuple
             return "WhatUpCam: HLS URL not found in stream API", 502
         hls_url = hls_match.group(1)
     except Exception as e:
-        return f"WhatUpCam depth-2 error: {e}", 502
+        logger.error("WhatUpCam stream API error for %s: %s", slug, e)
+        return "WhatUpCam stream API unavailable", 502
+    if not is_safe_proxy_target(hls_url):
+        return "WhatUpCam: unsafe HLS URL", 502
 
     # Relay manifest
     try:
@@ -1295,7 +1396,8 @@ def get_cached_whatsupcam_manifest(source_url: str, slug_override: str) -> tuple
         rewritten = "\n".join(new_lines).encode('utf-8')
         return rewritten, 200
     except Exception as e:
-        return f"WhatUpCam depth-3 error: {e}", 502
+        logger.error("WhatUpCam HLS relay error: %s", e)
+        return "WhatUpCam HLS unavailable", 502
 
 @app.route('/whatsupcam')
 def proxy_whatsupcam():
@@ -1308,6 +1410,10 @@ def proxy_whatsupcam():
     slug_override = request.args.get('slug')
     if not source_url and not slug_override:
         return "Missing source URL or slug", 400
+    if slug_override and not SAFE_ID_PATTERN.fullmatch(slug_override):
+        return "Invalid slug", 400
+    if not slug_override and not is_allowed_provider_url(source_url, WHATSUPCAM_DOMAINS):
+        return "Unsupported source URL", 400
 
     result, status = get_cached_whatsupcam_manifest(source_url, slug_override)
     if status == 200:
@@ -1328,12 +1434,14 @@ def proxy_roundshot():
     source_url = request.args.get('url')
     if not source_url:
         return "Missing source URL", 400
+    if not is_allowed_provider_url(source_url, ROUNDSHOT_DOMAINS):
+        return "Unsupported source URL", 400
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     }
     try:
-        resp = requests.get(source_url, headers=headers, timeout=6)
+        resp = fetch_provider_page(source_url, ROUNDSHOT_DOMAINS, headers, 6)
         if resp.status_code != 200:
             return f"Roundshot page fetch failed: {resp.status_code}", 502
 
@@ -1347,13 +1455,15 @@ def proxy_roundshot():
             return "Roundshot: camera ID not found in page", 502
 
         cam_path = m.group(1).strip() # e.g. "/cams/2091"
-        
+
         # Build final target URL relative to the source domain
-        from urllib.parse import urlparse
-        parsed = urlparse(source_url)
-        base_domain = f"{parsed.scheme}://{parsed.netloc}"
-        target_img_url = f"{base_domain.rstrip('/')}/{cam_path.lstrip('/')}"
-        
+        if cam_path.startswith(('http://', 'https://')):
+            target_img_url = cam_path
+        else:
+            target_img_url = urljoin(source_url, '/' + cam_path.lstrip('/'))
+        if not url_host_matches(target_img_url, *ROUNDSHOT_DOMAINS):
+            return "Roundshot: image URL outside roundshot.com", 502
+
         return flask.redirect(target_img_url, code=302)
     except Exception as e:
         logger.error("Roundshot proxy error for %s: %s", redact_url_for_log(source_url), e)
@@ -1548,7 +1658,7 @@ def proxy_utic():
         return flask.redirect(f"/proxy?url={quote(real_url)}")
 
     except Exception as e:
-        logger.error(f"UTIC Proxy Failed: {e}")
+        logger.error("UTIC Proxy Failed: %s", redact_text_for_log(e))
         return "UTIC proxy unavailable", 500
 
 
@@ -1599,6 +1709,8 @@ def proxy_kb():
     cctvip = request.args.get('cctvip')
     if not cctvip:
         return "Missing cctvip", 400
+    if not SAFE_ID_PATTERN.fullmatch(cctvip):
+        return "Invalid cctvip", 400
 
     utic_api_url = f"https://www.utic.go.kr/map/getGyeonggiCctvUrl.do?cctvIp={cctvip}"
     headers = {

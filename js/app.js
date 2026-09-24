@@ -303,6 +303,16 @@ function getSourceMeta(cctv) {
     return SOURCE_META[key] || { label: cctv.source || '기타', color: '#94a3b8' };
 }
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
 // Parse a CCTV name into a main location label and a direction hint.
 // e.g. "백양터널(모라방향입구)" => { main: "백양터널", direction: "모라방향입구" }
 function parseCctvLabel(rawName) {
@@ -1362,17 +1372,16 @@ function showSearchHistory() {
 }
 
 function renderWorldTourFavoriteSearchItem(cam) {
-    const escape = s => String(s ?? '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
     const title = cam.title || cam.city || cam.country || 'World Cam';
     const city = cam.city || cam.country || cam.region || '';
     return `
-        <div class="search-result-item cctv-favorite-item cctv-favorite-item--world" data-world-cam-id="${escape(cam.id)}" data-name="${escape(title)}">
+        <div class="search-result-item cctv-favorite-item cctv-favorite-item--world" data-world-cam-id="${escapeHtml(cam.id)}" data-name="${escapeHtml(title)}">
             <div class="search-result-info">
-                <div class="search-result-name">${escape(title)}</div>
-                <div class="search-result-address">전세계 · ${escape(city)}</div>
+                <div class="search-result-name">${escapeHtml(title)}</div>
+                <div class="search-result-address">전세계 · ${escapeHtml(city)}</div>
             </div>
             <div class="search-result-actions">
-                <button class="btn-share-search" data-action="share-video" title="공유 링크 복사" aria-label="${escape(title)} 공유 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
+                <button class="btn-share-search" data-action="share-video" title="공유 링크 복사" aria-label="${escapeHtml(title)} 공유 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
                 <button class="btn-bookmark active" data-action="remove-favorite-world" title="즐겨찾기 해제" aria-pressed="true" aria-label="즐겨찾기 해제">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
                         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
@@ -1389,17 +1398,17 @@ function renderCctvFavoriteSearchItem(cctv) {
     const health = getCameraHealthMeta(cctv);
     const confidence = getCameraPlaybackConfidence(cctv, health);
     const directionHtml = parsed.direction
-        ? `<span class="cctv-favorite-direction"> (${parsed.direction})</span>`
+        ? `<span class="cctv-favorite-direction"> (${escapeHtml(parsed.direction)})</span>`
         : '';
     return `
-        <div class="search-result-item cctv-favorite-item" data-cctv-id="${cctv.id}">
+        <div class="search-result-item cctv-favorite-item" data-cctv-id="${escapeHtml(cctv.id)}">
             <div class="search-result-info">
                 <div class="search-result-name">
                     <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
-                    ${parsed.main}${directionHtml}
+                    ${escapeHtml(parsed.main)}${directionHtml}
                     <span class="cctv-status-dot tone-${confidence.tone}" style="display:inline-block; margin-left:6px; vertical-align:middle;" title="${confidence.label} · ${confidence.title}"></span>
                 </div>
-                <div class="search-result-address">${sourceMeta.label}</div>
+                <div class="search-result-address">${escapeHtml(sourceMeta.label)}</div>
             </div>
             <div class="search-result-actions">
                 <button class="btn-share-search" data-action="share-video" title="공유 링크 복사" aria-label="${parsed.main} 공유 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
@@ -1418,12 +1427,11 @@ function renderSearchItem(item, isBookmarked, options = {}) {
     // showDelete=true  → 최근 검색 섹션 (별 + X 둘 다)
     const { showDelete = true } = options;
     const bookmarkClass = isBookmarked ? 'active' : '';
-    const escape = s => String(s ?? '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
     const isWorld = item?.type === 'world' || item?.isWorldTourCam || item?.worldCamId;
     const hasPoint = Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
     const dataAttrs = isWorld
-        ? `data-type="world" data-world-cam-id="${escape(item.worldCamId || '')}" data-name="${escape(item.name)}" data-address="${escape(item.address || '')}"`
-        : `data-lat="${escape(item.lat)}" data-lng="${escape(item.lng)}" data-name="${escape(item.name)}" data-address="${escape(item.address || '')}"`;
+        ? `data-type="world" data-world-cam-id="${escapeHtml(item.worldCamId || '')}" data-name="${escapeHtml(item.name)}" data-address="${escapeHtml(item.address || '')}"`
+        : `data-lat="${escapeHtml(item.lat)}" data-lng="${escapeHtml(item.lng)}" data-name="${escapeHtml(item.name)}" data-address="${escapeHtml(item.address || '')}"`;
     const deleteHtml = showDelete ? `
                 <button class="btn-delete" data-action="delete" title="삭제">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1434,8 +1442,8 @@ function renderSearchItem(item, isBookmarked, options = {}) {
     return `
         <div class="search-result-item ${isWorld ? 'world-tour-search-result' : ''}" ${dataAttrs}>
             <div class="search-result-info">
-                <div class="search-result-name">${escape(item.name)}</div>
-                <div class="search-result-address">${isWorld ? '전세계 라이브 · ' : ''}${escape(item.address || '')}</div>
+                <div class="search-result-name">${escapeHtml(item.name)}</div>
+                <div class="search-result-address">${isWorld ? '전세계 라이브 · ' : ''}${escapeHtml(item.address || '')}</div>
             </div>
             <div class="search-result-actions">
                 ${(isWorld || hasPoint) ? `<button class="btn-share-search" data-action="share-video" title="${isWorld ? '글로벌 영상 링크 복사' : '4분할 영상 링크 복사'}" aria-label="${isWorld ? '글로벌 영상 링크 복사' : '4분할 영상 링크 복사'}">${SEARCH_VIDEO_SHARE_SVG}</button>` : ''}
@@ -1588,11 +1596,11 @@ function renderSearchResults(data) {
             if (place.isWorldTourCam) {
                 // Distinct row: jumps into the world-tour player on click.
                 return `
-                <div class="search-result-item world-tour-search-result" data-type="world" data-world-cam-id="${place.worldCamId}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+                <div class="search-result-item world-tour-search-result" data-type="world" data-world-cam-id="${escapeHtml(place.worldCamId)}" data-name="${escapeHtml(place.place_name)}" data-address="${escapeHtml(place.address_name || '')}">
                     <div class="search-result-icon">🌐</div>
                     <div class="search-result-info">
-                        <div class="search-result-name">${place.place_name}</div>
-                        <div class="search-result-address">전세계 라이브 · ${place.address_name || ''}</div>
+                        <div class="search-result-name">${escapeHtml(place.place_name)}</div>
+                        <div class="search-result-address">전세계 라이브 · ${escapeHtml(place.address_name || '')}</div>
                     </div>
                     <div class="search-result-actions">
                         <button class="btn-share-search" data-action="share-video" title="글로벌 영상 링크 복사" aria-label="글로벌 영상 링크 복사">${SEARCH_VIDEO_SHARE_SVG}</button>
@@ -1602,11 +1610,11 @@ function renderSearchResults(data) {
             }
             const icon = place.isRegion ? '🏙️' : '📍';
             return `
-            <div class="search-result-item" data-lat="${place.y}" data-lng="${place.x}" data-name="${place.place_name}" data-address="${place.address_name || ''}">
+            <div class="search-result-item" data-lat="${escapeHtml(place.y)}" data-lng="${escapeHtml(place.x)}" data-name="${escapeHtml(place.place_name)}" data-address="${escapeHtml(place.address_name || '')}">
                 <div class="search-result-icon">${icon}</div>
                 <div class="search-result-info">
-                    <div class="search-result-name">${place.place_name}</div>
-                    <div class="search-result-address">${place.address_name || ''}</div>
+                    <div class="search-result-name">${escapeHtml(place.place_name)}</div>
+                    <div class="search-result-address">${escapeHtml(place.address_name || '')}</div>
                 </div>
                 <div class="search-result-actions">
                     <button class="btn-share-search" data-action="share-video" title="4분할 영상으로 열기" aria-label="4분할 영상으로 열기">${SEARCH_VIDEO_SHARE_SVG}</button>
@@ -3354,8 +3362,8 @@ function showStreamLoadingIndicator(wrapper, title, detail) {
     indicator.innerHTML = `
         <span class="video-loading-spinner" aria-hidden="true"></span>
         <span class="video-loading-copy">
-            <strong>${title}</strong>
-            <span>${detail}</span>
+            <strong>${escapeHtml(title)}</strong>
+            <span>${escapeHtml(detail)}</span>
         </span>
     `;
     wrapper.appendChild(indicator);
@@ -3498,7 +3506,7 @@ function updateVideoLayerHealthUi(cctv) {
 
     subTitle.innerHTML = `
         <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
-        <span class="video-title-source">${sourceMeta.label}</span>
+        <span class="video-title-source">${escapeHtml(sourceMeta.label)}</span>
         <span class="panel-health-sep">·</span>
         <span class="tone-${health.tone}">${health.shortLabel}</span>
         <span class="panel-health-sep">·</span>
@@ -6200,7 +6208,7 @@ function showFailoverNoticeToast(panel, nextCctv, prevCctv) {
     const toast = document.createElement('div');
     toast.className = 'failover-notice-toast';
     toast.style.cssText = 'position:absolute; bottom:12px; left:50%; transform:translateX(-50%); z-index:40; background:rgba(15,23,42,0.88); backdrop-filter:blur(8px); border:1px solid rgba(59,130,246,0.4); color:#93c5fd; padding:6px 14px; border-radius:20px; font-size:12px; font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,0.3); pointer-events:none; transition:opacity 0.4s ease; opacity:0; text-align:center; white-space:nowrap;';
-    toast.innerHTML = `<span style="color:#60a5fa; margin-right:4px;">↺</span>인근 ${distStr}<strong>[${nextCctv.name}]</strong> 영상으로 우회 연결되었습니다`;
+    toast.innerHTML = `<span style="color:#60a5fa; margin-right:4px;">↺</span>인근 ${distStr}<strong>[${escapeHtml(nextCctv.name)}]</strong> 영상으로 우회 연결되었습니다`;
 
     panel.appendChild(toast);
     requestAnimationFrame(() => { toast.style.opacity = '1'; });
@@ -6298,8 +6306,8 @@ function createErrorPlaceholder(options, legacyRetryFn) {
         <div class="error-message-block">
             <span class="error-message-icon" aria-hidden="true">📡</span>
             <span class="error-message-title">영상 연결을 다시 시도해 주세요</span>
-            <span class="error-message-body">${cleanMessage}</span>
-            <span class="error-message-meta">${friendlyDetail}</span>
+            <span class="error-message-body">${escapeHtml(cleanMessage)}</span>
+            <span class="error-message-meta">${escapeHtml(friendlyDetail)}</span>
         </div>
     `;
 
@@ -6940,7 +6948,7 @@ function openMapWeatherPanel(lat, lng, addressName) {
     
     const weatherTitle = $('#weather-title');
     if (weatherTitle) {
-        weatherTitle.innerHTML = `<span style="color: var(--accent)">${addressName}</span> 날씨 정보<div style="font-size:12px;font-weight:normal;color:var(--text-secondary);margin-top:4px;">📍 선택 지도 중심 위치</div>`;
+        weatherTitle.innerHTML = `<span style="color: var(--accent)">${escapeHtml(addressName)}</span> 날씨 정보<div style="font-size:12px;font-weight:normal;color:var(--text-secondary);margin-top:4px;">📍 선택 지도 중심 위치</div>`;
     }
     
     // Open the modal
@@ -7183,12 +7191,12 @@ function openCompareMode() {
         const sourceMeta = getSourceMeta(entry.cctv);
         tile.innerHTML = `
             <div class="compare-tile-header">
-                <span class="compare-tile-city">${entry.city}</span>
+                <span class="compare-tile-city">${escapeHtml(entry.city)}</span>
                 <span class="compare-tile-meta">
                     <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
-                    <span>${parsed.main}${parsed.direction ? ` (${parsed.direction})` : ''}</span>
+                    <span>${escapeHtml(parsed.main)}${parsed.direction ? ` (${escapeHtml(parsed.direction)})` : ''}</span>
                 </span>
-                <button class="compare-tile-expand" type="button" title="크게 보기" aria-label="${entry.city} 카메라 크게 보기">⤢</button>
+                <button class="compare-tile-expand" type="button" title="크게 보기" aria-label="${escapeHtml(entry.city)} 카메라 크게 보기">⤢</button>
             </div>
             <div class="compare-tile-media"></div>
         `;
@@ -7488,7 +7496,7 @@ function openWeatherPanel() {
     layer?.classList.remove('world-tour-layer');
     content?.classList.remove('world-tour-content');
     document.body.classList.remove('world-tour-active');
-    $('#weather-title').innerHTML = `<span style="color: var(--accent)">${state.keyword}</span> 주간 날씨`;
+    $('#weather-title').innerHTML = `<span style="color: var(--accent)">${escapeHtml(state.keyword)}</span> 주간 날씨`;
     fetchWeather();
 }
 
@@ -7574,13 +7582,7 @@ function isWorldTourRejectedOriginalOnlyCam(cam) {
 }
 
 function escapeWorldTourHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, char => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-    }[char]));
+    return escapeHtml(value);
 }
 
 function getWorldTourRegionLabel(region) {
@@ -8162,8 +8164,8 @@ function openVideoLayer(cctv) {
     const parsedTitle = parseCctvLabel(cctv.name);
     const sourceMeta = getSourceMeta(cctv);
     const mainTitleHtml = parsedTitle.direction
-        ? `<span class="video-title-main">${parsedTitle.main}<span class="video-title-direction"> (${parsedTitle.direction})</span></span>`
-        : `<span class="video-title-main">${parsedTitle.main}</span>`;
+        ? `<span class="video-title-main">${escapeHtml(parsedTitle.main)}<span class="video-title-direction"> (${escapeHtml(parsedTitle.direction)})</span></span>`
+        : `<span class="video-title-main">${escapeHtml(parsedTitle.main)}</span>`;
 
     titleEl.innerHTML = `
         ${navHtml}
@@ -8171,7 +8173,7 @@ function openVideoLayer(cctv) {
             ${mainTitleHtml}
             <span class="video-title-sub">
                 <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
-                <span class="video-title-source">${sourceMeta.label}</span>
+                <span class="video-title-source">${escapeHtml(sourceMeta.label)}</span>
                 <span class="panel-health-sep">·</span>
                 <span class="tone-${health.tone}">${health.shortLabel}</span>
                 <span class="panel-health-sep">·</span>
@@ -9148,7 +9150,7 @@ function showPrecipitationBanner(points) {
         banner.className = 'precip-restore-banner';
         document.body.appendChild(banner);
     }
-    const names = points.map(p => p.name).join(', ');
+    const names = escapeHtml(points.map(p => p.name).join(', '));
     banner.innerHTML = `
         <div class="precip-banner-content" style="display:flex;align-items:center;gap:12px;">
             <span>🌧 실시간 강수 지역 (<strong>${names}</strong>) CCTV 재생 중</span>
@@ -9207,18 +9209,17 @@ function renderRecentCctvSearchItem(cctv) {
     const health = getCameraHealthMeta(cctv);
     const confidence = getCameraPlaybackConfidence(cctv, health);
     const directionHtml = parsed.direction
-        ? `<span class="cctv-favorite-direction"> (${parsed.direction})</span>`
+        ? `<span class="cctv-favorite-direction"> (${escapeHtml(parsed.direction)})</span>`
         : '';
-    const escape = s => String(s ?? '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
     return `
-        <div class="search-result-item recent-cctv-item" data-cctv-id="${cctv.id}">
+        <div class="search-result-item recent-cctv-item" data-cctv-id="${escapeHtml(cctv.id)}">
             <div class="search-result-info">
                 <div class="search-result-name">
                     <span class="source-dot" style="background:${sourceMeta.color}" aria-hidden="true"></span>
-                    ${parsed.main}${directionHtml}
+                    ${escapeHtml(parsed.main)}${directionHtml}
                     <span class="cctv-status-dot tone-${confidence.tone}" style="display:inline-block; margin-left:6px; vertical-align:middle;" title="${confidence.label} · ${confidence.title}"></span>
                 </div>
-                <div class="search-result-address">${sourceMeta.label}</div>
+                <div class="search-result-address">${escapeHtml(sourceMeta.label)}</div>
             </div>
             <div class="search-result-actions">
                 <button class="btn-delete" data-action="delete-recent-cctv" title="삭제">

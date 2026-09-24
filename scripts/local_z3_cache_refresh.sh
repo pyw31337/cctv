@@ -147,13 +147,48 @@ fi
 # Commit and push the static GitHub Pages fallback often enough for the
 # public quality dashboard to stay trustworthy. Even with `[skip ci]`, GitHub
 # Pages deployment can still run, so keep this bounded rather than every local tick.
-if ! git diff --quiet -- data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json; then
+FALLBACK_FILES=(data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json)
+
+git_operation_in_progress() {
+  [ -e "$(git rev-parse --git-path rebase-merge)" ] \
+    || [ -e "$(git rev-parse --git-path rebase-apply)" ] \
+    || [ -e "$(git rev-parse --git-path MERGE_HEAD)" ]
+}
+
+fallback_files_are_valid_json() {
+  "$PYTHON" - "${FALLBACK_FILES[@]}" <<'PY'
+import json
+import sys
+
+for path in sys.argv[1:]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            json.load(f)
+    except FileNotFoundError:
+        continue
+    except ValueError as exc:
+        print(f"invalid JSON in {path}: {exc}")
+        sys.exit(1)
+PY
+}
+
+# A swallowed rebase conflict once left conflict markers in data/status.json;
+# the next run committed and pushed them, which froze every status consumer.
+if git_operation_in_progress; then
+  echo "[$(stamp)] git rebase/merge in progress; skipped GitHub fallback commit (resolve it manually)"
+elif ! fallback_files_are_valid_json; then
+  echo "[$(stamp)] fallback files are not valid JSON; skipped GitHub fallback commit"
+elif ! git diff --quiet -- "${FALLBACK_FILES[@]}"; then
   if should_push_github_fallback; then
-    git add data/z3_cache.json data/cache_status.json data/quality_summary.json data/status.json data/canary_status.json data/ops_status.json data/workflow_status.json
+    git add "${FALLBACK_FILES[@]}"
     git commit -m "AUTO: Local Z3 cache refresh [skip ci]"
-    git pull --rebase --autostash origin main || true
-    if git push origin HEAD:main; then
-      epoch_now > "$GITHUB_FALLBACK_STATE_FILE"
+    if git pull --rebase --autostash origin main; then
+      if git push origin HEAD:main; then
+        epoch_now > "$GITHUB_FALLBACK_STATE_FILE"
+      fi
+    else
+      git rebase --abort || true
+      echo "[$(stamp)] rebase onto origin/main conflicted; aborted and skipped push (Oracle already synced)"
     fi
   else
     echo "[$(stamp)] GitHub fallback push throttled (${GITHUB_FALLBACK_PUSH_INTERVAL_MINUTES}m interval); Oracle already synced"

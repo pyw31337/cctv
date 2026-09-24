@@ -77,6 +77,95 @@ class ServerResilienceTests(unittest.TestCase):
         self.assertNotIn('hidden', redacted)
         self.assertIn('camera=7', redacted)
 
+    def test_static_route_serves_only_public_assets(self):
+        client = server_app.app.test_client()
+        for path in ('/.git/config', '/.env.example', '/server/app.py', '/scripts/sentinel.py',
+                     '/deploy_to_oracle.sh', '/CLAUDE.md', '/oracle_key'):
+            response = client.get(path)
+            self.assertEqual(response.status_code, 404, path)
+            response.close()
+        for path in ('/index.html', '/js/app.js', '/css/style.css', '/data/status.json', '/site.webmanifest'):
+            response = client.get(path)
+            self.assertEqual(response.status_code, 200, path)
+            response.close()
+
+    def test_utic_key_referer_is_only_sent_to_utic_hosts(self):
+        seen = []
+
+        def capture(url, headers, **_kwargs):
+            seen.append(headers)
+            raise RuntimeError('stop')
+
+        client = server_app.app.test_client()
+        with patch.dict(os.environ, {'UTIC_API_KEY': 'SECRETKEY'}), \
+                patch.object(server_app, 'is_safe_proxy_target', return_value=True), \
+                patch.object(server_app, 'fetch_upstream', side_effect=capture):
+            client.get('/proxy?url=https://attacker.example/steal?x=utic.go.kr')
+            client.get('/proxy?url=https://www.utic.go.kr/live.m3u8')
+
+        self.assertNotIn('SECRETKEY', json.dumps(seen[0]))
+        self.assertIn('key=SECRETKEY', seen[1]['Referer'])
+
+    def test_redirect_hop_drops_utic_key_outside_utic(self):
+        headers = {'Referer': f'{server_app.UTIC_GUIDE_REFERER}?key=SECRETKEY', 'User-Agent': 'x'}
+        foreign = server_app.headers_for_redirect_hop(headers, 'https://cdn.example/live.m3u8')
+        self.assertEqual(foreign['Referer'], server_app.UTIC_GUIDE_REFERER)
+        self.assertIs(server_app.headers_for_redirect_hop(headers, 'https://www.utic.go.kr/a'), headers)
+
+    def test_log_text_redacts_keys_in_exception_messages(self):
+        text = server_app.redact_text_for_log(
+            "Max retries exceeded with url: /jsp/map/x.jsp?key=SECRETKEY&cctvid=L1"
+        )
+        self.assertNotIn('SECRETKEY', text)
+        self.assertIn('cctvid=L1', text)
+
+    def test_dynamic_providers_reject_foreign_or_private_urls(self):
+        client = server_app.app.test_client()
+        with patch.object(server_app.requests, 'get', side_effect=AssertionError('must not fetch')):
+            for path in (
+                '/skyline?url=http://169.254.169.254/latest/meta-data/',
+                '/whatsupcam?url=http://127.0.0.1:8080/health',
+                '/whatsupcam?slug=../../admin',
+                '/roundshot?url=https://attacker.example/page',
+                '/kb?cctvip=1%26cctvIp%3D2',
+                '/daejeon?id=CCTV08/../../x',
+            ):
+                self.assertEqual(client.get(path).status_code, 400, path)
+
+    def test_provider_fetch_does_not_follow_redirects_off_domain(self):
+        class Redirect:
+            is_redirect = True
+            headers = {'Location': 'http://169.254.169.254/latest/meta-data/'}
+
+            def close(self):
+                pass
+
+        with patch.object(server_app, '_resolve_host_ips', return_value=('93.184.216.34',)), \
+                patch.object(server_app.requests, 'get', return_value=Redirect()) as get:
+            with self.assertRaises(ValueError):
+                server_app.fetch_provider_page(
+                    'https://www.skylinewebcams.com/en/webcam.html', server_app.SKYLINE_DOMAINS, {}, 5
+                )
+        self.assertEqual(get.call_count, 1)
+
+    def test_roundshot_only_redirects_to_roundshot_images(self):
+        class Page:
+            status_code = 200
+            is_redirect = False
+
+            def __init__(self, image):
+                self.text = f'<meta property="og:image" content="{image}">'
+
+        client = server_app.app.test_client()
+        source = '/roundshot?url=https://zermatt.roundshot.com/blauherd'
+        with patch.object(server_app, '_resolve_host_ips', return_value=('93.184.216.34',)):
+            with patch.object(server_app.requests, 'get', return_value=Page('/cams/2091')):
+                response = client.get(source)
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.headers['Location'], 'https://zermatt.roundshot.com/cams/2091')
+            with patch.object(server_app.requests, 'get', return_value=Page('https://attacker.example/x.jpg')):
+                self.assertEqual(client.get(source).status_code, 502)
+
     def test_kill_stream_removes_terminated_process_and_files(self):
         class TerminatedProcess:
             def poll(self):
