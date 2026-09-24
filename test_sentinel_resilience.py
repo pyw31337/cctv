@@ -7,17 +7,20 @@ from unittest.mock import patch
 from scripts import sentinel
 
 
-CONFLICTED_STATUS = """{
-  "regions": {"BUSAN": {"status": "OK"}},
-  "time": {
-<<<<<<< HEAD
-    "generated_at": "2026-09-07T06:32:42Z"
-=======
-    "generated_at": "2026-09-06T12:00:03Z"
->>>>>>> e6befc2bc (AUTO: Local Z3 cache refresh [skip ci])
-  }
-}
-"""
+# Built from parts so the fixture's conflict markers don't trip `git diff --check`.
+CONFLICTED_STATUS = "\n".join([
+    '{',
+    '  "regions": {"BUSAN": {"status": "OK"}},',
+    '  "time": {',
+    '<' * 7 + ' HEAD',
+    '    "generated_at": "2026-09-07T06:32:42Z"',
+    '=' * 7,
+    '    "generated_at": "2026-09-06T12:00:03Z"',
+    '>' * 7 + ' e6befc2bc (AUTO: Local Z3 cache refresh [skip ci])',
+    '  }',
+    '}',
+    '',
+])
 
 
 class SentinelResilienceTests(unittest.TestCase):
