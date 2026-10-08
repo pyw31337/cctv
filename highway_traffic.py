@@ -300,8 +300,45 @@ def summarize_routes(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return routes
 
 
+def _section_severity(section: dict[str, Any]) -> tuple[int, int]:
+    grade = section.get("grade") or 0
+    speed = section.get("speed")
+    # Higher grade first; for equal grades the slower reading is worse.
+    return grade, -(speed if speed is not None else 999)
+
+
+def collapse_sections(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one row per conzone and direction.
+
+    The realtime feed has one row per vehicle detector (VDS), so a single
+    conzone appears several times (about 8.4k rows for 1.6k conzones). The
+    worst reading represents the conzone, which also keeps the payload small.
+    """
+
+    collapsed: dict[tuple[str, str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str, str]] = []
+    for section in sections:
+        key = (
+            section.get("routeNo") or section.get("routeName") or "",
+            section.get("conzoneId") or section.get("conzoneName") or "",
+            section.get("directionCode") or "",
+        )
+        if not key[1]:
+            key = (key[0], f"#{len(order)}", key[2])
+        current = collapsed.get(key)
+        if current is None:
+            collapsed[key] = section
+            order.append(key)
+            continue
+        observed = max(filter(None, [current.get("observed_at"), section.get("observed_at")]), default=None)
+        if _section_severity(section) > _section_severity(current):
+            current = section
+        collapsed[key] = {**current, "observed_at": observed}
+    return [collapsed[key] for key in order]
+
+
 def build_traffic_snapshot(rows: Iterable[dict[str, Any]], *, fetched_at: str, demo_key: bool) -> dict[str, Any]:
-    sections = normalize_exdata_traffic(rows)
+    sections = collapse_sections(normalize_exdata_traffic(rows))
     observed = [section["observed_at"] for section in sections if section.get("observed_at")]
     return {
         "ok": True,

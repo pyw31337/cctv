@@ -54,7 +54,10 @@ console.log(JSON.stringify({
     routeBadge: badge('[경부선][부산]경부동탄터널(부산1)'),
     noData: badge('[중앙선]죽령터널'),
     nonHighway: getHighwayTrafficForCctv({ name: '서울역' }),
-    html: buildHighwayTrafficBadgeHtml(getHighwayTrafficForCctv({ name: '[경부선] 서울TG' }))
+    html: buildHighwayTrafficBadgeHtml(getHighwayTrafficForCctv({ name: '[경부선] 서울TG' })),
+    outdated2h: isHighwayTrafficOutdated(snapshot, Date.parse(snapshot.observed_at) + 2 * 3600 * 1000),
+    recent30m: isHighwayTrafficOutdated(snapshot, Date.parse(snapshot.observed_at) + 30 * 60 * 1000),
+    noTime: isHighwayTrafficOutdated({ sections: [] })
 }));
 """
 
@@ -86,6 +89,11 @@ class HighwayFrontendTests(unittest.TestCase):
     def test_missing_data_hides_badge(self):
         self.assertEqual(self.out["noData"], "")
         self.assertIsNone(self.out["nonHighway"])
+
+    def test_hours_old_snapshot_is_treated_as_unavailable(self):
+        self.assertTrue(self.out["outdated2h"])
+        self.assertFalse(self.out["recent30m"])
+        self.assertFalse(self.out["noTime"])
 
     def test_badge_html_has_no_direction_label(self):
         self.assertIn("tone-jam", self.out["html"])
