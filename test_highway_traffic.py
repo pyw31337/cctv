@@ -147,6 +147,25 @@ class ExdataTrafficTests(unittest.TestCase):
         self.assertIsNone(sections[0]["observed_at"])
 
 
+    def test_detector_rows_collapse_to_worst_reading_per_conzone(self):
+        rows = [
+            {"routeName": "경부선", "routeNo": "0010", "conzoneId": "C1", "conzoneName": "A-B", "updownTypeCode": "E",
+             "grade": "1", "speed": "90", "stdDate": "20260721", "stdHour": "1525"},
+            {"routeName": "경부선", "routeNo": "0010", "conzoneId": "C1", "conzoneName": "A-B", "updownTypeCode": "E",
+             "grade": "3", "speed": "22", "stdDate": "20260721", "stdHour": "1520"},
+            {"routeName": "경부선", "routeNo": "0010", "conzoneId": "C1", "conzoneName": "A-B", "updownTypeCode": "S",
+             "grade": "2", "speed": "50", "stdDate": "20260721", "stdHour": "1530"},
+            {"routeName": "경부선", "routeNo": "0010", "conzoneId": "C1", "conzoneName": "A-B", "updownTypeCode": "E",
+             "grade": "", "speed": "-1", "stdDate": "20260721", "stdHour": "1530"},
+        ]
+        snapshot = ht.build_traffic_snapshot(rows, fetched_at="x", demo_key=True)
+        self.assertEqual(len(snapshot["sections"]), 2)
+        east = next(s for s in snapshot["sections"] if s["directionCode"] == "E")
+        self.assertEqual((east["grade"], east["speed"]), (3, 22))
+        self.assertEqual(east["observed_at"], "2026-07-21T15:30:00+09:00")
+        self.assertEqual(snapshot["routes"][0]["sections"], 2)
+
+
 class KeyResolutionTests(unittest.TestCase):
     def test_missing_env_falls_back_to_demo_key_with_warning(self):
         messages = []
@@ -231,7 +250,7 @@ class HighwayTrafficEndpointTests(unittest.TestCase):
     def setUp(self):
         server_app.rate_limit_buckets.clear()
         cache = server_app._highway_traffic_cache
-        cache.update({'snapshot': None, 'fetched_mono': None, 'last_attempt': None, 'last_error': None})
+        cache.update({'snapshot': None, 'fetched_mono': None, 'last_attempt': None, 'last_error': None, 'preferred_route': None})
 
     def _json_response(self, payload, status=200):
         class Response:
@@ -284,7 +303,66 @@ class HighwayTrafficEndpointTests(unittest.TestCase):
         with patch.object(server_app.requests, 'get', side_effect=server_app.requests.Timeout('slow')) as get:
             self.assertEqual(client.get('/highway-traffic').status_code, 503)
             self.assertEqual(client.get('/highway-traffic').status_code, 503)
+        self.assertEqual(get.call_count, 2)  # direct + relay once, then retry window
+
+    def test_relay_is_used_when_direct_route_is_unreachable(self):
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            if url.startswith(ht.EXDATA_TRAFFIC_URL):
+                raise server_app.requests.ConnectTimeout('key=test geo-blocked')
+            return self._json_response(TRAFFIC_PAYLOAD)
+
+        client = server_app.app.test_client()
+        with patch.object(server_app.requests, 'get', side_effect=fake_get):
+            response = client.get('/highway-traffic')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['ok'])
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[1].startswith(server_app.WORKER_PROXY_BASE.rstrip('/') + '/proxy?url='))
+        self.assertIn('data.ex.co.kr', server_app.unquote(calls[1]))
+        self.assertEqual(server_app._highway_traffic_cache['preferred_route'], 'relay')
+
+        # The next refresh goes to the route that worked last time first.
+        cache = server_app._highway_traffic_cache
+        cache['fetched_mono'] -= server_app.HIGHWAY_TRAFFIC_TTL_SECONDS + 1
+        cache['last_attempt'] -= server_app.HIGHWAY_TRAFFIC_RETRY_SECONDS + 1
+        calls.clear()
+        with patch.object(server_app.requests, 'get', side_effect=fake_get):
+            self.assertEqual(client.get('/highway-traffic').status_code, 200)
+        self.assertEqual(len(calls), 1)
+        self.assertIn('/proxy?url=', calls[0])
+
+    def test_relay_error_page_falls_back_to_direct(self):
+        server_app._highway_traffic_cache['preferred_route'] = 'relay'
+
+        def fake_get(url, **kwargs):
+            if '/proxy?url=' in url:
+                return self._json_response(None, status=522)
+            return self._json_response(TRAFFIC_PAYLOAD)
+
+        with patch.object(server_app.requests, 'get', side_effect=fake_get) as get:
+            response = server_app.app.test_client().get('/highway-traffic')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(server_app._highway_traffic_cache['preferred_route'], 'direct')
+
+    def test_key_problem_is_not_retried_through_relay(self):
+        with patch.object(server_app.requests, 'get', return_value=self._json_response(None, status=401)) as get:
+            response = server_app.app.test_client().get('/highway-traffic')
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()['error'], 'key_problem')
         self.assertEqual(get.call_count, 1)
+
+    def test_snapshot_is_gzipped_for_clients_that_accept_it(self):
+        with patch.object(server_app.requests, 'get', return_value=self._json_response(TRAFFIC_PAYLOAD)):
+            response = server_app.app.test_client().get('/highway-traffic', headers={'Accept-Encoding': 'gzip, br'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get('Content-Encoding'), 'gzip')
+        import gzip as _gzip
+        body = json.loads(_gzip.decompress(response.data).decode('utf-8'))
+        self.assertTrue(body['ok'])
 
     def test_endpoint_is_rate_limited(self):
         self.assertIn('/highway-traffic', server_app.RATE_LIMITED_PATHS)

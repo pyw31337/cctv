@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import base64
+import gzip
 import copy
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode, urljoin, unquote, urlparse, parse_qsl
@@ -958,29 +959,78 @@ HIGHWAY_TRAFFIC_TTL_SECONDS = min(300, max(120, env_int('HIGHWAY_TRAFFIC_TTL_SEC
 HIGHWAY_TRAFFIC_RETRY_SECONDS = max(15, env_int('HIGHWAY_TRAFFIC_RETRY_SECONDS', 60))
 HIGHWAY_TRAFFIC_TIMEOUT_SECONDS = env_float('HIGHWAY_TRAFFIC_TIMEOUT_SECONDS', 15.0)
 HIGHWAY_TRAFFIC_MAX_PAGES = max(1, env_int('HIGHWAY_TRAFFIC_MAX_PAGES', 30))
+HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS = env_float('HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS', 5.0)
+# data.ex.co.kr does not answer from overseas hosts (Fly runs in Tokyo), so
+# the request can be relayed through the project's existing Cloudflare Worker
+# (WORKER_PROXY_BASE + /proxy?url=...). "auto" tries the route that last
+# worked first and falls back to the other; "direct"/"relay" pin one route.
+HIGHWAY_TRAFFIC_ROUTE_MODE = (first_env('HIGHWAY_TRAFFIC_ROUTE', default='auto') or 'auto').strip().lower()
+if HIGHWAY_TRAFFIC_ROUTE_MODE not in ('auto', 'direct', 'relay'):
+    HIGHWAY_TRAFFIC_ROUTE_MODE = 'auto'
 _highway_traffic_cache = {
     'lock': threading.Lock(),
     'snapshot': None,       # last good payload
     'fetched_mono': None,   # monotonic time of last good fetch
     'last_attempt': None,   # monotonic time of last attempt (good or bad)
     'last_error': None,     # short error code for the last failed attempt
+    'preferred_route': None,  # 'direct' or 'relay' after a successful fetch
 }
 
 
-def _fetch_exdata_json(url):
+def _exdata_relay_url(url):
+    base = (WORKER_PROXY_BASE or '').rstrip('/')
+    if not base:
+        return None
+    return f"{base}/proxy?url={quote(url, safe='')}"
+
+
+def _fetch_exdata_json_once(url, label):
     response = requests.get(
         url,
-        timeout=HIGHWAY_TRAFFIC_TIMEOUT_SECONDS,
+        timeout=(HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS, HIGHWAY_TRAFFIC_TIMEOUT_SECONDS),
         headers={'User-Agent': 'CCTV-Proxy/1.0 (+https://github.com/pyw31337/cctv)'},
     )
     if response.status_code in (401, 403):
-        raise KeyProblemError(f'data.ex.co.kr HTTP {response.status_code}')
+        raise KeyProblemError(f'data.ex.co.kr ({label}) HTTP {response.status_code}')
     if response.status_code != 200:
-        raise UpstreamError(f'data.ex.co.kr HTTP {response.status_code}')
+        raise UpstreamError(f'data.ex.co.kr ({label}) HTTP {response.status_code}')
     try:
         return response.json()
     except ValueError as exc:
-        raise UpstreamError('data.ex.co.kr returned non-JSON (blocked or maintenance?)') from exc
+        raise UpstreamError(f'data.ex.co.kr ({label}) returned non-JSON (blocked or maintenance?)') from exc
+
+
+def _exdata_route_order():
+    if HIGHWAY_TRAFFIC_ROUTE_MODE == 'direct':
+        return ['direct']
+    if HIGHWAY_TRAFFIC_ROUTE_MODE == 'relay':
+        return ['relay']
+    if _highway_traffic_cache.get('preferred_route') == 'relay':
+        return ['relay', 'direct']
+    return ['direct', 'relay']
+
+
+def _fetch_exdata_json(url):
+    """Fetch via direct and/or Worker relay; key errors are never retried."""
+
+    last_exc = None
+    for route in _exdata_route_order():
+        target = url if route == 'direct' else _exdata_relay_url(url)
+        if not target:
+            continue
+        try:
+            payload = _fetch_exdata_json_once(target, route)
+        except KeyProblemError:
+            raise
+        except (UpstreamError, requests.RequestException) as exc:
+            last_exc = exc
+            logger.warning('Highway traffic %s route failed: %s', route, redact_text_for_log(exc))
+            continue
+        _highway_traffic_cache['preferred_route'] = route
+        return payload
+    if last_exc is None:
+        raise UpstreamError('no highway traffic route configured')
+    raise last_exc
 
 
 def _warn_demo_key_once(message):
@@ -1081,11 +1131,17 @@ def serve_highway_traffic():
             {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'},
         )
     max_age = 30 if payload.get('stale') else 60
-    return Response(
-        json.dumps(payload, ensure_ascii=False, separators=(',', ':')),
-        200,
-        {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': f'public, max-age={max_age}'},
-    )
+    body = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    headers = {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': f'public, max-age={max_age}',
+        'Vary': 'Accept-Encoding',
+    }
+    # The nationwide snapshot is a few hundred KB of repetitive JSON.
+    if 'gzip' in (request.headers.get('Accept-Encoding') or '').lower():
+        body = gzip.compress(body, compresslevel=5)
+        headers['Content-Encoding'] = 'gzip'
+    return Response(body, 200, headers)
 
 
 # STATIC_ROOT is a full git checkout on the Oracle host (.git, deploy keys,

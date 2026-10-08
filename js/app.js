@@ -9254,6 +9254,14 @@ const HIGHWAY_TRAFFIC_URL = `${PUBLIC_PROXY_BASE}/highway-traffic`;
 const HIGHWAY_TRAFFIC_REFRESH_MS = 3 * 60 * 1000;
 const HIGHWAY_TRAFFIC_FAILURE_RETRY_MS = 60 * 1000;
 const HIGHWAY_TRAFFIC_TIMEOUT_MS = 8000;
+// The relay/upstream can keep serving an old snapshot; don't present hours-old
+// congestion as current. Older snapshots are treated as unavailable.
+const HIGHWAY_TRAFFIC_MAX_OBSERVED_AGE_MS = 90 * 60 * 1000;
+
+function isHighwayTrafficOutdated(data, now = Date.now()) {
+    const observed = Date.parse(data?.observed_at || '');
+    return Number.isFinite(observed) && now - observed > HIGHWAY_TRAFFIC_MAX_OBSERVED_AGE_MS;
+}
 const HIGHWAY_CONGESTED_CCTV_LIMIT = 12;
 const HIGHWAY_GRADE_META = {
     1: { label: '원활', tone: 'free' },
@@ -9436,6 +9444,11 @@ async function loadHighwayTraffic(options = {}) {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             if (!data || data.ok === false || !Array.isArray(data.sections)) throw new Error('invalid payload');
+            if (isHighwayTrafficOutdated(data)) {
+                highwayTrafficState.data = null;
+                highwayTrafficState.index = null;
+                throw new Error(`outdated snapshot (${data.observed_at})`);
+            }
             highwayTrafficState.data = data;
             highwayTrafficState.index = buildHighwayTrafficIndex(data);
             highwayTrafficState.fetchedAt = Date.now();
