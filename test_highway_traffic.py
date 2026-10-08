@@ -368,6 +368,35 @@ class HighwayTrafficEndpointTests(unittest.TestCase):
         self.assertEqual(get.call_count, 2)
         self.assertEqual(server_app._highway_traffic_cache['preferred_route'], 'direct')
 
+    def test_worker_relay_gets_longer_read_timeout(self):
+        timeouts = {}
+
+        def fake_get(url, **kwargs):
+            route = 'worker' if url.startswith(server_app.WORKER_PROXY_BASE.rstrip('/')) else (
+                'oracle' if url.startswith(server_app.PUBLIC_PROXY_BASE.rstrip('/')) else 'direct')
+            timeouts[route] = kwargs.get('timeout')
+            if route != 'worker':
+                raise server_app.requests.ConnectTimeout('blocked')
+            return self._json_response(TRAFFIC_PAYLOAD)
+
+        with patch.object(server_app.requests, 'get', side_effect=fake_get):
+            self.assertEqual(server_app.app.test_client().get('/highway-traffic').status_code, 200)
+        self.assertEqual(timeouts['worker'][1], server_app.HIGHWAY_TRAFFIC_RELAY_TIMEOUT_SECONDS)
+        self.assertEqual(timeouts['direct'][1], server_app.HIGHWAY_TRAFFIC_TIMEOUT_SECONDS)
+        self.assertGreater(server_app.HIGHWAY_TRAFFIC_RELAY_TIMEOUT_SECONDS, server_app.HIGHWAY_TRAFFIC_TIMEOUT_SECONDS)
+
+    def test_requests_do_not_queue_behind_a_running_refresh(self):
+        lock = server_app._highway_traffic_cache['lock']
+        self.assertTrue(lock.acquire(blocking=False))
+        try:
+            with patch.object(server_app.requests, 'get') as get:
+                response = server_app.app.test_client().get('/highway-traffic')
+        finally:
+            lock.release()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()['error'], 'warming_up')
+        get.assert_not_called()
+
     def test_key_problem_is_not_retried_through_relay(self):
         with patch.object(server_app.requests, 'get', return_value=self._json_response(None, status=401)) as get:
             response = server_app.app.test_client().get('/highway-traffic')

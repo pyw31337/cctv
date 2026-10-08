@@ -960,6 +960,11 @@ HIGHWAY_TRAFFIC_RETRY_SECONDS = max(15, env_int('HIGHWAY_TRAFFIC_RETRY_SECONDS',
 HIGHWAY_TRAFFIC_TIMEOUT_SECONDS = env_float('HIGHWAY_TRAFFIC_TIMEOUT_SECONDS', 15.0)
 HIGHWAY_TRAFFIC_MAX_PAGES = max(1, env_int('HIGHWAY_TRAFFIC_MAX_PAGES', 30))
 HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS = env_float('HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS', 5.0)
+# The Worker relay is reachable from Fly but the nationwide snapshot takes
+# ~20-25 s to arrive through it, so it gets a longer read budget. Requests never
+# queue behind a refresh (see get_highway_traffic_payload), so this only ties
+# up the single refreshing thread.
+HIGHWAY_TRAFFIC_RELAY_TIMEOUT_SECONDS = env_float('HIGHWAY_TRAFFIC_RELAY_TIMEOUT_SECONDS', 45.0)
 # data.ex.co.kr does not answer from overseas hosts (Fly runs in Tokyo), so
 # the request can be relayed through the project's existing proxies:
 #   oracle - the Korean Oracle host's /proxy?url=... (PUBLIC_PROXY_BASE)
@@ -991,9 +996,10 @@ def _exdata_route_url(url, route):
 
 
 def _fetch_exdata_json_once(url, label):
+    read_timeout = HIGHWAY_TRAFFIC_RELAY_TIMEOUT_SECONDS if label == 'worker' else HIGHWAY_TRAFFIC_TIMEOUT_SECONDS
     response = requests.get(
         url,
-        timeout=(HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS, HIGHWAY_TRAFFIC_TIMEOUT_SECONDS),
+        timeout=(HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS, read_timeout),
         headers={'User-Agent': 'CCTV-Proxy/1.0 (+https://github.com/pyw31337/cctv)'},
     )
     if response.status_code in (401, 403):
@@ -1090,8 +1096,12 @@ def get_highway_traffic_payload():
     cache = _highway_traffic_cache
     if _highway_traffic_due(cache):
         lock = cache['lock']
-        # With a snapshot in hand, serve it instead of queueing behind a refresh.
-        if lock.acquire(blocking=cache['snapshot'] is None):
+        # Never queue request threads behind a slow upstream refresh: serve the
+        # current snapshot (or 503 warming_up) while one thread refreshes.
+        if not lock.acquire(blocking=False):
+            refreshing = True
+        else:
+            refreshing = False
             try:
                 if _highway_traffic_due(cache):
                     cache['last_attempt'] = time.monotonic()
@@ -1110,10 +1120,14 @@ def get_highway_traffic_payload():
                         logger.error('Highway traffic fetch failed: %s', redact_text_for_log(exc))
             finally:
                 lock.release()
+    else:
+        refreshing = False
 
     snapshot = cache['snapshot']
     error = cache['last_error']
     if snapshot is None:
+        if refreshing:
+            return None, 'warming_up'
         return None, error or 'highway-traffic-unavailable'
     payload = dict(snapshot)
     age = None
