@@ -31,27 +31,46 @@ def load(path: Path):
         return {"events": []}
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workflow", required=True)
-    parser.add_argument("--job", default="")
-    parser.add_argument("--status", default="warning", choices=["ok", "warning", "error"])
-    parser.add_argument("--impact", default="unknown", choices=["none", "possible", "service", "unknown"])
-    parser.add_argument("--message", default="")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    args = parser.parse_args()
+STATUSES = ["ok", "warning", "error"]
+IMPACTS = ["none", "possible", "service", "unknown"]
+# Optional machine-readable classification. "key_problem" marks an upstream
+# API key that is missing, invalid, revoked, or over quota so silent
+# collector failures surface on the quality dashboard.
+CATEGORIES = ["", "key_problem", "upstream", "data"]
 
-    path = args.output if args.output.is_absolute() else ROOT / args.output
+
+def append_workflow_event(
+    workflow: str,
+    *,
+    job: str = "",
+    status: str = "warning",
+    impact: str = "unknown",
+    message: str = "",
+    category: str = "",
+    output: Path | str = DEFAULT_OUTPUT,
+) -> dict:
+    """Append one event to the workflow status snapshot and return it."""
+
+    if status not in STATUSES:
+        raise ValueError(f"invalid status: {status}")
+    if impact not in IMPACTS:
+        raise ValueError(f"invalid impact: {impact}")
+    if category not in CATEGORIES:
+        raise ValueError(f"invalid category: {category}")
+    output = Path(output)
+    path = output if output.is_absolute() else ROOT / output
     event = {
         "at": utc_stamp(),
-        "workflow": args.workflow,
-        "job": args.job,
-        "status": args.status,
-        "impact": args.impact,
-        "message": args.message[:800],
+        "workflow": workflow,
+        "job": job,
+        "status": status,
+        "impact": impact,
+        "message": message[:800],
         "github_run_id": os.environ.get("GITHUB_RUN_ID"),
         "github_sha": os.environ.get("GITHUB_SHA"),
     }
+    if category:
+        event["category"] = category
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Multiple scheduled jobs can report into the same snapshot. Lock the
@@ -79,12 +98,36 @@ def main() -> int:
                 "recent_warnings": sum(1 for item in events[-50:] if item.get("status") == "warning"),
                 "recent_errors": sum(1 for item in events[-50:] if item.get("status") == "error"),
                 "service_impact_events": sum(1 for item in events[-50:] if item.get("impact") == "service"),
+                "key_problem_events": sum(1 for item in events[-50:] if item.get("category") == "key_problem"),
             },
             "events": events,
         }
         atomic_write_json(path, payload)
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
     print(f"wrote {path} {event['workflow']} {event['status']} impact={event['impact']}")
+    return event
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workflow", required=True)
+    parser.add_argument("--job", default="")
+    parser.add_argument("--status", default="warning", choices=STATUSES)
+    parser.add_argument("--impact", default="unknown", choices=IMPACTS)
+    parser.add_argument("--category", default="", choices=CATEGORIES)
+    parser.add_argument("--message", default="")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    args = parser.parse_args()
+
+    append_workflow_event(
+        args.workflow,
+        job=args.job,
+        status=args.status,
+        impact=args.impact,
+        message=args.message,
+        category=args.category,
+        output=args.output,
+    )
     return 0
 
 

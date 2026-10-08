@@ -605,6 +605,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (precipCctvBtn) {
         precipCctvBtn.addEventListener('click', showPrecipitationCctvs);
     }
+    initHighwayTrafficUi();
     const kmaPrecipToggle = document.getElementById('kma-precip-toggle');
     if (kmaPrecipToggle) {
         kmaPrecipToggle.addEventListener('click', () => {
@@ -3471,6 +3472,7 @@ function renderSelectTrigger(panel, cctv, fallbackLabel) {
     trigger.append(name, dot);
     trigger.title = `${parsed.full} · ${sourceMeta.label} · ${confidence.label} · ${confidence.title} · ${formatRelativeTime(health.lastUpdated)}`;
     trigger.setAttribute('aria-label', `${parsed.full}, ${sourceMeta.label}, ${confidence.label}`);
+    renderPanelTrafficBadge(panel, cctv);
 }
 
 function getPanelCctv(panel) {
@@ -4558,6 +4560,7 @@ function renderVideoGrid() {
             ph.textContent = 'No CCTV';
             wrapper.appendChild(ph);
             removePanelHealthBadge(panel);
+            panel.querySelector('.panel-traffic-badge')?.remove();
         }
     });
 
@@ -6499,6 +6502,7 @@ function cleanupDomesticVideoGrid() {
         panel.classList.remove('panel-suspended');
         resetPanelRetryState(panel);
         removePanelHealthBadge(panel);
+        panel.querySelector('.panel-traffic-badge')?.remove();
         delete panel.dataset.cctvId;
         delete panel.dataset.slotIndex;
         delete panel.dataset.cctvIndex;
@@ -8181,6 +8185,7 @@ function openVideoLayer(cctv) {
             </span>
         </span>
     `;
+    renderVideoLayerTrafficBadge(cctv);
 
     // Attach Nav Listeners
     if (currentIndex !== -1) {
@@ -8326,6 +8331,7 @@ function closeAllOverlays() {
     $('#search-results').classList.remove('active');
     $('#dim-overlay').classList.remove('active');
     closeWeather();
+    closeHighwayPanel();
 }
 
 // === Utilities ===
@@ -9143,6 +9149,13 @@ async function showPrecipitationCctvs() {
 }
 
 function showPrecipitationBanner(points) {
+    const names = escapeHtml(points.map(p => p.name).join(', '));
+    showCctvRestoreBanner(`🌧 실시간 강수 지역 (<strong>${names}</strong>) CCTV 재생 중`);
+}
+
+// Shared "temporary CCTV selection" banner (rain, highway congestion, route).
+// messageHtml must already be escaped by the caller.
+function showCctvRestoreBanner(messageHtml) {
     let banner = document.getElementById('precip-restore-banner');
     if (!banner) {
         banner = document.createElement('div');
@@ -9150,10 +9163,9 @@ function showPrecipitationBanner(points) {
         banner.className = 'precip-restore-banner';
         document.body.appendChild(banner);
     }
-    const names = escapeHtml(points.map(p => p.name).join(', '));
     banner.innerHTML = `
         <div class="precip-banner-content" style="display:flex;align-items:center;gap:12px;">
-            <span>🌧 실시간 강수 지역 (<strong>${names}</strong>) CCTV 재생 중</span>
+            <span>${messageHtml}</span>
             <button class="precip-restore-btn" onclick="restoreOriginalCctvs()">원래 위치로 복귀</button>
         </div>
     `;
@@ -9230,4 +9242,466 @@ function renderRecentCctvSearchItem(cctv) {
             </div>
         </div>
     `;
+}
+
+// 10. Highway traffic (한국도로공사 실시간 소통, via Oracle /highway-traffic)
+// The proxy caches data.ex.co.kr trafficAmountByRealtime for ~3 minutes and
+// serves the last good snapshot when upstream fails. Everything here degrades
+// silently: no snapshot -> no badges, the route list still works from the
+// CCTV catalog alone. Direction codes (updownTypeCode) are intentionally not
+// labelled 상행/하행 because that mapping is unverified.
+const HIGHWAY_TRAFFIC_URL = `${PUBLIC_PROXY_BASE}/highway-traffic`;
+const HIGHWAY_TRAFFIC_REFRESH_MS = 3 * 60 * 1000;
+const HIGHWAY_TRAFFIC_FAILURE_RETRY_MS = 60 * 1000;
+const HIGHWAY_TRAFFIC_TIMEOUT_MS = 8000;
+const HIGHWAY_CONGESTED_CCTV_LIMIT = 12;
+const HIGHWAY_GRADE_META = {
+    1: { label: '원활', tone: 'free' },
+    2: { label: '서행', tone: 'slow' },
+    3: { label: '정체', tone: 'jam' }
+};
+const HIGHWAY_POINT_SUFFIX_RE = /(나들목|분기점|요금소|영업소|휴게소|톨게이트|IC|JCT|JC|TG)$/i;
+const HIGHWAY_FACILITY_TOKEN_RE = /(나들목|분기점|요금소|영업소|휴게소|톨게이트|IC|JCT|JC|TG)$/i;
+
+const highwayTrafficState = {
+    data: null,
+    index: null,
+    fetchedAt: 0,
+    lastAttemptAt: 0,
+    pending: null
+};
+
+function normalizeHighwayRouteName(raw) {
+    return String(raw || '').replace(/\([^)]*\)/g, '').replace(/\s+/g, '').trim();
+}
+
+function isHighwayRouteName(route) {
+    return /선$/.test(route) && !/^(위임)?국도|^지방도|^시도|^군도/.test(route);
+}
+
+function highwayPointKey(text) {
+    return String(text || '').replace(/\s+/g, '').replace(HIGHWAY_POINT_SUFFIX_RE, '');
+}
+
+// "[경부선][부산]경부동탄터널(부산1)" / "[경부선] 서울TG" -> { route, point }
+function parseHighwayCctvName(name) {
+    const match = String(name || '').match(/^\s*\[([^\]]+)\]\s*(.+)$/);
+    if (!match) return null;
+    const route = normalizeHighwayRouteName(match[1]);
+    if (!isHighwayRouteName(route)) return null;
+    const point = match[2]
+        .replace(/^\s*\[[^\]]*\]\s*/, '')
+        .replace(/\([^)]*\)|\[[^\]]*\]/g, '')
+        .replace(/[-_]\s*\d+\s*\/\s*\d+\s*$/, '')
+        .replace(/\s+/g, '')
+        .trim();
+    if (!point) return null;
+    return { route, point, pointKey: highwayPointKey(point) };
+}
+
+const highwayCctvInfoCache = new Map();
+
+function getHighwayCctvInfo(cctv) {
+    const name = cctv?.name;
+    if (!name) return null;
+    if (!highwayCctvInfoCache.has(name)) {
+        highwayCctvInfoCache.set(name, parseHighwayCctvName(name));
+    }
+    return highwayCctvInfoCache.get(name);
+}
+
+function makeHighwaySectionEntry(section) {
+    const tokens = String(section?.conzoneName || '').split('-').map(token => token.replace(/\s+/g, '')).filter(Boolean);
+    return {
+        section,
+        tokens,
+        keys: tokens.map(highwayPointKey).filter(token => token.length >= 2)
+    };
+}
+
+function buildHighwayTrafficIndex(data) {
+    const routes = new Map();
+    const sectionsByRoute = new Map();
+    (Array.isArray(data?.routes) ? data.routes : []).forEach(route => {
+        const key = normalizeHighwayRouteName(route.routeName);
+        if (key) routes.set(key, route);
+    });
+    (Array.isArray(data?.sections) ? data.sections : []).forEach(section => {
+        const key = normalizeHighwayRouteName(section.routeName);
+        if (!key) return;
+        if (!sectionsByRoute.has(key)) sectionsByRoute.set(key, []);
+        sectionsByRoute.get(key).push(makeHighwaySectionEntry(section));
+    });
+    return { routes, sectionsByRoute };
+}
+
+function highwaySectionMatchesPoint(entry, info) {
+    if (!info || !info.point) return false;
+    if (info.pointKey.length >= 2 && entry.keys.includes(info.pointKey)) return true;
+    // "고등IC서울" contains the "고등IC" endpoint; only trust facility tokens
+    // (IC/TG/JC/...) so short place names do not over-match.
+    return entry.tokens.some(token => token.length >= 3
+        && HIGHWAY_FACILITY_TOKEN_RE.test(token)
+        && info.point.includes(token));
+}
+
+function getHighwayTrafficForCctv(cctv) {
+    const info = getHighwayCctvInfo(cctv);
+    const index = highwayTrafficState.index;
+    if (!info || !index) return null;
+
+    const matches = (index.sectionsByRoute.get(info.route) || [])
+        .filter(entry => highwaySectionMatchesPoint(entry, info))
+        .map(entry => entry.section)
+        .filter(section => section.grade);
+    if (matches.length > 0) {
+        // Both directions/adjacent sections can match; show the worst one.
+        matches.sort((a, b) => (b.grade - a.grade) || ((a.speed ?? 999) - (b.speed ?? 999)));
+        const worst = matches[0];
+        return {
+            scope: 'section',
+            routeName: info.route,
+            grade: worst.grade,
+            speed: worst.speed,
+            observedAt: worst.observed_at || highwayTrafficState.data?.observed_at,
+            label: worst.conzoneName
+        };
+    }
+
+    const route = index.routes.get(info.route);
+    if (route && route.grade) {
+        return {
+            scope: 'route',
+            routeName: info.route,
+            grade: route.grade,
+            speed: route.avgSpeed,
+            observedAt: route.observed_at || highwayTrafficState.data?.observed_at,
+            label: `${info.route} 전체`
+        };
+    }
+    return null;
+}
+
+function formatHighwayObservedTime(iso) {
+    const match = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!match) return '';
+    const [, year, month, day, hour, minute] = match;
+    // Observed times are KST; users are in Korea, so compare in local time.
+    const now = new Date();
+    const sameDay = Number(year) === now.getFullYear()
+        && Number(month) === now.getMonth() + 1
+        && Number(day) === now.getDate();
+    return sameDay ? `${hour}:${minute}` : `${Number(month)}/${Number(day)} ${hour}:${minute}`;
+}
+
+function formatHighwayTrafficText(traffic) {
+    if (!traffic) return '';
+    const meta = HIGHWAY_GRADE_META[traffic.grade];
+    if (!meta) return '';
+    const speedText = Number.isFinite(traffic.speed)
+        ? (traffic.scope === 'route' ? ` · 평균 ${traffic.speed}km/h` : ` · ${traffic.speed}km/h`)
+        : '';
+    const prefix = traffic.scope === 'route' ? `${traffic.routeName} ` : '';
+    const observed = formatHighwayObservedTime(traffic.observedAt);
+    return `${prefix}${meta.label}${speedText}${observed ? ` (${observed} 기준)` : ''}`;
+}
+
+function buildHighwayTrafficBadgeHtml(traffic, extraClass = '') {
+    const text = formatHighwayTrafficText(traffic);
+    const meta = HIGHWAY_GRADE_META[traffic?.grade];
+    if (!text || !meta) return '';
+    const stale = highwayTrafficState.data?.stale;
+    const title = `${traffic.label || traffic.routeName} · 한국도로공사 실시간 소통${stale ? ' · 최신 정보 지연 가능' : ''}`;
+    return `<span class="highway-traffic-badge tone-${meta.tone}${stale ? ' is-stale' : ''} ${extraClass}" title="${escapeHtml(title)}">${escapeHtml(text)}</span>`;
+}
+
+function highwayTrafficIsFresh() {
+    return highwayTrafficState.data && Date.now() - highwayTrafficState.fetchedAt < HIGHWAY_TRAFFIC_REFRESH_MS;
+}
+
+async function loadHighwayTraffic(options = {}) {
+    if (!options.force && highwayTrafficIsFresh()) return highwayTrafficState.data;
+    if (highwayTrafficState.pending) return highwayTrafficState.pending;
+    if (!options.force && !highwayTrafficState.data
+        && Date.now() - highwayTrafficState.lastAttemptAt < HIGHWAY_TRAFFIC_FAILURE_RETRY_MS) {
+        return null;
+    }
+
+    highwayTrafficState.lastAttemptAt = Date.now();
+    highwayTrafficState.pending = (async () => {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), HIGHWAY_TRAFFIC_TIMEOUT_MS) : null;
+        try {
+            const response = await fetch(HIGHWAY_TRAFFIC_URL, controller ? { signal: controller.signal } : {});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (!data || data.ok === false || !Array.isArray(data.sections)) throw new Error('invalid payload');
+            highwayTrafficState.data = data;
+            highwayTrafficState.index = buildHighwayTrafficIndex(data);
+            highwayTrafficState.fetchedAt = Date.now();
+            return data;
+        } catch (error) {
+            console.warn('[highway] traffic unavailable:', error?.message || error);
+            // Keep any previous snapshot; badges keep showing its observed time.
+            return highwayTrafficState.data;
+        } finally {
+            if (timer) clearTimeout(timer);
+            highwayTrafficState.pending = null;
+        }
+    })();
+    return highwayTrafficState.pending;
+}
+
+function ensureHighwayTrafficFor(cctvs) {
+    if (!Array.isArray(cctvs) || !cctvs.some(cctv => getHighwayCctvInfo(cctv))) return;
+    if (highwayTrafficIsFresh()) return;
+    loadHighwayTraffic().then(data => {
+        if (data) refreshHighwayTrafficBadges();
+    }).catch(() => {});
+}
+
+function renderPanelTrafficBadge(panel, cctv) {
+    if (!panel) return;
+    if (cctv) ensureHighwayTrafficFor([cctv]);
+    const existing = panel.querySelector('.panel-traffic-badge');
+    const traffic = getHighwayTrafficForCctv(cctv);
+    const html = traffic ? buildHighwayTrafficBadgeHtml(traffic, 'panel-traffic-badge') : '';
+    if (!html) {
+        existing?.remove();
+        return;
+    }
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    const badge = wrapper.firstElementChild;
+    if (existing) existing.replaceWith(badge);
+    else panel.appendChild(badge);
+}
+
+function renderVideoLayerTrafficBadge(cctv) {
+    const block = $('#video-layer-title .video-title-block');
+    if (!block) return;
+    block.querySelector('.video-layer-traffic-badge')?.remove();
+    ensureHighwayTrafficFor([cctv]);
+    const traffic = getHighwayTrafficForCctv(cctv);
+    if (!traffic) return;
+    const html = buildHighwayTrafficBadgeHtml(traffic, 'video-layer-traffic-badge');
+    if (html) block.insertAdjacentHTML('beforeend', html);
+}
+
+function refreshHighwayTrafficBadges() {
+    document.querySelectorAll('.video-panel').forEach(panel => {
+        const cctv = getPanelCctv(panel);
+        if (cctv) renderPanelTrafficBadge(panel, cctv);
+    });
+    if ($('#video-layer')?.classList.contains('active') && state.activeCctvId) {
+        const active = state.nearestCctvs.find(item => item.id === state.activeCctvId) || findCctvById(state.activeCctvId);
+        if (active) renderVideoLayerTrafficBadge(active);
+    }
+    if ($('#highway-layer')?.classList.contains('active')) renderHighwayRouteList();
+}
+
+function isPlayableHighwayCandidate(cctv) {
+    return cctv
+        && !isKnownUnavailableCamera(cctv)
+        && !shouldIsolateProblemCamera(cctv)
+        && !isUnsupportedBrowserStream(cctv);
+}
+
+function decorateHighwaySelection(cctv) {
+    const distance = getDistance(state.center.lat, state.center.lng, Number(cctv.lat), Number(cctv.lng));
+    return { ...cctv, distance: Number.isFinite(distance) ? distance : cctv.distance, _health: getCameraHealthMeta(cctv) };
+}
+
+function getHighwayRouteCatalog() {
+    const routes = new Map();
+    (state.cctvData || []).forEach(cctv => {
+        const info = getHighwayCctvInfo(cctv);
+        if (!info) return;
+        if (!routes.has(info.route)) routes.set(info.route, { routeName: info.route, cctvs: [] });
+        routes.get(info.route).cctvs.push(cctv);
+    });
+    return Array.from(routes.values());
+}
+
+function applyHighwayCctvSelection(targetCctvs, bannerHtml) {
+    if (targetCctvs.length === 0) return false;
+    if (!state.backupNearestCctvs) {
+        state.backupNearestCctvs = [...state.nearestCctvs];
+    }
+    const seenIds = new Set(targetCctvs.map(cctv => cctv.id));
+    state.nearestCctvs = [
+        ...targetCctvs.map(decorateHighwaySelection),
+        ...state.nearestCctvs.filter(cctv => !seenIds.has(cctv.id))
+    ].slice(0, NEAREST_RESULT_LIMIT);
+    closeHighwayPanel();
+    if (state.mode !== 'video') switchMode('video');
+    showCctvRestoreBanner(bannerHtml);
+    renderVideoGrid();
+    return true;
+}
+
+// 5. 정체 구간 CCTV 보기 — modelled on showPrecipitationCctvs.
+async function showCongestedHighwayCctvs() {
+    const data = await loadHighwayTraffic();
+    if (!data || !highwayTrafficState.index) {
+        alert('고속도로 소통 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        return;
+    }
+
+    const jamSections = data.sections
+        .filter(section => section.grade === 3)
+        .sort((a, b) => (a.speed ?? 999) - (b.speed ?? 999));
+    if (jamSections.length === 0) {
+        alert(`현재 고속도로 정체 구간이 없습니다. (${formatHighwayObservedTime(data.observed_at) || '최신'} 기준)`);
+        return;
+    }
+
+    const catalog = new Map(getHighwayRouteCatalog().map(route => [route.routeName, route.cctvs]));
+    const targetCctvs = [];
+    const seenIds = new Set();
+    const routeNames = [];
+    for (const section of jamSections) {
+        if (targetCctvs.length >= HIGHWAY_CONGESTED_CCTV_LIMIT) break;
+        const routeKey = normalizeHighwayRouteName(section.routeName);
+        const entry = makeHighwaySectionEntry(section);
+        const best = (catalog.get(routeKey) || []).find(cctv => !seenIds.has(cctv.id)
+            && isPlayableHighwayCandidate(cctv)
+            && highwaySectionMatchesPoint(entry, getHighwayCctvInfo(cctv)));
+        if (best) {
+            seenIds.add(best.id);
+            targetCctvs.push(best);
+            if (!routeNames.includes(routeKey)) routeNames.push(routeKey);
+        }
+    }
+
+    if (targetCctvs.length === 0) {
+        alert(`정체 구간 ${jamSections.length}곳이 있지만 구간과 연결된 정상 CCTV를 찾지 못했습니다.`);
+        return;
+    }
+
+    const observed = formatHighwayObservedTime(data.observed_at);
+    applyHighwayCctvSelection(
+        targetCctvs,
+        `🚗 고속도로 정체 구간 (<strong>${escapeHtml(routeNames.slice(0, 3).join(', '))}${routeNames.length > 3 ? ' 외' : ''}</strong>) CCTV 재생 중${observed ? ` · ${escapeHtml(observed)} 기준` : ''}`
+    );
+}
+
+// 6. Highway route selector (SERVICE_ANALYSIS Phase 2 "Highway list selector").
+function showHighwayRouteCctvs(routeName) {
+    const route = getHighwayRouteCatalog().find(item => item.routeName === routeName);
+    if (!route) return;
+    const ranked = route.cctvs
+        .filter(isPlayableHighwayCandidate)
+        .map(cctv => ({ cctv, traffic: getHighwayTrafficForCctv(cctv) }))
+        .sort((a, b) => {
+            const gradeA = a.traffic?.scope === 'section' ? a.traffic.grade : 0;
+            const gradeB = b.traffic?.scope === 'section' ? b.traffic.grade : 0;
+            if (gradeA !== gradeB) return gradeB - gradeA;
+            return getDistance(state.center.lat, state.center.lng, a.cctv.lat, a.cctv.lng)
+                - getDistance(state.center.lat, state.center.lng, b.cctv.lat, b.cctv.lng);
+        })
+        .map(item => item.cctv)
+        .slice(0, NEAREST_RESULT_LIMIT);
+    if (ranked.length === 0) {
+        alert(`${routeName}에서 재생 가능한 CCTV를 찾지 못했습니다.`);
+        return;
+    }
+    const summary = highwayTrafficState.index?.routes.get(routeName);
+    const summaryText = summary ? formatHighwayTrafficText({
+        scope: 'route', routeName, grade: summary.grade, speed: summary.avgSpeed, observedAt: summary.observed_at
+    }) : '';
+    applyHighwayCctvSelection(
+        ranked,
+        `🛣 <strong>${escapeHtml(routeName)}</strong> CCTV ${ranked.length}개${summaryText ? ` · ${escapeHtml(summaryText)}` : ''}`
+    );
+}
+
+function renderHighwayRouteList() {
+    const list = $('#highway-route-list');
+    const meta = $('#highway-traffic-meta');
+    if (!list) return;
+    const index = highwayTrafficState.index;
+    const data = highwayTrafficState.data;
+
+    if (meta) {
+        if (data) {
+            const observed = formatHighwayObservedTime(data.observed_at);
+            const jamCount = data.sections.filter(section => section.grade === 3).length;
+            meta.textContent = `한국도로공사 실시간 소통${observed ? ` · ${observed} 기준` : ''} · 정체 ${jamCount}구간${data.stale ? ' · 최신 정보 지연' : ''}`;
+        } else {
+            meta.textContent = '소통 정보를 불러오지 못해 노선별 CCTV만 표시합니다.';
+        }
+    }
+    const jamBtn = $('#highway-congested-btn');
+    if (jamBtn) jamBtn.disabled = !data;
+
+    const routes = getHighwayRouteCatalog().map(route => {
+        const summary = index?.routes.get(route.routeName) || null;
+        return { ...route, summary };
+    }).sort((a, b) => {
+        const gradeA = a.summary?.grade || 0;
+        const gradeB = b.summary?.grade || 0;
+        if (gradeA !== gradeB) return gradeB - gradeA;
+        return b.cctvs.length - a.cctvs.length;
+    });
+
+    if (routes.length === 0) {
+        list.innerHTML = '<div class="highway-route-empty">고속도로 CCTV 목록을 불러오는 중입니다.</div>';
+        return;
+    }
+
+    list.innerHTML = routes.map(route => {
+        const gradeMeta = HIGHWAY_GRADE_META[route.summary?.grade];
+        const pill = gradeMeta
+            ? `<span class="highway-grade-pill tone-${gradeMeta.tone}">${gradeMeta.label}${Number.isFinite(route.summary.avgSpeed) ? ` · ${route.summary.avgSpeed}km/h` : ''}</span>`
+            : '<span class="highway-grade-pill tone-none">정보없음</span>';
+        return `
+            <button type="button" class="highway-route-item" data-route="${escapeHtml(route.routeName)}">
+                <span class="highway-route-name">${escapeHtml(route.routeName)}</span>
+                <span class="highway-route-count">CCTV ${route.cctvs.length}</span>
+                ${pill}
+            </button>
+        `;
+    }).join('');
+}
+
+function openHighwayPanel() {
+    const layer = $('#highway-layer');
+    if (!layer) return;
+    $('#search-results')?.classList.remove('active');
+    if ($('#weather-layer')?.classList.contains('active')) closeWeather({ restoreDomesticMap: false });
+    layer.classList.add('active');
+    $('#highway-btn')?.classList.add('active');
+    $('#dim-overlay')?.classList.add('active');
+    renderHighwayRouteList();
+    loadHighwayTraffic().then(() => {
+        if (layer.classList.contains('active')) renderHighwayRouteList();
+        refreshHighwayTrafficBadges();
+    }).catch(() => {});
+}
+
+function closeHighwayPanel() {
+    const layer = $('#highway-layer');
+    if (!layer || !layer.classList.contains('active')) return;
+    layer.classList.remove('active');
+    $('#highway-btn')?.classList.remove('active');
+    $('#dim-overlay')?.classList.remove('active');
+}
+
+function toggleHighwayPanel() {
+    if ($('#highway-layer')?.classList.contains('active')) closeHighwayPanel();
+    else openHighwayPanel();
+}
+
+function initHighwayTrafficUi() {
+    $('#highway-btn')?.addEventListener('click', toggleHighwayPanel);
+    $('#highway-close')?.addEventListener('click', closeHighwayPanel);
+    $('#highway-congested-btn')?.addEventListener('click', showCongestedHighwayCctvs);
+    $('#highway-route-list')?.addEventListener('click', event => {
+        const item = event.target.closest('.highway-route-item');
+        if (item?.dataset.route) showHighwayRouteCctvs(item.dataset.route);
+    });
+    $('#highway-layer')?.addEventListener('click', event => {
+        if (event.target.id === 'highway-layer') closeHighwayPanel();
+    });
 }

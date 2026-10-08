@@ -49,6 +49,8 @@ jobs:
         if: steps.plan.outputs.due_utic_renew == 'true'
         id: renew
         continue-on-error: true
+        env:
+          UTIC_API_KEY: ${{ secrets.UTIC_API_KEY }}
         run: |
           set +e
           python scripts/renew_cctv_urls.py

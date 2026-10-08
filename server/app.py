@@ -18,6 +18,15 @@ import flask
 from flask import Flask, request, Response, send_from_directory, abort
 import requests
 from cctv_runtime import build_proxy_url, env_float, env_int, first_env, public_proxy_base, worker_proxy_base
+from highway_traffic import (
+    EXDATA_DEMO_KEY,
+    KeyProblemError,
+    UpstreamError,
+    build_exdata_traffic_url,
+    build_traffic_snapshot,
+    check_exdata_payload,
+    resolve_api_key,
+)
 
 TRANSIENT_UPSTREAM_STATUSES = {502, 503, 504}
 
@@ -744,7 +753,7 @@ app = Flask(__name__, static_folder=None)
 
 RATE_LIMITED_PATHS = {
     '/proxy', '/stream', '/daejeon', '/baltic', '/skyline', '/whatsupcam',
-    '/roundshot', '/jeju', '/jeju2', '/utic', '/kb', '/gits',
+    '/roundshot', '/jeju', '/jeju2', '/utic', '/kb', '/gits', '/highway-traffic',
 }
 
 
@@ -940,6 +949,144 @@ def serve_z3_cache():
             503,
             {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'}
         )
+
+# === Highway traffic (data.ex.co.kr trafficAmountByRealtime) ===
+# Mirrors the Z3 cache pattern: one in-memory snapshot, refreshed at most once
+# per TTL, never refreshed concurrently, and the last good snapshot is served
+# (marked stale) when the upstream is down or rejects the key.
+HIGHWAY_TRAFFIC_TTL_SECONDS = min(300, max(120, env_int('HIGHWAY_TRAFFIC_TTL_SECONDS', 180)))
+HIGHWAY_TRAFFIC_RETRY_SECONDS = max(15, env_int('HIGHWAY_TRAFFIC_RETRY_SECONDS', 60))
+HIGHWAY_TRAFFIC_TIMEOUT_SECONDS = env_float('HIGHWAY_TRAFFIC_TIMEOUT_SECONDS', 15.0)
+HIGHWAY_TRAFFIC_MAX_PAGES = max(1, env_int('HIGHWAY_TRAFFIC_MAX_PAGES', 30))
+_highway_traffic_cache = {
+    'lock': threading.Lock(),
+    'snapshot': None,       # last good payload
+    'fetched_mono': None,   # monotonic time of last good fetch
+    'last_attempt': None,   # monotonic time of last attempt (good or bad)
+    'last_error': None,     # short error code for the last failed attempt
+}
+
+
+def _fetch_exdata_json(url):
+    response = requests.get(
+        url,
+        timeout=HIGHWAY_TRAFFIC_TIMEOUT_SECONDS,
+        headers={'User-Agent': 'CCTV-Proxy/1.0 (+https://github.com/pyw31337/cctv)'},
+    )
+    if response.status_code in (401, 403):
+        raise KeyProblemError(f'data.ex.co.kr HTTP {response.status_code}')
+    if response.status_code != 200:
+        raise UpstreamError(f'data.ex.co.kr HTTP {response.status_code}')
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise UpstreamError('data.ex.co.kr returned non-JSON (blocked or maintenance?)') from exc
+
+
+def _warn_demo_key_once(message):
+    if not _highway_traffic_cache.get('demo_warned'):
+        _highway_traffic_cache['demo_warned'] = True
+        logger.warning(message)
+
+
+def fetch_highway_traffic_snapshot():
+    api_key, is_demo = resolve_api_key(
+        'EX_API_KEY', 'EXDATA_API_KEY', demo_key=EXDATA_DEMO_KEY, label='data.ex.co.kr', log=_warn_demo_key_once
+    )
+    payload = _fetch_exdata_json(build_exdata_traffic_url(api_key))
+    rows = list(check_exdata_payload(payload))
+
+    # The demo response has been observed to return the whole nationwide
+    # snapshot at once. If upstream ever pages it, follow pageNo defensively.
+    try:
+        total = int(payload.get('count') or 0)
+    except (TypeError, ValueError):
+        total = 0
+    page_size = len(rows)
+    page = 1
+    while page_size and total > len(rows) and page < HIGHWAY_TRAFFIC_MAX_PAGES:
+        page += 1
+        extra = check_exdata_payload(_fetch_exdata_json(build_exdata_traffic_url(api_key, page_no=page, num_of_rows=page_size)))
+        if not extra:
+            break
+        rows.extend(extra)
+
+    return build_traffic_snapshot(
+        rows,
+        fetched_at=utc_now().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        demo_key=is_demo,
+    )
+
+
+def _highway_traffic_due(cache):
+    now = time.monotonic()
+    fresh = cache['fetched_mono'] is not None and now - cache['fetched_mono'] < HIGHWAY_TRAFFIC_TTL_SECONDS
+    if fresh:
+        return False
+    last_attempt = cache['last_attempt']
+    return last_attempt is None or now - last_attempt >= HIGHWAY_TRAFFIC_RETRY_SECONDS
+
+
+def get_highway_traffic_payload():
+    cache = _highway_traffic_cache
+    if _highway_traffic_due(cache):
+        lock = cache['lock']
+        # With a snapshot in hand, serve it instead of queueing behind a refresh.
+        if lock.acquire(blocking=cache['snapshot'] is None):
+            try:
+                if _highway_traffic_due(cache):
+                    cache['last_attempt'] = time.monotonic()
+                    try:
+                        cache['snapshot'] = fetch_highway_traffic_snapshot()
+                        cache['fetched_mono'] = time.monotonic()
+                        cache['last_error'] = None
+                    except KeyProblemError as exc:
+                        cache['last_error'] = 'key_problem'
+                        logger.error('Highway traffic key problem: %s', redact_text_for_log(exc))
+                    except UpstreamError as exc:
+                        cache['last_error'] = 'upstream_error'
+                        logger.error('Highway traffic upstream error: %s', redact_text_for_log(exc))
+                    except requests.RequestException as exc:
+                        cache['last_error'] = 'upstream_unreachable'
+                        logger.error('Highway traffic fetch failed: %s', redact_text_for_log(exc))
+            finally:
+                lock.release()
+
+    snapshot = cache['snapshot']
+    error = cache['last_error']
+    if snapshot is None:
+        return None, error or 'highway-traffic-unavailable'
+    payload = dict(snapshot)
+    age = None
+    if cache['fetched_mono'] is not None:
+        age = round(time.monotonic() - cache['fetched_mono'])
+    payload['age_seconds'] = age
+    payload['stale'] = bool(error) or (age is not None and age > HIGHWAY_TRAFFIC_TTL_SECONDS * 2)
+    if error:
+        payload['error'] = error
+    return payload, error
+
+
+@app.route('/highway-traffic')
+def serve_highway_traffic():
+    try:
+        payload, error = get_highway_traffic_payload()
+    except Exception as exc:
+        logger.error('Highway traffic endpoint failed: %s', redact_text_for_log(exc))
+        payload, error = None, 'highway-traffic-unavailable'
+    if payload is None:
+        return Response(
+            json.dumps({'ok': False, 'error': error, 'routes': [], 'sections': []}, ensure_ascii=False),
+            503,
+            {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'},
+        )
+    max_age = 30 if payload.get('stale') else 60
+    return Response(
+        json.dumps(payload, ensure_ascii=False, separators=(',', ':')),
+        200,
+        {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': f'public, max-age={max_age}'},
+    )
+
 
 # STATIC_ROOT is a full git checkout on the Oracle host (.git, deploy keys,
 # logs, .env), so only the public web assets that GitHub Pages also publishes

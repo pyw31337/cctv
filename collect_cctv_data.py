@@ -1,4 +1,7 @@
 import concurrent.futures
+import importlib.util
+import os
+import threading
 import time
 import urllib.parse
 from functools import partial
@@ -22,7 +25,14 @@ from collectors.gigaeyes import GigaEyesCollector
 from collectors.youtube_custom import YoutubeCustomCollector
 from collectors.spatic import SpaticCollector
 from collectors.trendworld import TrendWorldCollector
-from cctv_runtime import atomic_write_json, build_proxy_url, camera_identity, camera_source_id, first_env, public_proxy_base, require_env, sanitize_utic_payload
+from cctv_runtime import atomic_write_json, build_proxy_url, camera_identity, camera_source_id, first_env, public_proxy_base, sanitize_utic_payload
+from highway_traffic import (
+    ITS_DEMO_KEY,
+    KeyProblemError,
+    UpstreamError,
+    parse_its_cctv_response,
+    resolve_api_key,
+)
 from collectors.pipeline import (
     SOURCE_PRIORITY as PIPELINE_PRIORITY,
     collect_in_parallel,
@@ -63,69 +73,133 @@ def build_utic_headers(utic_api_key):
         ),
     }
 
+# Upstream key/availability problems seen during this run. Reported to
+# data/workflow_status.json at the end of main() so a silently failing
+# collector (e.g. missing GitHub secret) shows up on quality.html.
+SOURCE_ISSUES = []
+_SOURCE_ISSUES_LOCK = threading.Lock()
+
+
+def record_source_issue(source, message, *, category="upstream", status="warning"):
+    with _SOURCE_ISSUES_LOCK:
+        SOURCE_ISSUES.append({
+            "source": source,
+            "message": message,
+            "category": category,
+            "status": status,
+        })
+
+
+def report_source_issues(issues=None, output=None):
+    """Write collected source issues as workflow status events.
+
+    Never raises: status reporting must not break a data refresh.
+    """
+    issues = list(SOURCE_ISSUES if issues is None else issues)
+    if not issues:
+        return 0
+    try:
+        module_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "write_workflow_status.py")
+        spec = importlib.util.spec_from_file_location("_write_workflow_status", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        kwargs = {"output": output} if output is not None else {}
+        for issue in issues:
+            prefix = "인증키 문제(key_problem): " if issue["category"] == "key_problem" else ""
+            module.append_workflow_event(
+                "Update CCTV Data",
+                job=issue["source"],
+                status=issue["status"],
+                impact="possible",
+                message=f"{prefix}{issue['message']}",
+                category=issue["category"],
+                **kwargs,
+            )
+        return len(issues)
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"[WARNING] Could not record source issues: {exc}")
+        return 0
+
+
+def normalize_its_items(cctv_list):
+    normalized_data = []
+    for item in cctv_list:
+        # ITS data keys: cctvname, cctvurl, coordx, coordy
+        if not item.get("cctvurl") or not item.get("coordx") or not item.get("coordy"):
+            continue
+        try:
+            lng = float(item.get("coordx"))
+            lat = float(item.get("coordy"))
+        except (TypeError, ValueError):
+            continue
+
+        # Generate ID consistent with previous data: NTIC_[name]_[lng]
+        cctv_name = item.get("cctvname", "Unknown")
+        cctv_id = f"NTIC_{cctv_name}_{lng}"
+        canonical_id = camera_identity({
+            "source": "NTIC",
+            "original_id": item.get("cctvurl") or item.get("cctvname") or cctv_id,
+            "name": cctv_name,
+            "lat": lat,
+            "lng": lng,
+        })
+
+        url = item.get("cctvurl")
+        if url and "cctvsec.ktict.co.kr" in url and url.startswith("http://"):
+            url = url.replace("http://", "https://")
+
+        normalized_data.append({
+            "id": cctv_id,
+            "name": cctv_name,
+            "lat": lat,
+            "lng": lng,
+            "url": url,
+            "source": "NTIC",
+            "status": "active",
+            "canonical_id": canonical_id,
+        })
+    return normalized_data
+
+
 def fetch_its_data():
     """Fetches CCTV data from the ITS API."""
     print("Fetching ITS data...")
-    try:
-        its_api_key = require_env("ITS_API_KEY")
-    except RuntimeError as exc:
-        print(f"Error fetching ITS data: {exc}")
-        return []
+    its_api_key, is_demo = resolve_api_key(
+        "ITS_API_KEY", demo_key=ITS_DEMO_KEY, label="ITS cctvInfo", log=print
+    )
+    if is_demo:
+        record_source_issue(
+            "ITS",
+            "ITS_API_KEY secret is not set; using the public demo key 'test' (may be revoked or rate limited).",
+            category="key_problem",
+            status="warning",
+        )
 
     # Using a large bounding box to cover South Korea
     params = build_its_params(its_api_key)
-    
+
     try:
         response = requests.get(ITS_API_URL, params=params, timeout=45)
-        response.raise_for_status()
-        data = response.json()
-        
-        cctv_list = data.get("response", {}).get("data", [])
-        if not cctv_list and "data" in data:
-             cctv_list = data["data"]
-             
-        normalized_data = []
-        for item in cctv_list:
-            # ITS data keys: cctvname, cctvurl, coordx, coordy
-            if not item.get("cctvurl") or not item.get("coordx") or not item.get("coordy"):
-                continue
-
-            # Generate ID consistent with previous data if possible, or new standard
-            # Existing data seems to use: NTIC_[name]_[lng]
-            # We will follow this pattern
-            cctv_name = item.get("cctvname", "Unknown")
-            lng = float(item.get("coordx"))
-            lat = float(item.get("coordy"))
-            cctv_id = f"NTIC_{cctv_name}_{lng}"
-            canonical_id = camera_identity({
-                "source": "NTIC",
-                "original_id": item.get("cctvurl") or item.get("cctvname") or cctv_id,
-                "name": cctv_name,
-                "lat": lat,
-                "lng": lng,
-            })
-
-            url = item.get("cctvurl")
-            if url and "cctvsec.ktict.co.kr" in url and url.startswith("http://"):
-                url = url.replace("http://", "https://")
-
-            cctv_entry = {
-                "id": cctv_id,
-                "name": cctv_name,
-                "lat": lat,
-                "lng": lng,
-                "url": url,
-                "source": "NTIC",
-                "status": "active",
-                "canonical_id": canonical_id,
-            }
-            normalized_data.append(cctv_entry)
-            
+        # ITS answers success as XML even with getType=json, and key errors
+        # as HTTP 401 + JSON {"header": {"resultCode": 4005}}.
+        cctv_list = parse_its_cctv_response(response.text, response.status_code)
+        normalized_data = normalize_its_items(cctv_list)
         print(f"Fetched {len(normalized_data)} entries from ITS.")
         return normalized_data
 
-    except Exception as e:
+    except KeyProblemError as e:
+        key_label = "demo key 'test'" if is_demo else "ITS_API_KEY"
+        print(f"Error fetching ITS data (key problem, {key_label}): {e}")
+        record_source_issue("ITS", f"{key_label} rejected: {e}", category="key_problem", status="error")
+        return []
+    except UpstreamError as e:
         print(f"Error fetching ITS data: {e}")
+        record_source_issue("ITS", str(e), category="upstream")
+        return []
+    except Exception as e:
+        # requests exceptions embed the full URL, including apiKey.
+        print(f"Error fetching ITS data: {type(e).__name__}")
+        record_source_issue("ITS", f"request failed: {type(e).__name__}", category="upstream")
         return []
 
 def process_utic_item(item, utic_api_key, proxy_base):
@@ -236,8 +310,17 @@ def process_utic_item(item, utic_api_key, proxy_base):
 def fetch_utic_data():
     """Fetches CCTV data from the UTIC API (internal JSON endpoint)."""
     print("Fetching UTIC data...")
+    utic_api_key = first_env("UTIC_API_KEY", "UTIC_KEY")
+    if not utic_api_key:
+        print("Error fetching UTIC data: UTIC_API_KEY / UTIC_KEY is not set")
+        record_source_issue(
+            "UTIC",
+            "UTIC_API_KEY secret is not set; UTIC refresh skipped and existing UTIC records reused.",
+            category="key_problem",
+            status="error",
+        )
+        return []
     try:
-        utic_api_key = require_env("UTIC_API_KEY", "UTIC_KEY")
         # Disable SSL verification due to certificate errors on UTIC side
         requests.packages.urllib3.disable_warnings()
         response = requests.get(UTIC_API_URL, headers=build_utic_headers(utic_api_key), timeout=60, verify=False)
@@ -503,6 +586,10 @@ def main():
         print(f"Successfully saved updated data to {OUTPUT_FILE}")
     except Exception as exc:
         print(f"Error saving data: {exc}")
+
+    reported = report_source_issues()
+    if reported:
+        print(f"Recorded {reported} source issue(s) in data/workflow_status.json")
 
 
 if __name__ == "__main__":

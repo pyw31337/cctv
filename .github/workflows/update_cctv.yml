@@ -46,6 +46,12 @@ jobs:
         if: steps.plan.outputs.due_full_refresh == 'true'
         id: full_refresh
         continue-on-error: true
+        env:
+          # Missing secrets resolve to empty strings: ITS then falls back to the
+          # public demo key and UTIC reuses existing records. Both cases are
+          # recorded as key_problem events in data/workflow_status.json.
+          ITS_API_KEY: ${{ secrets.ITS_API_KEY }}
+          UTIC_API_KEY: ${{ secrets.UTIC_API_KEY }}
         run: python collect_cctv_data.py --force --duration 3.0
 
       - name: Validate CCTV data
@@ -84,13 +90,15 @@ jobs:
             python scripts/adaptive_collection.py record --task full_refresh --result success
           else
             python scripts/adaptive_collection.py record --task full_refresh --result failure
+            python scripts/write_workflow_status.py --workflow "Update CCTV Data" --job full-refresh --status warning --impact possible \
+              --message "full refresh outcome=${{ steps.full_refresh.outcome }} validation=${{ steps.validate.outputs.validation_passed || 'skipped' }} preservation=${{ steps.preservation.outputs.preservation_passed || 'skipped' }}; existing cctv_data.json preserved"
           fi
 
       - name: Check for changes
         id: check_changes
         if: steps.validate.outputs.validation_passed == 'true' && steps.preservation.outputs.preservation_passed == 'true'
         run: |
-          if [[ -n "$(git status -s cctv_data.json data/collection_schedule.json)" ]]; then
+          if [[ -n "$(git status -s cctv_data.json data/collection_schedule.json data/workflow_status.json)" ]]; then
             echo "changes_detected=true" >> "$GITHUB_OUTPUT"
           else
             echo "changes_detected=false" >> "$GITHUB_OUTPUT"
@@ -99,8 +107,21 @@ jobs:
       - name: Commit and push changes
         if: steps.check_changes.outputs.changes_detected == 'true'
         run: |
-          if git diff --quiet -- cctv_data.json data/collection_schedule.json; then
+          if git diff --quiet -- cctv_data.json data/collection_schedule.json data/workflow_status.json; then
             echo "No full refresh or scheduler changes"
           else
-            scripts/commit_and_push_changes.sh "Auto-update: adaptive CCTV data (Validated) [skip ci]" cctv_data.json data/collection_schedule.json
+            scripts/commit_and_push_changes.sh "Auto-update: adaptive CCTV data (Validated) [skip ci]" cctv_data.json data/collection_schedule.json data/workflow_status.json
+          fi
+
+      # When the refresh was rejected, still publish the status events (key
+      # problems, failed refresh) so the failure is visible on quality.html.
+      # The rejected cctv_data.json is restored first and never committed.
+      - name: Publish workflow status after rejected refresh
+        if: always() && steps.plan.outputs.due_full_refresh == 'true' && steps.check_changes.outputs.changes_detected != 'true'
+        run: |
+          git checkout -- cctv_data.json 2>/dev/null || true
+          if git diff --quiet -- data/workflow_status.json; then
+            echo "No workflow status changes"
+          else
+            scripts/commit_and_push_changes.sh "chore: record CCTV refresh status [skip ci]" data/workflow_status.json
           fi

@@ -1,13 +1,13 @@
 import json
 import time
+import urllib.error
 import urllib.request
 import urllib.parse
 import ssl
 import sys
-from cctv_runtime import first_env
+from highway_traffic import ITS_DEMO_KEY, KeyProblemError, parse_its_cctv_response, resolve_api_key
 
 # Configuration
-ITS_API_KEY = first_env("ITS_API_KEY")
 ITS_API_URL = "https://openapi.its.go.kr:9443/cctvInfo"
 OUTPUT_FILE = "ntic_data.json"
 
@@ -18,6 +18,7 @@ def collect_ntic_data_nationwide():
     """
     results = []
     seen_ids = set()
+    its_api_key, _is_demo = resolve_api_key("ITS_API_KEY", demo_key=ITS_DEMO_KEY, label="ITS cctvInfo", log=print)
     
     # Define regions for better coverage (avoid sea)
     regions = [
@@ -76,7 +77,7 @@ def collect_ntic_data_nationwide():
                 sys.stdout.flush()
                 
                 params = {
-                    'apiKey': ITS_API_KEY,
+                    'apiKey': its_api_key,
                     'type': 'all',
                     'cctvType': '1',
                     'minX': f"{lng:.6f}",
@@ -95,46 +96,46 @@ def collect_ntic_data_nationwide():
                         req = urllib.request.Request(url)
                         req.add_header('User-Agent', 'Mozilla/5.0')
                         
-                        with urllib.request.urlopen(req, context=ctx, timeout=20) as response:
-                            if response.status == 200:
-                                data = json.loads(response.read().decode('utf-8'))
-                                
-                                cctv_list = []
-                                if isinstance(data, dict):
-                                    if 'response' in data and 'data' in data['response']:
-                                        cctv_list = data['response']['data']
-                                    elif 'data' in data:
-                                        cctv_list = data['data']
-                                elif isinstance(data, list):
-                                    cctv_list = data
-                                
-                                if cctv_list and isinstance(cctv_list, list):
-                                    for item in cctv_list:
-                                        cctv_id = item.get('cctvid') or item.get('id')
-                                        if not cctv_id and 'cctvname' in item:
-                                            cctv_id = f"NTIC_{item['cctvname']}_{item.get('coordx')}"
-                                        
-                                        if cctv_id and cctv_id not in seen_ids:
-                                            try:
-                                                lat_val = float(item.get('coordy', 0))
-                                                lng_val = float(item.get('coordx', 0))
-                                                
-                                                if lat_val > 0 and lng_val > 0:
-                                                    results.append({
-                                                        'id': cctv_id,
-                                                        'name': item.get('cctvname', 'Unknown'),
-                                                        'lat': lat_val,
-                                                        'lng': lng_val,
-                                                        'url': item.get('cctvurl', ''),
-                                                        'source': 'NTIC',
-                                                        'status': 'active'
-                                                    })
-                                                    seen_ids.add(cctv_id)
-                                            except ValueError:
-                                                pass
+                        try:
+                            with urllib.request.urlopen(req, context=ctx, timeout=20) as response:
+                                status_code, body = response.status, response.read().decode('utf-8', 'replace')
+                        except urllib.error.HTTPError as http_error:
+                            status_code = http_error.code
+                            body = http_error.read().decode('utf-8', 'replace')
+
+                        # Success bodies are XML even with getType=json.
+                        cctv_list = parse_its_cctv_response(body, status_code)
+                        for item in cctv_list:
+                            cctv_id = item.get('cctvid') or item.get('id')
+                            if not cctv_id and 'cctvname' in item:
+                                cctv_id = f"NTIC_{item['cctvname']}_{item.get('coordx')}"
+
+                            if cctv_id and cctv_id not in seen_ids:
+                                try:
+                                    lat_val = float(item.get('coordy', 0))
+                                    lng_val = float(item.get('coordx', 0))
+
+                                    if lat_val > 0 and lng_val > 0:
+                                        results.append({
+                                            'id': cctv_id,
+                                            'name': item.get('cctvname', 'Unknown'),
+                                            'lat': lat_val,
+                                            'lng': lng_val,
+                                            'url': item.get('cctvurl', ''),
+                                            'source': 'NTIC',
+                                            'status': 'active'
+                                        })
+                                        seen_ids.add(cctv_id)
+                                except ValueError:
+                                    pass
                         break  # Success
                         
-                    except Exception as e:
+                    except KeyProblemError as e:
+                        # Retrying every grid cell with a rejected key is pointless.
+                        print(f"\n[ERROR] ITS 인증키 문제: {e}")
+                        print("ITS_API_KEY를 확인하세요. 지금까지 수집한 결과만 저장합니다.")
+                        return results
+                    except Exception as e:  # includes UpstreamError (blocked, HTTP 5xx, bad body)
                         if attempt < max_retries - 1:
                             time.sleep(0.5)
                         else:
@@ -160,12 +161,19 @@ def collect_ntic_data_nationwide():
 
 def main():
     results = collect_ntic_data_nationwide()
-    
+
+    if not results:
+        # Do not clobber the previous snapshot with an empty list when the key
+        # was rejected or the API was unreachable.
+        print(f"\n수집 결과가 없어 기존 {OUTPUT_FILE}을(를) 유지합니다.")
+        return 1
+
     print(f"\n{OUTPUT_FILE}에 저장 중...")
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     
     print("✅ 저장 완료!")
+    return 0
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

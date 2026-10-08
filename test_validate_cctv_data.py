@@ -72,5 +72,32 @@ class CriticalSampleTests(unittest.TestCase):
         self.assertTrue(any("예상 패턴" in error for error in errors))
 
 
+class CoordinateRangeTests(unittest.TestCase):
+    def test_in_range_and_dokdo_pass(self):
+        errors, warnings = validator.validate_coordinates([
+            {"name": "서울역", "lat": 37.556, "lng": 126.972, "status": "active"},
+            {"name": "독도", "lat": 37.2426, "lng": 131.8669, "status": "active"},
+            {"name": "마라도", "lat": "33.1", "lng": "126.27"},
+        ])
+        self.assertEqual((errors, warnings), ([], []))
+
+    def test_active_out_of_range_or_missing_is_error(self):
+        errors, warnings = validator.validate_coordinates([
+            {"name": "swapped", "lat": 127.0, "lng": 37.5, "status": "active"},
+            {"name": "missing", "lat": None, "lng": 127.0},
+            {"name": "nan", "lat": float("nan"), "lng": 127.0},
+            {"name": "north", "lat": 40.1, "lng": 127.0, "status": "active"},
+        ])
+        self.assertEqual(len(errors), 4)
+        self.assertEqual(warnings, [])
+
+    def test_inactive_placeholder_is_warning(self):
+        errors, warnings = validator.validate_coordinates([
+            {"name": "백운대", "lat": 0.0, "lng": 0.0, "status": "manual_check", "source": "KNPS"},
+        ])
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

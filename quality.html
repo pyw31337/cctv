@@ -474,7 +474,7 @@ function renderWorkflowEvents(workflowStatus) {
             <td>${esc(event.job || '-')}</td>
             <td><span class="pill ${statusClass}">${esc(event.status || '-')}</span></td>
             <td class="${impactClass}">${esc(impact)}</td>
-            <td>${esc(event.message || '-')}</td>
+            <td>${event.category === 'key_problem' ? '<span class="pill bad">인증키 문제</span> ' : ''}${esc(event.message || '-')}</td>
         </tr>`;
     }).join('') || '<tr><td colspan="6">최근 보존형 워크플로우 경고가 없습니다.</td></tr>';
 }
