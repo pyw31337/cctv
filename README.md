@@ -55,7 +55,7 @@ npm run browser:canary
 - `EX_API_KEY` (또는 `EXDATA_API_KEY`): 한국도로공사 공공데이터포털(data.ex.co.kr) 키. 프록시 서버의 `/highway-traffic`(실시간 고속도로 소통)이 사용하며, 없으면 데모 키 `test`로 동작합니다
 - `HIGHWAY_TRAFFIC_TTL_SECONDS`: `/highway-traffic` 메모리 캐시 유지 시간(기본 180초, 120~300초 범위). upstream 실패 시 마지막 정상 스냅샷을 `stale: true`로 응답합니다
 - `HIGHWAY_TRAFFIC_RETRY_SECONDS`: `/highway-traffic` 갱신 실패 후 재시도 최소 간격(기본 60초)
-- `HIGHWAY_TRAFFIC_ROUTE`: `auto`(기본) | `direct` | `relay`. data.ex.co.kr은 해외 서버(Fly 도쿄 등)에서 직접 접속이 안 되는 경우가 있어, `auto`는 직접 호출이 실패하면 기존 Cloudflare Worker(`CCTV_WORKER_PROXY_BASE` + `/proxy?url=`)를 거쳐 받아오고, 성공한 경로를 다음 갱신에 우선 사용합니다. 인증키 오류는 경로를 바꿔 재시도하지 않습니다. 화면에서는 관측 시각이 90분 넘게 지난 스냅샷은 배지를 숨깁니다.
+- `HIGHWAY_TRAFFIC_ROUTE`: `auto`(기본) | `direct` | `oracle` | `worker` | `relay`. data.ex.co.kr은 해외 서버(Fly 도쿄 등)에서 직접 접속이 안 되므로, `auto`는 직접 호출 → 국내 Oracle 프록시(`CCTV_PUBLIC_PROXY_BASE` + `/proxy?url=`) → Cloudflare Worker(`CCTV_WORKER_PROXY_BASE` + `/proxy?url=`) 순으로 시도하고, 성공한 경로를 다음 갱신에 우선 사용합니다. 인증키 오류는 경로를 바꿔 재시도하지 않습니다. 화면에서는 관측 시각이 90분 넘게 지난 스냅샷은 배지를 숨깁니다.
 - `CCTV_PUBLIC_PROXY_BASE`: 공개 프록시 베이스 URL
 - `CCTV_WORKER_PROXY_BASE`: Worker 프록시 베이스 URL
 - `CCTV_PROXY_BASES`: 프론트에서 순환할 프록시 후보 목록
