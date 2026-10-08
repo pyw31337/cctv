@@ -303,15 +303,19 @@ class HighwayTrafficEndpointTests(unittest.TestCase):
         with patch.object(server_app.requests, 'get', side_effect=server_app.requests.Timeout('slow')) as get:
             self.assertEqual(client.get('/highway-traffic').status_code, 503)
             self.assertEqual(client.get('/highway-traffic').status_code, 503)
-        self.assertEqual(get.call_count, 2)  # direct + relay once, then retry window
+        self.assertEqual(get.call_count, 3)  # direct + 2 relays once, then retry window
 
-    def test_relay_is_used_when_direct_route_is_unreachable(self):
+    def test_relays_are_used_when_direct_route_is_unreachable(self):
         calls = []
+        oracle_prefix = server_app.PUBLIC_PROXY_BASE.rstrip('/') + '/proxy?url='
+        worker_prefix = server_app.WORKER_PROXY_BASE.rstrip('/') + '/proxy?url='
 
         def fake_get(url, **kwargs):
             calls.append(url)
             if url.startswith(ht.EXDATA_TRAFFIC_URL):
                 raise server_app.requests.ConnectTimeout('key=test geo-blocked')
+            if url.startswith(oracle_prefix):
+                return self._json_response(None, status=502)
             return self._json_response(TRAFFIC_PAYLOAD)
 
         client = server_app.app.test_client()
@@ -319,10 +323,11 @@ class HighwayTrafficEndpointTests(unittest.TestCase):
             response = client.get('/highway-traffic')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()['ok'])
-        self.assertEqual(len(calls), 2)
-        self.assertTrue(calls[1].startswith(server_app.WORKER_PROXY_BASE.rstrip('/') + '/proxy?url='))
-        self.assertIn('data.ex.co.kr', server_app.unquote(calls[1]))
-        self.assertEqual(server_app._highway_traffic_cache['preferred_route'], 'relay')
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(calls[1].startswith(oracle_prefix))
+        self.assertTrue(calls[2].startswith(worker_prefix))
+        self.assertIn('data.ex.co.kr', server_app.unquote(calls[2]))
+        self.assertEqual(server_app._highway_traffic_cache['preferred_route'], 'worker')
 
         # The next refresh goes to the route that worked last time first.
         cache = server_app._highway_traffic_cache
@@ -332,13 +337,28 @@ class HighwayTrafficEndpointTests(unittest.TestCase):
         with patch.object(server_app.requests, 'get', side_effect=fake_get):
             self.assertEqual(client.get('/highway-traffic').status_code, 200)
         self.assertEqual(len(calls), 1)
-        self.assertIn('/proxy?url=', calls[0])
+        self.assertTrue(calls[0].startswith(worker_prefix))
 
-    def test_relay_error_page_falls_back_to_direct(self):
-        server_app._highway_traffic_cache['preferred_route'] = 'relay'
+    def test_oracle_relay_is_tried_before_worker(self):
+        calls = []
 
         def fake_get(url, **kwargs):
-            if '/proxy?url=' in url:
+            calls.append(url)
+            if url.startswith(ht.EXDATA_TRAFFIC_URL):
+                raise server_app.requests.ConnectTimeout('blocked')
+            return self._json_response(TRAFFIC_PAYLOAD)
+
+        with patch.object(server_app.requests, 'get', side_effect=fake_get):
+            self.assertEqual(server_app.app.test_client().get('/highway-traffic').status_code, 200)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[1].startswith(server_app.PUBLIC_PROXY_BASE.rstrip('/') + '/proxy?url='))
+        self.assertEqual(server_app._highway_traffic_cache['preferred_route'], 'oracle')
+
+    def test_relay_error_page_falls_back_to_other_routes(self):
+        server_app._highway_traffic_cache['preferred_route'] = 'worker'
+
+        def fake_get(url, **kwargs):
+            if url.startswith(server_app.WORKER_PROXY_BASE.rstrip('/')):
                 return self._json_response(None, status=522)
             return self._json_response(TRAFFIC_PAYLOAD)
 

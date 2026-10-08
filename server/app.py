@@ -961,11 +961,14 @@ HIGHWAY_TRAFFIC_TIMEOUT_SECONDS = env_float('HIGHWAY_TRAFFIC_TIMEOUT_SECONDS', 1
 HIGHWAY_TRAFFIC_MAX_PAGES = max(1, env_int('HIGHWAY_TRAFFIC_MAX_PAGES', 30))
 HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS = env_float('HIGHWAY_TRAFFIC_CONNECT_TIMEOUT_SECONDS', 5.0)
 # data.ex.co.kr does not answer from overseas hosts (Fly runs in Tokyo), so
-# the request can be relayed through the project's existing Cloudflare Worker
-# (WORKER_PROXY_BASE + /proxy?url=...). "auto" tries the route that last
-# worked first and falls back to the other; "direct"/"relay" pin one route.
+# the request can be relayed through the project's existing proxies:
+#   oracle - the Korean Oracle host's /proxy?url=... (PUBLIC_PROXY_BASE)
+#   worker - the Cloudflare Worker's /proxy?url=... (WORKER_PROXY_BASE)
+# "auto" tries the route that last worked first, then the rest in order.
+# "direct", "oracle" or "worker" pin one route; "relay" uses both relays.
+HIGHWAY_TRAFFIC_ROUTES = ('direct', 'oracle', 'worker')
 HIGHWAY_TRAFFIC_ROUTE_MODE = (first_env('HIGHWAY_TRAFFIC_ROUTE', default='auto') or 'auto').strip().lower()
-if HIGHWAY_TRAFFIC_ROUTE_MODE not in ('auto', 'direct', 'relay'):
+if HIGHWAY_TRAFFIC_ROUTE_MODE not in ('auto', 'relay') + HIGHWAY_TRAFFIC_ROUTES:
     HIGHWAY_TRAFFIC_ROUTE_MODE = 'auto'
 _highway_traffic_cache = {
     'lock': threading.Lock(),
@@ -977,8 +980,11 @@ _highway_traffic_cache = {
 }
 
 
-def _exdata_relay_url(url):
-    base = (WORKER_PROXY_BASE or '').rstrip('/')
+def _exdata_route_url(url, route):
+    if route == 'direct':
+        return url
+    base = PUBLIC_PROXY_BASE if route == 'oracle' else WORKER_PROXY_BASE
+    base = (base or '').rstrip('/')
     if not base:
         return None
     return f"{base}/proxy?url={quote(url, safe='')}"
@@ -1001,13 +1007,16 @@ def _fetch_exdata_json_once(url, label):
 
 
 def _exdata_route_order():
-    if HIGHWAY_TRAFFIC_ROUTE_MODE == 'direct':
-        return ['direct']
+    if HIGHWAY_TRAFFIC_ROUTE_MODE in HIGHWAY_TRAFFIC_ROUTES:
+        return [HIGHWAY_TRAFFIC_ROUTE_MODE]
+    routes = list(HIGHWAY_TRAFFIC_ROUTES)
     if HIGHWAY_TRAFFIC_ROUTE_MODE == 'relay':
-        return ['relay']
-    if _highway_traffic_cache.get('preferred_route') == 'relay':
-        return ['relay', 'direct']
-    return ['direct', 'relay']
+        routes.remove('direct')
+    preferred = _highway_traffic_cache.get('preferred_route')
+    if preferred in routes:
+        routes.remove(preferred)
+        routes.insert(0, preferred)
+    return routes
 
 
 def _fetch_exdata_json(url):
@@ -1015,7 +1024,7 @@ def _fetch_exdata_json(url):
 
     last_exc = None
     for route in _exdata_route_order():
-        target = url if route == 'direct' else _exdata_relay_url(url)
+        target = _exdata_route_url(url, route)
         if not target:
             continue
         try:
