@@ -13,6 +13,7 @@ An in-depth review of the National CCTV Integrated Center service from Planning,
 - **Weaknesses**:
     - **Mobile**: Previously lacked Safe Area support (Fixed). Touch targets on map popups can be small.
     - **Discovery**: "Search" is the only way to find specific regions if one doesn't know the geography. A "Category" or "Highway" list selector would aid discovery.
+      - *2026-10 update*: a "Highway" route selector now lists expressway routes derived from `[노선명]지점` CCTV names (with CCTV counts and the route's representative congestion grade). Open it from the road icon in the bottom header bar.
 
 ### **Development (Code)**
 - **Strengths**: Single `index.html` simplicity. Tailwind CSS for rapid styling.
@@ -28,6 +29,7 @@ An in-depth review of the National CCTV Integrated Center service from Planning,
 ### **Phase 2: User Experience (Next Steps)**
 1.  **"Nearby CCTVs" Feature**: When viewing a stream, show a list of 5 closest CCTVs below the player for quick navigation along a road.
 2.  **Traffic Conditions Overlay**: Integrate ITS Traffic data (Green/Red lines) onto the Kakao Map to correlate video with traffic flow.
+    - *Partially done (2026-10)*: expressway CCTV panels and the video layer show a 한국도로공사 real-time badge such as "정체 · 35km/h (15:30 기준)" via the proxy's `/highway-traffic` endpoint (data.ex.co.kr `trafficAmountByRealtime`, cached ~3 min). Sections are matched by route name, then by IC/TG/JC names; otherwise a route-level summary is shown. A "정체 구간 CCTV 보기" button plays CCTVs on congested (grade 3) sections. Map line overlays are still open — the upstream has no section coordinates.
 3.  **Picture-in-Picture (PiP)**: Enable native browser PiP mode to let users watch CCTV while using other apps.
 
 ### **Phase 3: Technical Maturity**

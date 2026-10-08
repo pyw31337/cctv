@@ -123,7 +123,10 @@ class TrendWorldCollector:
                                 "url": stream_url,
                                 "source": "TRENDWORLD", 
                                 "status": "active",
-                                "backup_urls": [player_url] if player_url else []
+                                "backup_urls": (
+                                    [{"url": player_url, "source": "TRENDWORLD"}]
+                                    if player_url else []
+                                )
                             }
                             cctv_list.append(cctv_item)
                             print(f"[TrendWorld] Found: {clean_title}")

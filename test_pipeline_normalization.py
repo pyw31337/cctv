@@ -99,6 +99,46 @@ class PipelineNormalizationTests(unittest.TestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["canonical_id"], "UTIC:L12345")
 
+    def test_string_backup_urls_do_not_crash_merge(self):
+        # Regression: TrendWorld emitted backup_urls as bare strings, and the
+        # next duplicate merge crashed with
+        # AttributeError: 'str' object has no attribute 'get'.
+        trend = {
+            "id": "TRENDWORLD_jeju_1",
+            "name": "협재해변",
+            "lat": 33.394,
+            "lng": 126.239,
+            "url": "https://example.com/trend.m3u8",
+            "source": "TRENDWORLD",
+            "backup_urls": ["https://www.trendworld.kr/player/1", "", 3],
+        }
+        duplicate = dict(trend, url="https://example.com/trend-2.m3u8", backup_urls=["https://example.com/p2"])
+
+        merged = []
+        self.assertEqual(merge_cctv_item(merged, trend), "added")
+        self.assertEqual(
+            merged[0]["backup_urls"],
+            [{"url": "https://www.trendworld.kr/player/1", "source": "TRENDWORLD"}],
+        )
+        self.assertEqual(merge_cctv_item(merged, duplicate), "added_backup")
+        self.assertTrue(all(isinstance(entry, dict) for entry in merged[0]["backup_urls"]))
+
+        # A record that bypassed normalisation (e.g. loaded from an older
+        # dataset) must not crash the merge either.
+        merged[0]["backup_urls"].append("https://legacy.example/raw")
+        third = dict(trend, url="https://example.com/trend-3.m3u8", backup_urls=[])
+        self.assertEqual(merge_cctv_item(merged, third), "added_backup")
+        self.assertTrue(all(isinstance(entry, dict) for entry in merged[0]["backup_urls"]))
+
+    def test_trendworld_collector_emits_dict_backups(self):
+        import inspect
+
+        from collectors import trendworld
+
+        source = inspect.getsource(trendworld)
+        self.assertNotIn('"backup_urls": [player_url]', source)
+        self.assertIn('{"url": player_url, "source": "TRENDWORLD"}', source)
+
     def test_refine_injects_utic_key_only_for_probe(self):
         observed_urls = []
 

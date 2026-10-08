@@ -40,6 +40,7 @@
 - `data/status.json`, `data/quality_summary.json`, `data/z3_cache.json`, `data/cache_status.json`, `data/canary_status.json`, `data/ops_status.json`은 공통 `time.schema = cctv-quality-time-v1` 블록을 유지합니다.
 - 대시보드의 `데이터 최신성`은 원본 점검 시각과 표준화 시각을 분리해 보여줍니다.
 - 대시보드의 `GitHub 워크플로우 알림`은 기존 데이터가 보존된 보존형 실패를 `data/workflow_status.json`에서 보여줍니다.
+- `category: "key_problem"` 이벤트는 API 키 문제(시크릿 미설정, 데모 키 사용, ITS HTTP 401/resultCode 4005, data.ex.co.kr `code: "ERROR"`)입니다. 대시보드에 `인증키 문제`로 표시되며, 수집기는 기존 데이터를 보존한 채 계속 동작합니다. GitHub 시크릿(`ITS_API_KEY`, `UTIC_API_KEY`)을 확인하세요.
 
 ## 상태 정의
 

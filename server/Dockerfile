@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the proxy, shared runtime, and the static assets it serves.
 COPY server/app.py .
 COPY cctv_runtime.py .
+COPY highway_traffic.py .
 COPY index.html cctv_data.json cctv_data_new.json ./
 COPY js ./js
 COPY css ./css

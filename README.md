@@ -50,8 +50,11 @@ npm run browser:canary
 
 ## 환경변수
 
-- `ITS_API_KEY`: ITS OpenAPI 키
-- `UTIC_API_KEY` or `UTIC_KEY`: UTIC/OpenData key
+- `ITS_API_KEY`: ITS OpenAPI 키. 없으면 공개 데모 키 `test`로 동작하고, `data/workflow_status.json`에 `key_problem` 경고를 남깁니다 (운영에서는 개인 키 사용 권장)
+- `UTIC_API_KEY` or `UTIC_KEY`: UTIC/OpenData key. 없으면 UTIC 갱신을 건너뛰고 기존 UTIC 데이터를 재사용하며 `key_problem` 오류를 남깁니다
+- `EX_API_KEY` (또는 `EXDATA_API_KEY`): 한국도로공사 공공데이터포털(data.ex.co.kr) 키. 프록시 서버의 `/highway-traffic`(실시간 고속도로 소통)이 사용하며, 없으면 데모 키 `test`로 동작합니다
+- `HIGHWAY_TRAFFIC_TTL_SECONDS`: `/highway-traffic` 메모리 캐시 유지 시간(기본 180초, 120~300초 범위). upstream 실패 시 마지막 정상 스냅샷을 `stale: true`로 응답합니다
+- `HIGHWAY_TRAFFIC_RETRY_SECONDS`: `/highway-traffic` 갱신 실패 후 재시도 최소 간격(기본 60초)
 - `CCTV_PUBLIC_PROXY_BASE`: 공개 프록시 베이스 URL
 - `CCTV_WORKER_PROXY_BASE`: Worker 프록시 베이스 URL
 - `CCTV_PROXY_BASES`: 프론트에서 순환할 프록시 후보 목록

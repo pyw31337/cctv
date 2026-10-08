@@ -35,6 +35,8 @@ jobs:
         run: cp cctv_data.json /tmp/cctv_data.before.json
 
       - name: Run resurrect
+        env:
+          UTIC_API_KEY: ${{ secrets.UTIC_API_KEY }}
         run: |
           set +e
           python scripts/resurrect_utic.py

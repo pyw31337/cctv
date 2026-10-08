@@ -264,8 +264,30 @@ def normalize_cctv_record(item: dict[str, Any]) -> dict[str, Any]:
     if not normalized.get("id"):
         normalized["id"] = canonical_id or source_id or normalized.get("name") or "camera"
 
-    backup_urls = normalized.get("backup_urls")
-    normalized["backup_urls"] = backup_urls if isinstance(backup_urls, list) else []
+    normalized["backup_urls"] = normalize_backup_urls(normalized.get("backup_urls"), source)
+    return normalized
+
+
+def normalize_backup_urls(backup_urls: Any, source: str | None = None) -> list[dict[str, Any]]:
+    """Coerce backup entries to dicts.
+
+    Collectors historically emitted either ``{"url": ...}`` dicts or bare URL
+    strings (TrendWorld). The merge path calls ``backup.get("url")``, so a
+    single string entry used to crash the whole refresh with AttributeError.
+    """
+
+    if not isinstance(backup_urls, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for entry in backup_urls:
+        if isinstance(entry, dict):
+            if entry.get("url"):
+                normalized.append(entry)
+        elif isinstance(entry, str) and entry.strip():
+            backup: dict[str, Any] = {"url": entry.strip()}
+            if source:
+                backup["source"] = source
+            normalized.append(backup)
     return normalized
 
 
@@ -317,6 +339,8 @@ def _merge_into_existing(
         if new_is_direct and not old_is_direct:
             is_better = True
 
+    existing["backup_urls"] = normalize_backup_urls(existing.get("backup_urls"), existing.get("source"))
+    new_item["backup_urls"] = normalize_backup_urls(new_item.get("backup_urls"), new_item.get("source"))
     existing_urls = [backup.get("url") for backup in existing["backup_urls"]] + [existing.get("url")]
     if new_item.get("url") in existing_urls:
         return "skipped_duplicate_url"

@@ -6,6 +6,8 @@ CCTV 데이터 자동 검증 스크립트
 검증 항목:
 1. 직통 HLS 서버가 url에 m3u8로 설정되어 있는지
 2. 주요 CCTV 샘플의 스트림이 실제로 접근 가능한지
+3. 직통 서버 CCTV가 utic.go.kr iframe으로 빠지지 않는지
+4. 좌표가 대한민국 범위(위도 33~39.5, 경도 124~132) 안에 있는지
 """
 
 import argparse
@@ -20,6 +22,10 @@ urllib3.disable_warnings()
 
 # 직통 HLS를 사용해야 하는 서버 목록
 DIRECT_HLS_SERVERS = ["211.57.45.101", "210.95.12.126", "211.114.87.164", "gitsview.gg.go.kr", "trafficcctv.paju.go.kr"]
+
+# 대한민국 근해 좌표 범위 (k-skill highway-traffic-status와 동일, 독도 131.87E 포함)
+KOREA_LAT_RANGE = (33.0, 39.5)
+KOREA_LON_RANGE = (124.0, 132.0)
 
 # 반드시 검증해야 하는 주요 CCTV 샘플
 CRITICAL_SAMPLES = [
@@ -138,6 +144,34 @@ def validate_no_iframe_for_direct_servers(data):
     return errors
 
 
+def validate_coordinates(data):
+    """좌표 누락/범위 밖 CCTV를 찾는다.
+
+    재생 대상(active)인데 좌표가 범위 밖이면 오류다. 지도에서 바다나 해외에
+    찍히고 거리순 추천도 깨진다. manual_check 등 비활성 항목은 (0, 0) 같은
+    자리표시 좌표가 남아 있을 수 있어 경고로만 보고한다.
+    """
+    errors = []
+    warnings = []
+    for item in data:
+        name = item.get("name", "")
+        try:
+            lat = float(item.get("lat"))
+            lng = float(item.get("lng"))
+            valid_number = lat == lat and lng == lng  # NaN check
+        except (TypeError, ValueError):
+            valid_number = False
+        if valid_number and KOREA_LAT_RANGE[0] <= lat <= KOREA_LAT_RANGE[1] and KOREA_LON_RANGE[0] <= lng <= KOREA_LON_RANGE[1]:
+            continue
+        coords = f"({item.get('lat')}, {item.get('lng')})"
+        message = f"{name} [{item.get('source', '-')}/{item.get('id', '-')}]: 좌표가 대한민국 범위 밖이거나 없음 {coords}"
+        if str(item.get("status") or "active") == "active":
+            errors.append(f"[ERROR] {message}")
+        else:
+            warnings.append(f"[WARN] {message}")
+    return errors, warnings
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Validate CCTV dataset configuration")
     parser.add_argument(
@@ -194,6 +228,21 @@ def main():
         for e in errors[:5]:
             print(f"    {e}")
     
+    # 4. 좌표 범위 검증
+    print("\n[4] 좌표 범위 검증 (위도 33~39.5, 경도 124~132)...")
+    errors, warnings = validate_coordinates(data)
+    all_errors.extend(errors)
+    if not errors and not warnings:
+        print("    ✅ 통과")
+    else:
+        for e in errors[:10]:
+            print(f"    {e}")
+        if len(errors) > 10:
+            print(f"    ... 외 {len(errors) - 10}개")
+        if warnings:
+            print(f"    [WARN] 비활성 CCTV {len(warnings)}개 좌표 범위 밖 (예: {warnings[0]})")
+            print(f"::warning::비활성 CCTV {len(warnings)}개 좌표가 대한민국 범위 밖입니다.")
+
     print("\n" + "=" * 60)
     if all_errors:
         print(f"❌ 검증 실패: {len(all_errors)}개 오류 발견")
