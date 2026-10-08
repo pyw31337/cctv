@@ -4,7 +4,8 @@ app = "cctv-proxy-hoon-001"  # Updated to user's unique app name
 primary_region = "nrt"     # Tokyo (nearest to Korea)
 
 [build]
-  dockerfile = "server/Dockerfile"
+  # Dockerfile is passed by deploy-server.yml (--dockerfile server/Dockerfile);
+  # paths here resolve relative to this file, so "server/Dockerfile" broke deploys.
 
 [http_service]
   internal_port = 8080
