@@ -459,6 +459,7 @@ body {
     align-items: center;
     justify-content: center;
     background: #000;
+    touch-action: pan-y;
 }
 
 .video-panel video,
@@ -470,6 +471,12 @@ body {
     border: none;
     display: block;
     background: #000;
+}
+
+/* Embedded providers cannot bubble touch events out of their document.
+   Let the panel own tap and pan gestures just like native video feeds. */
+#video-grid .video-panel iframe {
+    pointer-events: none;
 }
 
 .video-placeholder {
@@ -800,8 +807,7 @@ body {
     font-weight: 600;
 }
 
-/* Panel Expand/Collapse Button */
-.panel-expand-btn,
+/* Panel Refresh Button */
 .panel-refresh-btn {
     width: 32px;
     height: 32px;
@@ -818,17 +824,11 @@ body {
     flex-shrink: 0;
 }
 
-.panel-expand-btn {
-    margin-left: auto;
-}
-
-.panel-expand-btn:hover,
 .panel-refresh-btn:hover {
     border-color: var(--accent);
     background: rgba(0, 0, 0, 0.85);
 }
 
-.panel-expand-btn svg,
 .panel-refresh-btn svg {
     pointer-events: none;
 }
@@ -4383,16 +4383,16 @@ body.world-tour-active #pwa-install-prompt {
     transform: scale(1.1);
 }
 
-/* === Draggable Video Pan (for expanded panels) === */
-.video-panel.expanded video,
-.video-panel.expanded iframe {
+/* === Draggable Video Pan === */
+.video-panel video,
+.video-panel iframe {
     cursor: grab;
     object-position: center center;
     transition: object-position 0.1s ease-out;
 }
 
-.video-panel.expanded video:active,
-.video-panel.expanded iframe:active {
+.video-panel video:active,
+.video-panel iframe:active {
     cursor: grabbing;
 }
 

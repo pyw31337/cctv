@@ -591,9 +591,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     restoreInitialCams();
     renderServiceStatusBanner();
 
-    // Initialize Split screen mode & Swipe gestures
+    // Initialize split mode and panel interactions.
     initSplitMode();
-    setupPanelSwipe();
     setupVideoLayerSwipe();
 
     // Bind event handlers for new Header & Map buttons
@@ -5035,15 +5034,6 @@ function initPanelControls() {
             return;
         }
 
-        // Expand button click
-        const expandBtn = e.target.closest('.panel-expand-btn');
-        if (expandBtn) {
-            e.stopPropagation();
-            const panel = expandBtn.closest('.video-panel');
-            togglePanelExpand(panel, expandBtn);
-            return;
-        }
-
         // Refresh button click
         const refreshBtn = e.target.closest('.panel-refresh-btn');
         if (refreshBtn) {
@@ -5065,11 +5055,19 @@ function initPanelControls() {
             e.stopPropagation();
             const panel = floatingClose.closest('.video-panel');
             if (panel && panel.classList.contains('expanded')) {
-                const expandBtn = panel.querySelector('.panel-expand-btn');
-                togglePanelExpand(panel, expandBtn);
+                togglePanelExpand(panel);
             }
             return;
         }
+
+        // A short tap focuses this panel. Dragging is handled by setupVideoPan.
+        const panel = e.target.closest('.video-panel');
+        if (!panel || e.target.closest('.panel-controls, button, a, input, select, textarea')) return;
+        if (panel.dataset.didPan === 'true') {
+            delete panel.dataset.didPan;
+            return;
+        }
+        togglePanelExpand(panel);
     });
 
     // Close dropdowns when clicking outside
@@ -5127,23 +5125,8 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     renderPanelHealthBadge(panel, cctv);
 }
 
-function togglePanelExpand(panel, btn) {
-    const isExpanded = panel.classList.toggle('expanded');
-
-    // Update button icon
-    if (isExpanded) {
-        // Minimize icon
-        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M10 14L3 21"/>
-        </svg>`;
-        btn.title = '축소';
-    } else {
-        // Expand icon
-        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>
-        </svg>`;
-        btn.title = '확대';
-    }
+function togglePanelExpand(panel) {
+    panel.classList.toggle('expanded');
 
     // Update layout for UTIC scaling
     setTimeout(updateUticLayout, 350); // Small delay for transition
@@ -8540,8 +8523,6 @@ function setupVideoPan() {
         const getVideoElement = () => panel.querySelector('video, iframe');
 
         const onStart = (e) => {
-            if (!panel.classList.contains('expanded')) return;
-
             // Ignore if touching controls (select box, buttons)
             if (e.target.closest('.panel-controls') || e.target.closest('.panel-floating-close')) {
                 return;
@@ -8552,6 +8533,7 @@ function setupVideoPan() {
             const touch = e.touches ? e.touches[0] : e;
             startX = touch.clientX;
             startY = touch.clientY;
+            panel.dataset.didPan = 'false';
 
             // Initialize transformation values from current element style
             const video = getVideoElement();
@@ -8565,6 +8547,9 @@ function setupVideoPan() {
             if (!isDragging) return;
             e.preventDefault();
             const touch = e.touches ? e.touches[0] : e;
+            if (Math.abs(touch.clientX - startX) > 8 || Math.abs(touch.clientY - startY) > 8) {
+                panel.dataset.didPan = 'true';
+            }
 
             const video = getVideoElement();
             if (!video) return;
@@ -8577,12 +8562,14 @@ function setupVideoPan() {
                 transX += dx;
                 transY += dy;
 
-                video.style.setProperty('--tx', `${transX}px`);
-                video.style.setProperty('--ty', `${transY}px`);
+                video.style.setProperty('--translate-x', `${transX}px`);
+                video.style.setProperty('--translate-y', `${transY}px`);
             } else {
                 // Normal Video: Object Position (Percent)
                 const deltaX = (touch.clientX - startX) * 0.15;
-                const deltaY = (touch.clientY - startY) * 0.15;
+                const deltaY = panel.classList.contains('expanded')
+                    ? (touch.clientY - startY) * 0.15
+                    : 0;
 
                 currentX = Math.max(0, Math.min(100, currentX - deltaX));
                 currentY = Math.max(0, Math.min(100, currentY - deltaY));
