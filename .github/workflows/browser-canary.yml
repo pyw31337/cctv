@@ -67,8 +67,12 @@ jobs:
               raise SystemExit('browser canary did not produce a report')
           report = json.loads(path.read_text(encoding='utf-8'))
           summary = report.get('summary') or {}
-          failed = int(summary.get('failed') or 0)
-          if failed:
-              raise SystemExit(f'browser playback canary failed for {failed} region(s)')
-          print(f"browser playback canary passed {summary.get('passed', 0)} region(s)")
+          hard_failed = int(summary.get('hard_failed') or 0)
+          service_failed = int(summary.get('service_impact_failed') or 0)
+          if hard_failed:
+              raise SystemExit(f'browser playback canary found {hard_failed} structural failure(s)')
+          print(
+              f"browser playback canary passed {summary.get('passed', 0)} region(s); "
+              f"service-impact warnings={service_failed}"
+          )
           PY

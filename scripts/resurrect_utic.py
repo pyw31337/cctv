@@ -18,6 +18,7 @@ UTIC audit 으로 manual_check 처리된 카메라들을 살릴 방법을 시도
 """
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -41,6 +42,7 @@ HEADERS = {
 }
 TIMEOUT = 8
 MAX_WORKERS = 15
+STREAM_ID_RE = re.compile(r"/media/([A-Za-z0-9_-]+)/", re.IGNORECASE)
 
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
@@ -154,6 +156,20 @@ def verify_url(url):
     return verify_worker(url)
 
 
+def stream_id_from_url(url):
+    match = STREAM_ID_RE.search(str(url or ""))
+    return match.group(1).upper() if match else None
+
+
+def expected_stream_id(cam):
+    """Return the immutable identity for a verified/locked camera."""
+    for key in ("golden_stream_id", "stream_id"):
+        value = str(cam.get(key) or "").strip()
+        if value:
+            return value.upper()
+    return None
+
+
 def try_resurrect(cam):
     """단일 카메라 부활 시도. (cctv_id, status, new_url or None)"""
     cid = cam["id"]
@@ -163,6 +179,12 @@ def try_resurrect(cam):
     new_url = construct_url(cid, info)
     if not new_url:
         return cid, "url_failed", None
+    expected = expected_stream_id(cam) if cam.get("mapping_locked") else None
+    actual = stream_id_from_url(new_url)
+    if expected and actual != expected:
+        # A live response is not enough to replace a verified mapping. The
+        # provider may have returned another camera's stream ID.
+        return cid, "mapping_conflict", None
     if verify_url(new_url):
         return cid, "alive", new_url
     return cid, "worker_still_404", None
