@@ -164,6 +164,7 @@ async function main() {
       service_impact_failed: results.filter(item => !item.ok
         && item.duplicate_stream_keys.length === 0
         && item.mapping_errors.length === 0).length,
+      service_impact_critical_failed: results.filter(item => item.key === 'namyangju' && !item.ok).length,
       hard_failed: results.filter(item => item.duplicate_stream_keys.length > 0
         || item.mapping_errors.length > 0).length,
     },
@@ -172,7 +173,8 @@ async function main() {
   fs.writeFileSync(OUT, `${JSON.stringify(payload, null, 2)}\n`);
   // Upstream camera outages are service-impact telemetry, not a CI failure.
   // Fail only on structural identity violations; those can regress the catalog.
-  if (payload.summary.hard_failed > 0) process.exitCode = 1;
+  if (payload.summary.hard_failed > 0
+    || (payload.summary.failed > 0 && payload.summary.passed === 0)) process.exitCode = 1;
 }
 
 main().catch(error => {
