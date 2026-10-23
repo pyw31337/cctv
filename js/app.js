@@ -40,6 +40,7 @@ const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || RUNTIME_CONFIG.quality || {
 const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || RUNTIME_CONFIG.qualityTelemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
 const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || RUNTIME_CONFIG.qualitySummaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
 const QUALITY_SUMMARY_FALLBACK_URL = RUNTIME_CONFIG.qualitySummaryFallbackUrl || 'data/quality_summary.json';
+const QUALITY_POLICY_FALLBACK_URL = RUNTIME_CONFIG.qualityPolicyFallbackUrl || 'data/quality_policy.json';
 const DEFAULT_PROXY_BASES = Array.isArray(RUNTIME_CONFIG.proxyBases) && RUNTIME_CONFIG.proxyBases.length > 0
     ? RUNTIME_CONFIG.proxyBases
     : [
@@ -515,6 +516,8 @@ const state = {
     qualitySummary: null,
     qualitySummaryLoaded: false,
     qualitySummaryStale: false,
+    qualityPolicy: null,
+    qualityPolicyLoaded: false,
     canaryStatus: null,
     canaryCameras: new Map(),
     canaryRegions: {},
@@ -665,6 +668,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderMapMarkers();
     });
 
+    loadQualityPolicy().then((loaded) => {
+        if (!loaded) return;
+        updateNearestCctvs();
+        if (!document.body.classList.contains('world-tour-active')) renderVideoGrid();
+    });
+
     loadCanaryStatus().then((loaded) => {
         if (!loaded) return;
         updateNearestCctvs();
@@ -809,6 +818,20 @@ async function loadQualitySummary() {
     }
 
     return false;
+}
+
+async function loadQualityPolicy() {
+    try {
+        const bucket = Math.floor(Date.now() / QUALITY_SUMMARY_BUCKET_MS);
+        const policy = await fetchJsonWithTimeout(`${QUALITY_POLICY_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${bucket}`, QUALITY_SUMMARY_TIMEOUT_MS);
+        if (!policy || policy.schema !== 'cctv-quality-policy-v1') return false;
+        state.qualityPolicy = policy;
+        state.qualityPolicyLoaded = true;
+        return true;
+    } catch (error) {
+        console.debug('[Quality] Policy load skipped:', error.message || error);
+        return false;
+    }
 }
 
 function applyQualitySummary(summary) {
@@ -3086,6 +3109,10 @@ function getStreamQualityScore(cctv) {
         score -= 0.1;
     }
 
+    const policy = state.qualityPolicy?.cameras?.[cctv.id] || state.qualityPolicy?.sources?.[source];
+    if (policy && Number(policy.confidence) >= 20 && Number.isFinite(Number(policy.score))) {
+        score = (score * 0.35) + ((Number(policy.score) / 100) * 0.65);
+    }
     return Math.max(0.4, Math.min(0.98, score));
 }
 

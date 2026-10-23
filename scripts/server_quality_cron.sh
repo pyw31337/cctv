@@ -70,6 +70,11 @@ if ! "$PYTHON" scripts/build_quality_summary_fallback.py >> "$LOG_FILE" 2>&1; th
   echo "[$(date -Is)] quality summary fallback failed" >> "$LOG_FILE"
 fi
 
+echo "[$(date -Is)] build telemetry ranking and repair policy" >> "$LOG_FILE"
+if ! "$PYTHON" scripts/build_quality_policy.py >> "$LOG_FILE" 2>&1; then
+  echo "[$(date -Is)] quality policy build failed" >> "$LOG_FILE"
+fi
+
 if ! "$PYTHON" scripts/standardize_quality_times.py --source oracle-quality-cron >> "$LOG_FILE" 2>&1; then
   echo "[$(date -Is)] quality timestamp normalization failed" >> "$LOG_FILE"
 fi

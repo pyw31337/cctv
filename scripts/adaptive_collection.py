@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA = ROOT / "cctv_data.json"
 DEFAULT_STATE = ROOT / "data" / "collection_schedule.json"
 DEFAULT_QUALITY = ROOT / "data" / "quality_summary.json"
+DEFAULT_POLICY = ROOT / "data" / "quality_policy.json"
 SCHEMA_VERSION = 1
 
 TASKS = {
@@ -138,7 +139,16 @@ def browser_grid_signal(quality: dict[str, Any]) -> dict[str, float]:
     }
 
 
-def effective_interval(task: str, record: dict[str, Any], data: list[dict[str, Any]], quality: dict[str, Any] | None = None) -> float:
+def quality_policy_pressure(policy: dict[str, Any], source: str) -> float:
+    """Return a bounded urgency signal without allowing AI/advice to drive jobs."""
+    row = (policy.get("sources") or {}).get(source) if isinstance(policy, dict) else None
+    if not isinstance(row, dict) or int(row.get("confidence") or 0) < 20:
+        return 0.0
+    score = max(0.0, min(100.0, float(row.get("score") or 50.0)))
+    return max(0.0, min(0.7, (70.0 - score) / 70.0))
+
+
+def effective_interval(task: str, record: dict[str, Any], data: list[dict[str, Any]], quality: dict[str, Any] | None = None, policy: dict[str, Any] | None = None) -> float:
     config = TASKS[task]
     previous = record.get("last_snapshot") or {}
     current = snapshot(data, config["source"])
@@ -153,6 +163,7 @@ def effective_interval(task: str, record: dict[str, Any], data: list[dict[str, A
         telemetry["slow_rate"] = grid["slow_rate"]
         telemetry["confidence"] = grid["confidence"]
     observed_failure = failures * (1 - telemetry["confidence"]) + telemetry_failure * telemetry["confidence"]
+    policy_pressure = quality_policy_pressure(policy or {}, config["source"])
 
     # Stable sources may stretch to the cap. Churn, stale failures, and a
     # failed previous run shorten the next interval aggressively. Runtime
@@ -165,13 +176,14 @@ def effective_interval(task: str, record: dict[str, Any], data: list[dict[str, A
     elif telemetry["first_frame_ms"] > 6000:
         multiplier -= 0.15 * telemetry["confidence"]
     multiplier -= min(consecutive_failures * 0.25, 1.0)
+    multiplier -= policy_pressure * 0.6
     multiplier = max(0.25, min(2.0, multiplier))
     return max(config["min_hours"], min(config["max_hours"], config["base_hours"] * multiplier))
 
 
-def task_status(task: str, state: dict[str, Any], data: list[dict[str, Any]], now: datetime, quality: dict[str, Any] | None = None) -> dict[str, Any]:
+def task_status(task: str, state: dict[str, Any], data: list[dict[str, Any]], now: datetime, quality: dict[str, Any] | None = None, policy: dict[str, Any] | None = None) -> dict[str, Any]:
     record = dict((state.get("tasks") or {}).get(task) or {})
-    interval = effective_interval(task, record, data, quality)
+    interval = effective_interval(task, record, data, quality, policy)
     last_success = parse_time(record.get("last_success_at"))
     last_attempt = parse_time(record.get("last_attempt_at"))
     anchor = last_success or last_attempt
@@ -189,6 +201,7 @@ def task_status(task: str, state: dict[str, Any], data: list[dict[str, Any]], no
         "change_rate": round(float(record.get("change_rate", 0) or 0), 4),
         "failure_rate": round(source_failure_rate(data, TASKS[task]["source"]), 4),
         "telemetry": telemetry,
+        "policy_pressure": round(quality_policy_pressure(policy or {}, TASKS[task]["source"]), 3),
     }
 
 
@@ -198,8 +211,9 @@ def plan(args: argparse.Namespace) -> int:
         raise SystemExit(f"{args.data} must contain a JSON list")
     state = load_json(Path(args.state), {"version": SCHEMA_VERSION, "tasks": {}})
     quality = load_json(Path(args.quality), {})
+    policy = load_json(Path(args.policy), {})
     now = now_utc()
-    statuses = [task_status(task, state, data, now, quality) for task in TASKS]
+    statuses = [task_status(task, state, data, now, quality, policy) for task in TASKS]
     selected = next((item["task"] for item in statuses if item["due"]), "")
     result = {"generated_at": now.isoformat(), "selected_task": selected, "tasks": statuses}
     print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -244,6 +258,7 @@ def main() -> int:
     parser.add_argument("--data", default=str(DEFAULT_DATA))
     parser.add_argument("--state", default=str(DEFAULT_STATE))
     parser.add_argument("--quality", default=str(DEFAULT_QUALITY))
+    parser.add_argument("--policy", default=str(DEFAULT_POLICY))
     parser.add_argument("--github-output", action="store_true")
     args = parser.parse_args()
     if args.command == "plan":
