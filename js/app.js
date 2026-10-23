@@ -263,7 +263,8 @@ const TRAFFIC_CONTEXT_PATTERN = /(고속|고속도로|도시고속|자동차전�
 const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오름|산책|관광|해수욕장|방파제|등대|섬|계곡|정자|캠핑|휴양|하천|강변|왕숙천|중랑천|탄천|한강|호수)/;
 const BLOCKED_YOUTUBE_VIDEO_IDS = new Set([
     'bKcdTWp6akg', // [YouTube] 대전 엑스포 한빛광장: owner-side private video.
-    '5uZa3-RMFos' // Sydney Harbour: owner disabled playback on external embeds.
+    '5uZa3-RMFos', // Sydney Harbour: owner disabled playback on external embeds.
+    'DSgn-lTHJzM' // 서울역 광장: YouTube player reports that the live stream recording is unavailable.
 ]);
 
 // === Source metadata (label + accent color for dot/badge) ===
