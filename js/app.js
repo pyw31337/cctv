@@ -5622,7 +5622,10 @@ function createVideoElement(cctv, sourceIndex = 0) {
         video.setAttribute('playsinline', '');
 
         const gitsId = getGitsCameraId(cctv, originalPlaybackUrl);
-        const gitsUrl = `${GITS_PROXY_BASE}/gits?cctvip=${encodeURIComponent(gitsId)}&_t=${Date.now()}`;
+        // Use the same origin and resolver that the canary validates. The
+        // legacy Fly relay could deliver an initial playlist then fail during
+        // segment loading, causing visible camera hopping in the 4-up grid.
+        const gitsUrl = `${PUBLIC_PROXY_BASE}/gits?id=${encodeURIComponent(gitsId)}&_t=${Date.now()}`;
         const failGits = () => {
             if (video.parentElement) triggerFailover(video.parentElement);
         };
