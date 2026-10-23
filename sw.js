@@ -1,7 +1,7 @@
 /* eslint-env serviceworker */
 /* global self, caches, fetch, URL */
 
-// Service worker for "밖에 눈오나?" — provides offline-friendly shell caching
+// Service worker for "렛츠 뷰 | Let's View" — provides offline-friendly shell caching
 // and stale-while-revalidate behaviour for slow-changing data files.
 //
 // Cache buckets:
@@ -23,6 +23,7 @@ const SHELL_ASSETS = [
     'css/style.css',
     'js/app.js',
     'site.webmanifest',
+    'lets-view-icon.svg',
     'favicon.ico',
     'favicon-16x16.png',
     'favicon-32x32.png',

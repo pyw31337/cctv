@@ -1,7 +1,7 @@
 /**
  * cctv-og-image
  *
- * Dynamic Open Graph image generator for "밖에 눈오나?".
+ * Dynamic Open Graph image generator for "렛츠 뷰 | Let's View".
  *
  * Usage:
  *   GET https://cctv-og.pyw31337.workers.dev/og?id=<cctv_id>&title=<urlencoded>&city=<urlencoded>&snap=<urlencoded>
@@ -100,7 +100,7 @@ export default {
         const title = (params.get('title') || 'CCTV 라이브').slice(0, 80);
         const city = (params.get('city') || '').slice(0, 40);
         const snap = params.get('snap');
-        const attribution = env.ATTRIBUTION || '밖에 눈오나?';
+        const attribution = env.ATTRIBUTION || '렛츠 뷰 | Let\'s View';
 
         // Pretendard 폰트는 한글 표기에 적합한 무료 폰트 (jsdelivr CDN).
         const fontUrl = 'https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/pretendard.woff2';

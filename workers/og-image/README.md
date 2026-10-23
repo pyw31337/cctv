@@ -1,6 +1,6 @@
 # cctv-og-image
 
-Dynamic Open Graph image worker for "밖에 눈오나?" share cards.
+Dynamic Open Graph image worker for "렛츠 뷰 | Let's View" share cards.
 
 ## Why a worker
 
@@ -8,7 +8,7 @@ Dynamic Open Graph image worker for "밖에 눈오나?" share cards.
 - the current cctv's name (and direction parenthesis)
 - the city / region
 - the live snapshot blurred behind a vertical gradient
-- the "밖에 눈오나?" brand chip
+- the "렛츠 뷰 | Let's View" brand chip
 
 KakaoTalk / Slack / Twitter / Discord all render the link card with this dynamic image.
 

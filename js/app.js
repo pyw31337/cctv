@@ -1,5 +1,5 @@
 /**
- * CCTV Viewer 2.0 - Main Application Logic
+ * Let's View - Main Application Logic
  * Clean Rewrite: State-Driven, Event Delegation
  */
 
@@ -567,7 +567,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 // === Initialization ===
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('CCTV Viewer 2.0 Initializing...');
+    console.log("Let's View initializing...");
 
     // Detect mobile browser and mark body — used for CSS perf rules
     if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
