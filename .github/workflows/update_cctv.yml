@@ -83,6 +83,10 @@ jobs:
         if: steps.validate.outputs.validation_passed == 'true' && steps.preservation.outputs.preservation_passed == 'true'
         run: python scripts/validate_static_data.py cctv_data.json
 
+      - name: Record catalog playability change
+        if: steps.validate.outputs.validation_passed == 'true' && steps.preservation.outputs.preservation_passed == 'true'
+        run: python scripts/build_catalog_playability_report.py --event full_refresh
+
       - name: Record adaptive collection result
         if: always() && steps.plan.outputs.due_full_refresh == 'true'
         run: |
@@ -98,7 +102,7 @@ jobs:
         id: check_changes
         if: steps.validate.outputs.validation_passed == 'true' && steps.preservation.outputs.preservation_passed == 'true'
         run: |
-          if [[ -n "$(git status -s cctv_data.json data/collection_schedule.json data/workflow_status.json)" ]]; then
+          if [[ -n "$(git status -s cctv_data.json data/collection_schedule.json data/workflow_status.json data/catalog_playability_report.json data/catalog_playability_history.json)" ]]; then
             echo "changes_detected=true" >> "$GITHUB_OUTPUT"
           else
             echo "changes_detected=false" >> "$GITHUB_OUTPUT"
@@ -107,10 +111,10 @@ jobs:
       - name: Commit and push changes
         if: steps.check_changes.outputs.changes_detected == 'true'
         run: |
-          if git diff --quiet -- cctv_data.json data/collection_schedule.json data/workflow_status.json; then
+          if git diff --quiet -- cctv_data.json data/collection_schedule.json data/workflow_status.json data/catalog_playability_report.json data/catalog_playability_history.json; then
             echo "No full refresh or scheduler changes"
           else
-            scripts/commit_and_push_changes.sh "Auto-update: adaptive CCTV data (Validated) [skip ci]" cctv_data.json data/collection_schedule.json data/workflow_status.json
+            scripts/commit_and_push_changes.sh "Auto-update: adaptive CCTV data (Validated) [skip ci]" cctv_data.json data/collection_schedule.json data/workflow_status.json data/catalog_playability_report.json data/catalog_playability_history.json
           fi
 
       # When the refresh was rejected, still publish the status events (key

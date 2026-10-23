@@ -24,6 +24,8 @@ from cctv_runtime import (
 CCTV_DATA_FILE = "cctv_data.json"
 FAILED_STREAMS_FILE = "failed_streams.json"
 RENEWAL_REPORT_FILE = "renewal_report.json"
+QUALITY_REPAIR_QUEUE_FILE = os.getenv("QUALITY_REPAIR_QUEUE_FILE", "data/quality_repair_queue.json")
+QUALITY_REPAIR_LIMIT = max(0, int(os.getenv("QUALITY_REPAIR_LIMIT", "80")))
 API_URL = "https://www.utic.go.kr/map/getCctvInfoById.do"
 KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 KBS_RENEW_WITHIN_SECONDS = int(os.getenv("KBS_RENEW_WITHIN_SECONDS", str(8 * 60 * 60)))
@@ -130,6 +132,33 @@ def kbs_renewal_candidates(data_map, now=None):
     ]
 
 
+def quality_repair_candidates(data_map, path=QUALITY_REPAIR_QUEUE_FILE, limit=QUALITY_REPAIR_LIMIT):
+    """Select only safe URL-refresh work; never alter catalog identities/mappings."""
+    if limit <= 0:
+        return []
+    try:
+        payload = load_json(path) or {}
+        items = payload.get("items", []) if isinstance(payload, dict) else []
+    except (OSError, ValueError, TypeError):
+        return []
+    selected = []
+    for item in items:
+        if not isinstance(item, dict) or item.get("action") != "probe_stream":
+            continue
+        camera_id = str(item.get("id") or "")
+        camera = data_map.get(camera_id)
+        # GITS is renewed by its own ingest. Here, keep URL-token sources
+        # targeted and bounded so a bad upstream cannot fan out into a rewrite.
+        if not camera or camera.get("source") != "UTIC":
+            continue
+        if camera_id.upper() in NAMYANGJU_GOLDEN_STREAMS:
+            continue
+        selected.append(camera_id)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def renew_kbs_candidate(data_map, cctv_id, collector):
     """Refresh only a signed URL; catalog identity and verified mappings stay intact."""
     item = data_map.get(cctv_id)
@@ -191,7 +220,9 @@ def main():
     # Filter unique IDs
     candidates = list(set(candidates))
     kbs_candidates = kbs_renewal_candidates(data_map) if renew_kbs else []
-    print(f"Found {len(candidates)} failed-stream candidates and {len(kbs_candidates)} expiring KBS URLs.")
+    repair_candidates = quality_repair_candidates(data_map)
+    candidates = list(dict.fromkeys(candidates + repair_candidates))
+    print(f"Found {len(candidates)} URL-repair candidates ({len(repair_candidates)} quality queue) and {len(kbs_candidates)} expiring KBS URLs.")
     
     renewed_count = 0
     failed_count = 0
@@ -336,6 +367,7 @@ def main():
     report = {
         "timestamp": datetime.now().isoformat(),
         "candidates": len(candidates) + len(kbs_candidates),
+        "quality_repair_candidates": len(repair_candidates),
         "kbs_candidates": len(kbs_candidates),
         "renewed": renewed_count,
         "skipped": skips,

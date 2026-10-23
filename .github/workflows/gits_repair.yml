@@ -70,10 +70,13 @@ jobs:
       - name: Validate persisted data integrity
         run: python scripts/validate_static_data.py cctv_data.json
 
+      - name: Record catalog playability change
+        run: python scripts/build_catalog_playability_report.py --event gits_ingest
+
       - name: Commit changes
         run: |
-          if git diff --quiet -- cctv_data.json data/workflow_status.json data/collection_schedule.json; then
+          if git diff --quiet -- cctv_data.json data/workflow_status.json data/collection_schedule.json data/catalog_playability_report.json data/catalog_playability_history.json; then
             echo "No GITS or scheduler changes"
           else
-            scripts/commit_and_push_changes.sh "chore: adaptive GITS ingest [skip ci]" cctv_data.json data/workflow_status.json data/collection_schedule.json
+            scripts/commit_and_push_changes.sh "chore: adaptive GITS ingest [skip ci]" cctv_data.json data/workflow_status.json data/collection_schedule.json data/catalog_playability_report.json data/catalog_playability_history.json
           fi

@@ -16,10 +16,7 @@ permissions:
   contents: write
 
 concurrency:
-  # Shared only with world-tour-refresh.yml (both write
-  # data/world_tour_cams.json). See that workflow for why this is split
-  # out of cctv-repo-writes.
-  group: cctv-world-tour-writes
+  group: cctv-repo-writes
   cancel-in-progress: false
 
 env:
@@ -55,6 +52,9 @@ jobs:
       - name: Validate data
         run: python -m json.tool data/world_tour_cams.json >/tmp/world_tour_cams.pretty.json
 
+      - name: Record catalog playability change
+        run: python scripts/build_catalog_playability_report.py --event world_playability_audit
+
       - name: Write audit summary
         if: always()
         run: |
@@ -79,8 +79,8 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          if git diff --quiet -- data/world_tour_cams.json; then
+          if git diff --quiet -- data/world_tour_cams.json data/catalog_playability_report.json data/catalog_playability_history.json; then
             echo "No world tour playability changes."
           else
-            scripts/commit_and_push_changes.sh "AUTO: Refresh world tour playability [skip ci]" data/world_tour_cams.json
+            scripts/commit_and_push_changes.sh "AUTO: Refresh world tour playability [skip ci]" data/world_tour_cams.json data/catalog_playability_report.json data/catalog_playability_history.json
           fi
