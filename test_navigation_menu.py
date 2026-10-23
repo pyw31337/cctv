@@ -26,6 +26,21 @@ class NavigationMenuTests(unittest.TestCase):
         self.assertIn("if (action === 'world') openWorldTourFromMenu();", app_js)
         self.assertIn("if (action === 'weather') openWeatherFromMenu();", app_js)
 
+    def test_open_menu_owns_the_full_viewport(self):
+        css = (ROOT / "css" / "style.css").read_text(encoding="utf-8")
+        app_js = (ROOT / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("z-index: 2100", css)
+        self.assertIn("body.app-menu-open #header", css)
+        self.assertIn("document.body.classList.toggle('app-menu-open', isOpen)", app_js)
+
+    def test_icon_and_manifest_urls_have_a_release_cache_key(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        manifest = (ROOT / "site.webmanifest").read_text(encoding="utf-8")
+        self.assertIn("favicon-16x16.png?v=20261023-menu-ui-1", html)
+        self.assertIn("favicon-32x32.png?v=20261023-menu-ui-1", html)
+        self.assertIn("site.webmanifest?v=20261023-menu-ui-1", html)
+        self.assertIn("android-chrome-192x192.png?v=20261023-menu-ui-1", manifest)
+
 
 if __name__ == "__main__":
     unittest.main()

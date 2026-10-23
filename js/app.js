@@ -953,6 +953,7 @@ function setAppMenuOpen(isOpen) {
     backdrop.classList.toggle('active', isOpen);
     backdrop.setAttribute('aria-hidden', String(!isOpen));
     trigger.setAttribute('aria-expanded', String(isOpen));
+    document.body.classList.toggle('app-menu-open', isOpen);
     if (isOpen) {
         $('#search-results')?.classList.remove('active');
         $('#dim-overlay')?.classList.remove('active');
