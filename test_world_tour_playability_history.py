@@ -1,6 +1,11 @@
 import datetime as dt
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
+from scripts import audit_world_tour_playability as audit
 from scripts.audit_world_tour_playability import record_attempt, should_prune
 
 
@@ -21,6 +26,20 @@ class WorldTourPlayabilityHistoryTests(unittest.TestCase):
             record_attempt(history, failed, now)
         record_attempt(history, {"id": "recovered", "playbackStatus": "verified", "playUrl": "https://example.test/live.m3u8"}, now)
         self.assertFalse(should_prune(history, failed, now))
+
+    def test_run_removes_only_after_fifth_failed_audit(self):
+        item = {"id": "failed", "title": "Failed", "sourceType": "test", "playbackStatus": "source-only", "sourceOnly": True}
+        with tempfile.TemporaryDirectory() as tmp:
+            data_path = Path(tmp) / "world.json"
+            history_path = Path(tmp) / "history.json"
+            data_path.write_text(json.dumps({"items": [item]}), encoding="utf-8")
+            with patch.object(audit, "audit_item", side_effect=lambda value: dict(value)):
+                for _ in range(4):
+                    result = audit.run(data_path, history_path, max_workers=1)
+                    self.assertEqual(result["items"], 1)
+                result = audit.run(data_path, history_path, max_workers=1)
+            self.assertEqual(result["items"], 0)
+            self.assertEqual(result["removedAfterFiveFailedChecks"], 1)
 
 
 if __name__ == "__main__":
