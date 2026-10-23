@@ -59,8 +59,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    max-width: 760px;
+    gap: 8px;
+    max-width: 620px;
     margin: 0 auto;
     padding: 8px 12px;
     pointer-events: auto;
@@ -236,7 +236,7 @@ body {
 /* === Search Box === */
 .search-box {
     flex: 1;
-    max-width: 300px;
+    max-width: none;
     height: var(--control-height);
     min-height: var(--control-height);
     position: relative;
@@ -247,7 +247,7 @@ body {
 .search-box input {
     width: 100%;
     height: var(--control-height);
-    padding: 0 72px 0 16px;
+    padding: 0 46px 0 16px;
     background: var(--bg-primary);
     border: 2px solid var(--accent);
     border-radius: var(--radius-full);
@@ -262,7 +262,7 @@ body {
 
 .search-clear {
     position: absolute;
-    right: 40px;
+    right: 8px;
     top: 50%;
     transform: translateY(-50%);
     width: 28px;
@@ -275,6 +275,97 @@ body {
     cursor: pointer;
     display: none;
 }
+
+/* The bottom bar deliberately keeps just search and one navigation doorway. */
+.app-menu-trigger {
+    flex: 0 0 auto;
+    min-width: 66px;
+    height: var(--control-height);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 12px;
+    border: 1px solid rgba(148, 163, 184, 0.36);
+    border-radius: var(--radius-full);
+    background: rgba(15, 23, 42, 0.94);
+    color: var(--text-primary);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.app-menu-trigger[aria-expanded="true"] {
+    border-color: var(--accent);
+    color: #bbf7d0;
+    background: rgba(20, 83, 45, 0.9);
+}
+
+.app-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1300;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 16px 12px max(12px, env(safe-area-inset-bottom));
+    background: rgba(2, 6, 23, 0.68);
+    backdrop-filter: blur(10px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 180ms ease, visibility 180ms ease;
+}
+
+.app-menu-backdrop.active {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.app-menu-sheet {
+    width: min(100%, 580px);
+    max-height: min(760px, calc(100dvh - 24px));
+    overflow: auto;
+    padding: 8px 16px 18px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 24px;
+    background:
+        radial-gradient(circle at 92% 0%, rgba(34, 197, 94, 0.18), transparent 30%),
+        linear-gradient(160deg, #172338, #0f172a 62%);
+    box-shadow: 0 -16px 60px rgba(0, 0, 0, 0.46);
+    transform: translateY(18px);
+    transition: transform 220ms cubic-bezier(0.22, 0.9, 0.28, 1);
+}
+
+.app-menu-backdrop.active .app-menu-sheet { transform: translateY(0); }
+.app-menu-handle { width: 36px; height: 4px; margin: 3px auto 14px; border-radius: 99px; background: rgba(226, 232, 240, 0.26); }
+.app-menu-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.app-menu-heading p { color: #86efac; font-size: 10px; font-weight: 900; letter-spacing: 0.14em; }
+.app-menu-heading h2 { margin-top: 3px; font-size: 21px; letter-spacing: -0.04em; }
+.app-menu-close { width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(148, 163, 184, 0.14); color: var(--text-primary); font-size: 24px; cursor: pointer; }
+.app-menu-section { margin-top: 15px; }
+.app-menu-label { display: block; margin: 0 2px 8px; color: #94a3b8; font-size: 11px; font-weight: 800; }
+.app-menu-primary-grid, .app-menu-secondary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.app-menu-card, .app-menu-row { border: 1px solid rgba(148, 163, 184, 0.15); color: var(--text-primary); background: rgba(30, 41, 59, 0.66); cursor: pointer; text-align: left; }
+.app-menu-card { min-height: 100px; padding: 14px; border-radius: 16px; }
+.app-menu-card.is-primary { border-color: rgba(74, 222, 128, 0.42); background: linear-gradient(145deg, rgba(22, 101, 52, 0.65), rgba(20, 83, 45, 0.36)); }
+.app-menu-card.is-active { box-shadow: inset 0 0 0 1px rgba(134, 239, 172, 0.75); }
+.app-menu-icon { display: block; margin-bottom: 8px; color: #86efac; font-size: 26px; line-height: 1; }
+.app-menu-card strong, .app-menu-row strong { display: block; font-size: 14px; }
+.app-menu-card small, .app-menu-row small { display: block; margin-top: 4px; color: #94a3b8; font-size: 11px; line-height: 1.35; }
+.app-menu-row { display: flex; width: 100%; min-height: 62px; align-items: center; gap: 10px; padding: 11px 13px; border-radius: 14px; }
+.app-menu-row-icon { flex: 0 0 32px; color: #86efac; font-size: 23px; text-align: center; }
+.app-menu-row > span:nth-child(2) { min-width: 0; flex: 1; }
+.app-menu-row > b { color: #94a3b8; font-size: 24px; font-weight: 400; }
+.app-menu-highway { background: linear-gradient(100deg, rgba(30, 64, 175, 0.34), rgba(30, 41, 59, 0.72)); }
+.app-menu-tools { display: flex; align-items: center; gap: 8px; margin-top: 17px; padding-top: 14px; border-top: 1px solid rgba(148, 163, 184, 0.15); }
+.app-menu-tools button, .app-menu-tools label { min-height: 38px; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 12px; background: rgba(15, 23, 42, 0.5); color: #cbd5e1; font-size: 12px; font-weight: 700; }
+.app-menu-tools button { padding: 0 12px; cursor: pointer; }
+.app-menu-tools label { display: flex; flex: 1; align-items: center; justify-content: space-between; padding-left: 11px; }
+.app-menu-tools select { height: 34px; max-width: 108px; border: 0; border-radius: 10px; background: rgba(51, 65, 85, 0.76); color: white; font: inherit; outline: 0; }
+@media (max-width: 390px) { .app-menu-sheet { padding-inline: 12px; } .app-menu-card { padding: 11px; } .app-menu-card strong, .app-menu-row strong { font-size: 13px; } }
 
 .search-box input:not(:placeholder-shown)+.search-clear {
     display: flex;

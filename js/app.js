@@ -946,10 +946,69 @@ function setSortMode(mode) {
     syncUrlState();
 }
 
+function setAppMenuOpen(isOpen) {
+    const backdrop = $('#app-menu-backdrop');
+    const trigger = $('#app-menu-trigger');
+    if (!backdrop || !trigger) return;
+    backdrop.classList.toggle('active', isOpen);
+    backdrop.setAttribute('aria-hidden', String(!isOpen));
+    trigger.setAttribute('aria-expanded', String(isOpen));
+    if (isOpen) {
+        $('#search-results')?.classList.remove('active');
+        $('#dim-overlay')?.classList.remove('active');
+    }
+}
+
+function openWeatherFromMenu() {
+    closeAllOverlays();
+    const layer = $('#weather-layer');
+    if (!layer) return;
+    layer.classList.add('active');
+    $('#dim-overlay')?.classList.add('active');
+    openWeatherPanel();
+}
+
+function openWorldTourFromMenu() {
+    closeAllOverlays();
+    const layer = $('#weather-layer');
+    if (!layer) return;
+    layer.classList.add('active');
+    $('#dim-overlay')?.classList.remove('active');
+    openWorldTourPanel({ viewMode: 'map' }).catch(error => console.warn('[WorldTour] menu open failed:', error));
+}
+
+function setupAppMenu() {
+    const trigger = $('#app-menu-trigger');
+    const backdrop = $('#app-menu-backdrop');
+    if (!trigger || !backdrop) return;
+
+    trigger.addEventListener('click', () => setAppMenuOpen(!backdrop.classList.contains('active')));
+    backdrop.addEventListener('click', event => {
+        if (event.target === backdrop || event.target.closest('[data-menu-close]')) setAppMenuOpen(false);
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && backdrop.classList.contains('active')) {
+            event.preventDefault();
+            setAppMenuOpen(false);
+        }
+    });
+    backdrop.querySelectorAll('[data-menu-action]').forEach(button => {
+        button.addEventListener('click', () => {
+            const action = button.dataset.menuAction;
+            setAppMenuOpen(false);
+            if (action === 'video' || action === 'map') switchMode(action);
+            if (action === 'highway') openHighwayPanel();
+            if (action === 'weather') openWeatherFromMenu();
+            if (action === 'world') openWorldTourFromMenu();
+            if (action === 'location') handleCurrentLocation();
+        });
+    });
+}
+
 // === Event Listeners (Delegation) ===
 function setupEventListeners() {
-    // Segment Control (Video/Map Toggle)
-    $('#segment-control').addEventListener('click', (e) => {
+    // Legacy control support: the primary navigation now lives in the app menu.
+    $('#segment-control')?.addEventListener('click', (e) => {
         const btn = e.target.closest('.segment-btn');
         if (btn) {
             const mode = btn.dataset.mode;
@@ -1015,8 +1074,8 @@ function setupEventListeners() {
     $('#dim-overlay').addEventListener('click', closeAllOverlays);
 
     // Weather
-    $('#weather-btn').addEventListener('click', toggleWeather);
-    $('#weather-close').addEventListener('click', closeWeather);
+    $('#weather-btn')?.addEventListener('click', toggleWeather);
+    $('#weather-close')?.addEventListener('click', closeWeather);
     $('#world-tour-header-switch')?.addEventListener('click', event => {
         const button = event.target.closest('[data-world-tour-view]');
         if (!button) return;
@@ -1038,7 +1097,9 @@ function setupEventListeners() {
     });
 
     // Location Button
-    $('#location-btn').addEventListener('click', handleCurrentLocation);
+    $('#location-btn')?.addEventListener('click', handleCurrentLocation);
+
+    setupAppMenu();
 
     // Search Results Click (Delegation for items, share, bookmark, delete, cctv favorite, open compare)
     $('#search-results').addEventListener('click', (e) => {
@@ -1200,6 +1261,9 @@ function switchMode(mode) {
     // Update Button States
     $$('.segment-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    $$('#app-menu-backdrop [data-menu-action="video"], #app-menu-backdrop [data-menu-action="map"]').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.menuAction === mode);
     });
 
     // Update Views
@@ -1763,7 +1827,7 @@ async function handleCurrentLocation() {
         return;
     }
 
-    btn.classList.add('loading');
+    btn?.classList.add('loading');
 
     navigator.geolocation.getCurrentPosition(async (position) => {
         const { latitude, longitude } = position.coords;
@@ -1771,7 +1835,7 @@ async function handleCurrentLocation() {
         // Use Geocoder to get address name
         const geocoder = new kakao.maps.services.Geocoder();
         geocoder.coord2Address(longitude, latitude, (result, status) => {
-            btn.classList.remove('loading');
+            btn?.classList.remove('loading');
             if (status === kakao.maps.services.Status.OK) {
                 const addr = result[0].address;
                 const addressName = addr.address_name;
@@ -1785,7 +1849,7 @@ async function handleCurrentLocation() {
             }
         });
     }, (error) => {
-        btn.classList.remove('loading');
+        btn?.classList.remove('loading');
         console.error('Geolocation error:', error);
         const msg = error.code === 1 ? '위치 정보 권한이 거부되었습니다.' : '위치 정보를 가져오는데 실패했습니다.';
         alert(msg);
@@ -7522,7 +7586,7 @@ function toggleWeather() {
         $('#search-results').classList.remove('active');
 
         layer.classList.add('active');
-        btn.classList.add('active');
+        btn?.classList.add('active');
 
         if (state.mode === 'map') {
             $('#dim-overlay').classList.remove('active');
@@ -8394,6 +8458,7 @@ function closeVideoLayer() {
 
 // === Overlays ===
 function closeAllOverlays() {
+    setAppMenuOpen(false);
     $('#search-results').classList.remove('active');
     $('#dim-overlay').classList.remove('active');
     closeWeather();
