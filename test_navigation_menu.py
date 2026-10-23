@@ -1,4 +1,5 @@
 import unittest
+import re
 from pathlib import Path
 
 
@@ -36,10 +37,12 @@ class NavigationMenuTests(unittest.TestCase):
     def test_icon_and_manifest_urls_have_a_release_cache_key(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         manifest = (ROOT / "site.webmanifest").read_text(encoding="utf-8")
-        self.assertIn("favicon-16x16.png?v=20261023-menu-ui-1", html)
-        self.assertIn("favicon-32x32.png?v=20261023-menu-ui-1", html)
-        self.assertIn("site.webmanifest?v=20261023-menu-ui-1", html)
-        self.assertIn("android-chrome-192x192.png?v=20261023-menu-ui-1", manifest)
+        icon_version = re.search(r'favicon-16x16\.png\?v=([^"\']+)', html)
+        self.assertIsNotNone(icon_version)
+        version = icon_version.group(1)
+        self.assertIn(f"favicon-32x32.png?v={version}", html)
+        self.assertIn(f"site.webmanifest?v={version}", html)
+        self.assertIn(f"android-chrome-192x192.png?v={version}", manifest)
 
 
 if __name__ == "__main__":

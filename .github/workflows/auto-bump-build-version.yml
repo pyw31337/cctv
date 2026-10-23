@@ -18,6 +18,7 @@ on:
       - 'js/**'
       - 'css/**'
       - 'index.html'
+      - 'site.webmanifest'
       - 'sw.js'
 
 env:
@@ -60,8 +61,8 @@ jobs:
             sed -i.bak "s/APP_BUILD_VERSION = '[^']*';/APP_BUILD_VERSION = '${VERSION}';/" js/app.js
             rm -f js/app.js.bak
           fi
-          # index.html / sw.js — ?v=… cache-busting queries on assets
-          for f in index.html sw.js; do
+          # Keep the HTML icon links and PWA manifest icon links in lockstep.
+          for f in index.html site.webmanifest sw.js; do
             [ -f "$f" ] || continue
             sed -i.bak -E "s|\\?v=[a-zA-Z0-9._-]+|?v=${VERSION}|g" "$f"
             rm -f "$f.bak"
@@ -81,4 +82,4 @@ jobs:
             echo "No version token changes needed; skipping commit."
             exit 0
           fi
-          scripts/commit_and_push_changes.sh "chore: bump build version to ${VERSION} [skip ci]" js/app.js index.html sw.js
+          scripts/commit_and_push_changes.sh "chore: bump build version to ${VERSION} [skip ci]" js/app.js index.html site.webmanifest sw.js
