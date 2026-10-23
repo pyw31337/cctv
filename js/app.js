@@ -4850,15 +4850,16 @@ function findManualRetryFallback(sourceCctv, reservedKeys = new Set()) {
 
 async function prepareVerifiedManualRetryFallback(panel, sourceCctv) {
     if (!panel || !sourceCctv) return null;
+    const reservedKeys = getManualRetryReservedKeys(panel);
     if (panel._verifiedRetryFallback?.sourceId === sourceCctv.id
-        && isManualRetryFallbackCandidate(panel._verifiedRetryFallback.cctv, sourceCctv)) {
+        && isManualRetryFallbackCandidate(panel._verifiedRetryFallback.cctv, sourceCctv)
+        && !hasReservedCctvKey(panel._verifiedRetryFallback.cctv, reservedKeys)) {
         return panel._verifiedRetryFallback.cctv;
     }
     if (panel._verifiedRetryFallbackPromise?.sourceId === sourceCctv.id) {
         return panel._verifiedRetryFallbackPromise.promise;
     }
 
-    const reservedKeys = getManualRetryReservedKeys(panel);
     const probeLimit = state.sortMode === 'stability' ? 20 : 14;
     const candidates = buildManualRetryFallbackCandidates(sourceCctv, reservedKeys).slice(0, probeLimit);
     const promise = (async () => {
@@ -4874,6 +4875,9 @@ async function prepareVerifiedManualRetryFallback(panel, sourceCctv) {
             if (!verified) continue;
 
             const fallback = verified.item.candidate;
+            // Another panel may have claimed this standby while probes were in
+            // flight. Do not cache it unless it is still unique at commit time.
+            if (hasReservedCctvKey(fallback, getManualRetryReservedKeys(panel))) continue;
             panel._verifiedRetryFallback = { sourceId: sourceCctv.id, cctv: fallback };
             panel._preparedRetryFallback = { sourceId: sourceCctv.id, cctv: fallback };
             panel.dataset.preparedRetryFallbackId = fallback.id;
@@ -4923,9 +4927,16 @@ function prepareManualRetryFallback(panel, sourceCctv) {
 async function switchToPreparedRetryFallback(panel, sourceCctv, options = {}) {
     if (!panel || !sourceCctv) return false;
     const requireVerified = options.requireVerified !== false;
+    const reservedKeys = getManualRetryReservedKeys(panel);
     let fallback = panel._verifiedRetryFallback?.sourceId === sourceCctv.id
         ? panel._verifiedRetryFallback.cctv
         : null;
+    // A standby can become occupied while the primary is loading. Revalidate
+    // it at the switch boundary instead of duplicating another grid panel.
+    if (fallback && hasReservedCctvKey(fallback, reservedKeys)) {
+        panel._verifiedRetryFallback = null;
+        fallback = null;
+    }
     if (!fallback) {
         const pending = prepareVerifiedManualRetryFallback(panel, sourceCctv);
         const waitMs = Number(options.waitMs || 0);
@@ -4937,6 +4948,12 @@ async function switchToPreparedRetryFallback(panel, sourceCctv, options = {}) {
             : await pending;
     }
     if (!fallback && !requireVerified) fallback = prepareManualRetryFallback(panel, sourceCctv);
+    // The asynchronous probe can resolve after another slot begins rendering
+    // this feed. Guard the final hand-off as well as cache creation.
+    if (fallback && hasReservedCctvKey(fallback, getManualRetryReservedKeys(panel))) {
+        panel._verifiedRetryFallback = null;
+        fallback = null;
+    }
     if (!fallback) return false;
 
     let fallbackIndex = state.nearestCctvs.findIndex(item => item.id === fallback.id);
@@ -6085,15 +6102,14 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
                 : false;
             if (switched) return;
 
-            // Keep the existing geofenced controller as the second line of
-            // defence when no probe has succeeded yet.
-            if (currentCount >= 1) {
-                const next = findAnotherNearbyCctv(cctv);
-                if (next) {
-                    console.log(`[Auto-Failover Loop] Switching from ${cctv.name} to next candidate ${next.name}`);
-                    switchCctvTarget(wrapper, next);
-                    return;
-                }
+            // When a pre-warmed backup is occupied or unavailable, move to a
+            // unique nearby camera immediately. Waiting for another failed
+            // retry makes the grid look frozen and can reintroduce duplicates.
+            const next = findAnotherNearbyCctv(cctv);
+            if (next) {
+                console.log(`[Auto-Failover] Switching from ${cctv.name} to unique nearby candidate ${next.name}`);
+                switchCctvTarget(wrapper, next);
+                return;
             }
             const errPh = createErrorPlaceholder({
                 message: '지금은 연결이 불안정합니다',

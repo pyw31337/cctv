@@ -21,6 +21,13 @@ class KnownUnavailableFailoverTests(unittest.TestCase):
         self.assertIn("if (isKnownUnavailableCamera(cctv))", app_js)
         self.assertIn("openVideoLayer(fallback)", app_js)
 
+    def test_failover_never_reuses_an_occupied_playback_stream(self):
+        app_js = (ROOT / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("keys.push(`playback:${playbackKey}`)", app_js)
+        self.assertIn("getActiveGridReservationKeys", app_js)
+        self.assertIn("Never relax stream de-duplication", app_js)
+        self.assertIn("Revalidate\n    // it at the switch boundary", app_js)
+
     def test_known_unavailable_youtube_stream_is_excluded_before_selection(self):
         app_js = (ROOT / "js" / "app.js").read_text(encoding="utf-8")
         self.assertIn("const BLOCKED_YOUTUBE_VIDEO_IDS", app_js)
