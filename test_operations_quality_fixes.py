@@ -1,9 +1,10 @@
 import unittest
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.build_quality_summary_fallback import row_from_check_registry
-from scripts.canary_probe import select_candidates, summarize_region
+from scripts.canary_probe import SimpleResponse, select_candidates, summarize_region, verify_hls_segment
 from scripts.ingest_gits import merge_gits_catalog
 from scripts.adaptive_collection import browser_grid_signal, effective_interval, source_quality_signal
 from cctv_runtime import NAMYANGJU_GOLDEN_STREAMS
@@ -81,6 +82,45 @@ class CanarySelectionTests(unittest.TestCase):
         summary = summarize_region(self.REGION, candidates, results)
         self.assertEqual(summary["status"], "OK")
         self.assertEqual(summary["severity"], "ok")
+
+
+class HlsSegmentProbeTests(unittest.TestCase):
+    def test_hls_probe_requires_a_current_media_segment(self):
+        responses = [
+            (SimpleResponse(200, {"Content-Type": "application/vnd.apple.mpegurl"}, "https://example.test/master.m3u8"), b"#EXTM3U\nvariant.m3u8\n"),
+            (SimpleResponse(200, {"Content-Type": "application/vnd.apple.mpegurl"}, "https://example.test/variant.m3u8"), b"#EXTM3U\n#EXTINF:2,\nlatest.ts\n"),
+            (SimpleResponse(200, {"Content-Type": "video/mp2t"}, "https://example.test/latest.ts"), b"G" * 512),
+        ]
+        with patch("scripts.canary_probe.read_probe_prefix", side_effect=responses):
+            ok, category, _, meta = verify_hls_segment("https://example.test/master.m3u8")
+
+        self.assertTrue(ok)
+        self.assertEqual(category, "ok_hls_segment")
+        self.assertEqual(meta["bytes"], 512)
+
+    def test_hls_probe_rejects_manifest_when_latest_segment_is_unavailable(self):
+        responses = [
+            (SimpleResponse(200, {"Content-Type": "application/vnd.apple.mpegurl"}, "https://example.test/live.m3u8"), b"#EXTM3U\n#EXTINF:2,\nmissing.ts\n"),
+            (SimpleResponse(404, {"Content-Type": "text/plain"}, "https://example.test/missing.ts"), b"not found"),
+        ]
+        with patch("scripts.canary_probe.read_probe_prefix", side_effect=responses):
+            ok, category, _, meta = verify_hls_segment("https://example.test/live.m3u8")
+
+        self.assertFalse(ok)
+        self.assertEqual(category, "hls_segment_error")
+        self.assertEqual(meta["http_status"], 404)
+
+    def test_hls_probe_accepts_another_recent_segment_during_playlist_rotation(self):
+        responses = [
+            (SimpleResponse(200, {"Content-Type": "application/vnd.apple.mpegurl"}, "https://example.test/live.m3u8"), b"#EXTM3U\n#EXTINF:2,\nprevious.ts\n#EXTINF:2,\nrotating.ts\n"),
+            (SimpleResponse(404, {"Content-Type": "text/plain"}, "https://example.test/rotating.ts"), b"not found"),
+            (SimpleResponse(200, {"Content-Type": "video/mp2t"}, "https://example.test/previous.ts"), b"G" * 512),
+        ]
+        with patch("scripts.canary_probe.read_probe_prefix", side_effect=responses):
+            ok, category, _, _ = verify_hls_segment("https://example.test/live.m3u8")
+
+        self.assertTrue(ok)
+        self.assertEqual(category, "ok_hls_segment")
 
 
 class AdaptiveQualityTests(unittest.TestCase):

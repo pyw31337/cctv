@@ -2422,6 +2422,7 @@ function getCanaryRegionRecord(regionKey, cctv) {
     if (state.canaryRegions.daejeon && (regionKey === 'DAEJEON' || name.includes('대전'))) return state.canaryRegions.daejeon;
     if (state.canaryRegions.guri && (name.includes('구리') || name.includes('수택') || name.includes('왕숙') || name.includes('돌다리'))) return state.canaryRegions.guri;
     if (state.canaryRegions.namyangju && (name.includes('남양주') || name.includes('마석') || name.includes('화도') || name.includes('평내') || name.includes('호평'))) return state.canaryRegions.namyangju;
+    if (state.canaryRegions.highway_seoul && parseHighwayCctvName(cctv?.name)) return state.canaryRegions.highway_seoul;
     if (state.canaryRegions.dokdo && (name.includes('독도') || name.includes('울릉'))) return state.canaryRegions.dokdo;
     if (source === 'UTIC' && regionKey === 'UTIC_Z3' && name.includes('진도')) return state.canaryRegions.jindo || null;
     return null;

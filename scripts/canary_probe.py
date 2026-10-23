@@ -22,11 +22,17 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from cctv_runtime import atomic_write_json, public_proxy_base, validate_namyangju_golden_mappings, validate_stream_identity
+from cctv_runtime import (
+    atomic_write_json,
+    public_proxy_base,
+    validate_namyangju_golden_mappings,
+    validate_stream_identity,
+    worker_proxy_base,
+)
 
 try:
     import requests
@@ -50,8 +56,14 @@ CANARY_STATUS_FILE = ROOT / "data" / "canary_status.json"
 OPS_STATUS_FILE = ROOT / "data" / "ops_status.json"
 CANARY_HISTORY_FILE = ROOT / "data" / "canary_history.json"
 ORACLE_BASE = public_proxy_base()
+WORKER_BASE = worker_proxy_base()
 Z3_MAX_TRUSTED_AGE_HOURS = 8
 DEFAULT_TIMEOUT = (2.5, 6.0)
+HLS_PLAYLIST_BYTES = 64 * 1024
+HLS_SEGMENT_SAMPLE_BYTES = 4 * 1024
+HLS_MAX_PLAYLIST_DEPTH = 3
+HLS_SEGMENT_MIN_BYTES = 188
+HLS_SEGMENT_RETRY_WINDOW = 3
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (cctv-canary/1.0; +https://pyw31337.github.io/cctv/) Chrome/124",
     "Accept": "*/*",
@@ -106,6 +118,16 @@ CANARY_REGIONS = [
         "lng": 127.2650,
         "radius_km": 28,
         "keywords": ["남양주", "마석", "화도", "평내", "호평", "왕숙"],
+        "min_ok": 2,
+        "max_candidates": 10,
+    },
+    {
+        "key": "highway_seoul",
+        "label": "수도권 고속도로",
+        "lat": 37.4630,
+        "lng": 127.0390,
+        "radius_km": 70,
+        "keywords": ["경부선", "수도권제1순환선", "고속도로"],
         "min_ok": 2,
         "max_candidates": 10,
     },
@@ -232,7 +254,10 @@ def resolve_probe_url(cam: dict, z3_cache: dict) -> tuple[str, str, dict]:
         age_hours = z3_cache_age_hours(z3_cache)
         meta.update({"resolver": "z3_cache", "cctvip": cctvip, "z3_cache_age_hours": age_hours})
         if cctvip and isinstance(cache_data, dict) and cache_data.get(cctvip) and age_hours is not None and age_hours <= Z3_MAX_TRUSTED_AGE_HOURS:
-            return cache_data[cctvip], "z3_cache", meta
+            # Browser playback uses the Worker to append !hls with the ITS
+            # Referer. Probing the raw cached URL directly gives false 403s on
+            # media segments even though the user-facing resolver can play it.
+            return f"{WORKER_BASE}/z3?url={quote(cache_data[cctvip], safe='')}", "worker_z3_cache", meta
         cctvid = url_param(url, "cctvid") or cam.get("id") or ""
         meta["resolver"] = "oracle_z3"
         return f"{ORACLE_BASE}/utic?kind=Z3&cctvid={quote(str(cctvid))}&cctvip={quote(str(cctvip or ''))}", "oracle_z3", meta
@@ -286,6 +311,27 @@ def classify_response(resp: requests.Response, body_prefix: bytes, elapsed_ms: i
     return False, "unknown", "unknown response"
 
 
+def is_hls_manifest(resp: SimpleResponse, body: bytes) -> bool:
+    content_type = (resp.headers.get("Content-Type") or "").lower()
+    text = body.decode("utf-8", errors="ignore")
+    return "mpegurl" in content_type or "#EXTM3U" in text or ".m3u8" in resp.url.lower()
+
+
+def playlist_uris(body: bytes) -> list[str]:
+    """Return media or nested-playlist entries without leaking signed URLs."""
+    lines = body.decode("utf-8", errors="ignore").replace("\r", "").split("\n")
+    return [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+
+
+def normalize_z3_stream_url(stream_url: str) -> str:
+    """Match the browser's Z3 transport normalization before probing media."""
+    parsed = urlparse(stream_url)
+    if parsed.hostname == "cctvsec.ktict.co.kr" and parsed.port == 8081:
+        normalized = stream_url.replace("https://cctvsec.ktict.co.kr:8081", "http://cctvsec.ktict.co.kr:8081", 1)
+        return f"{ORACLE_BASE}/proxy?url={quote(normalized, safe='')}"
+    return stream_url
+
+
 class SimpleResponse:
     def __init__(self, status_code: int, headers: Any, url: str):
         self.status_code = status_code
@@ -293,7 +339,7 @@ class SimpleResponse:
         self.url = url
 
 
-def read_probe_prefix(probe_url: str) -> tuple[SimpleResponse, bytes]:
+def read_probe_prefix(probe_url: str, limit: int = 512) -> tuple[SimpleResponse, bytes]:
     if requests is not None:
         resp = requests.get(
             probe_url,
@@ -303,17 +349,92 @@ def read_probe_prefix(probe_url: str) -> tuple[SimpleResponse, bytes]:
             allow_redirects=True,
             stream=True,
         )
-        body = resp.raw.read(512, decode_content=True) if resp.raw else b""
-        return resp, body
+        try:
+            body = resp.raw.read(limit, decode_content=True) if resp.raw else b""
+            return SimpleResponse(resp.status_code, resp.headers, resp.url), body
+        finally:
+            resp.close()
 
     request = Request(probe_url, headers=HEADERS)
     try:
         with urlopen(request, timeout=DEFAULT_TIMEOUT[1], context=SSL_CONTEXT) as resp:
-            body = resp.read(512)
+            body = resp.read(limit)
             return SimpleResponse(resp.status, resp.headers, resp.geturl()), body
     except HTTPError as error:
-        body = error.read(512)
+        body = error.read(limit)
         return SimpleResponse(error.code, error.headers, error.geturl()), body
+
+
+def verify_hls_segment(probe_url: str) -> tuple[bool, str, str, dict]:
+    """Follow an HLS master playlist and prove a real, recent media segment is readable.
+
+    A 200 response for a playlist only proves that a manifest exists. It does not
+    prove that the token is still valid for media, that the nested playlist is
+    reachable, or that a browser can receive bytes for a current segment.
+    """
+    current_url = probe_url
+    current_response: SimpleResponse | None = None
+    current_body = b""
+    for depth in range(HLS_MAX_PLAYLIST_DEPTH):
+        if current_response is None:
+            resp, body = read_probe_prefix(current_url, HLS_PLAYLIST_BYTES)
+        else:
+            resp, body = current_response, current_body
+            current_response = None
+            current_body = b""
+        if resp.status_code >= 400:
+            return False, "hls_playlist_error", f"HLS playlist HTTP {resp.status_code}", {
+                "depth": depth, "http_status": resp.status_code,
+            }
+        if not is_hls_manifest(resp, body):
+            return False, "hls_playlist_invalid", "HLS playlist did not contain #EXTM3U", {
+                "depth": depth, "content_type": resp.headers.get("Content-Type"),
+            }
+
+        uris = playlist_uris(body)
+        if not uris:
+            return False, "hls_no_media", "HLS playlist had no playable media entry", {"depth": depth}
+
+        # A live playlist can rotate its final entry between the manifest and
+        # segment requests. Test the newest small window, just like an HLS
+        # player can begin from a nearby available segment, but never accept a
+        # stale segment outside that short window.
+        failures = []
+        nested_playlist = None
+        for uri in reversed(uris[-HLS_SEGMENT_RETRY_WINDOW:]):
+            next_url = urljoin(resp.url, uri)
+            next_resp, next_body = read_probe_prefix(next_url, HLS_SEGMENT_SAMPLE_BYTES)
+            if next_resp.status_code >= 400:
+                failures.append({"http_status": next_resp.status_code})
+                continue
+            if is_hls_manifest(next_resp, next_body):
+                nested_playlist = (next_resp, next_body)
+                break
+            if len(next_body) < HLS_SEGMENT_MIN_BYTES:
+                failures.append({
+                    "bytes": len(next_body), "content_type": next_resp.headers.get("Content-Type"),
+                })
+                continue
+            return True, "ok_hls_segment", "HLS playlist and recent media segment reachable", {
+                "depth": depth, "bytes": len(next_body), "content_type": next_resp.headers.get("Content-Type"),
+            }
+
+        if nested_playlist:
+            current_response, current_body = nested_playlist
+            current_url = current_response.url
+            continue
+        last_failure = failures[-1] if failures else {}
+        if last_failure.get("http_status"):
+            return False, "hls_segment_error", f"HLS media HTTP {last_failure['http_status']}", {
+                "depth": depth, "attempts": len(failures), **last_failure,
+            }
+        return False, "hls_segment_empty", "Recent HLS media segments were too small", {
+            "depth": depth, "attempts": len(failures), **last_failure,
+        }
+
+    return False, "hls_playlist_depth", "HLS playlist nesting exceeded safe probe depth", {
+        "depth": HLS_MAX_PLAYLIST_DEPTH,
+    }
 
 
 def probe_camera(cam: dict, z3_cache: dict) -> dict:
@@ -350,6 +471,16 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
         resp, body = read_probe_prefix(probe_url)
         elapsed_ms = int((time.monotonic() - started) * 1000)
         ok, category, reason = classify_response(resp, body, elapsed_ms)
+        hls_probe_url = probe_url
+        if ok and category == "ok_resolver":
+            resolved_url = body.decode("utf-8", errors="ignore").strip()
+            if resolved_url.startswith(("http://", "https://")):
+                hls_probe_url = normalize_z3_stream_url(resolved_url)
+            else:
+                ok, category, reason = False, "resolver_invalid", "resolver did not return a stream URL"
+        if ok and (category == "ok_hls" or hls_probe_url != probe_url):
+            ok, category, reason, hls_meta = verify_hls_segment(hls_probe_url)
+            meta["hls_segment"] = hls_meta
         result.update({
             "ok": ok,
             "reason": reason,
@@ -548,6 +679,9 @@ def region_recovery_action(region: dict, status: str, categories: Counter, resul
     if key in {"guri", "namyangju"}:
         return "수도권 시내 후보가 외곽도로에 밀리지 않도록 실사용 성공 이력과 시내 가중치를 함께 적용하세요."
 
+    if key == "highway_seoul":
+        return "고속도로는 Z3 토큰과 실제 HLS 세그먼트를 함께 확인하세요. 세그먼트 실패 후보는 즉시 후순위로 내리고, 최근 브라우저 첫 프레임 성공 이력이 있는 같은 노선 후보만 대체로 사용하세요."
+
     if dominant == "auth_or_token":
         return "토큰/서명 URL 갱신을 우선 실행하고, 실패 후보는 삭제하지 않고 후순위 처리하세요."
     if dominant == "timeout":
@@ -571,7 +705,9 @@ def region_recovery_plan(region: dict, status: str, categories: Counter, results
         actions.append("probe_with_longer_timeout_before_fallback")
     if categories.get("not_found"):
         actions.append("rerun_source_resolver_and_cache_refresh")
-    if status != "OK" and key in {"daejeon", "dokdo", "jindo", "jeju"}:
+    if categories.get("hls_segment_error") or categories.get("hls_segment_empty"):
+        actions.append("refresh_hls_session_and_verify_media_segment")
+    if status != "OK" and key in {"daejeon", "dokdo", "jindo", "jeju", "highway_seoul"}:
         actions.append(f"run_{key}_canary_recovery")
     return {
         "status": status,

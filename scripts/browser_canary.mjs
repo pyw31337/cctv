@@ -18,6 +18,7 @@ const REGIONS = [
   { key: 'daejeon', name: '한밭수목원', lat: 36.3672, lng: 127.3880 },
   { key: 'guri', name: '제이헤어', lat: 37.5943, lng: 127.1296 },
   { key: 'namyangju', name: '크라운모텔', lat: 37.6525, lng: 127.3072 },
+  { key: 'highway_gyeongbu', name: '경부선', lat: 37.4630, lng: 127.0390, highwayRoute: '경부선' },
   { key: 'dokdo', name: '독도', lat: 37.23936, lng: 131.8686 },
 ];
 
@@ -65,6 +66,15 @@ async function main() {
       };
       try {
         await page.goto(result.url, { waitUntil: 'domcontentloaded', timeout: TIMEOUT_MS });
+        if (region.highwayRoute) {
+          // Exercise the real route selector rather than treating the nearby
+          // map result as proof that the highway product path is playable.
+          await page.locator('#highway-btn').click({ timeout: TIMEOUT_MS });
+          const route = page.locator(`.highway-route-item[data-route="${region.highwayRoute}"]`);
+          await route.waitFor({ state: 'visible', timeout: TIMEOUT_MS });
+          await route.click({ timeout: TIMEOUT_MS });
+          result.selection = `highway:${region.highwayRoute}`;
+        }
         await page.waitForFunction(() => {
           const panels = Array.from(document.querySelectorAll('.video-panel'));
           return panels.length >= 4 && panels.every(panel => {
