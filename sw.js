@@ -23,7 +23,7 @@ const SHELL_ASSETS = [
     'css/style.css',
     'js/app.js',
     'site.webmanifest',
-    'lets-view-icon.svg',
+    'lets-view-icon.png',
     'favicon.ico',
     'favicon-16x16.png',
     'favicon-32x32.png',
