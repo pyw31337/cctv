@@ -691,8 +691,9 @@ def check_generic_stream(cctv):
     cctvip = get_z3_cctvip(url)
     cctvid = get_url_param(url, 'cctvid') or cctv.get('id', '')
     if source == 'KBS':
-        cctvip = cctv.get('original_id') or cctvip or str(cctv.get('id', '')).split('_')[-1]
-        url = f'{ORACLE_BASE}/kb?cctvip={cctvip}'
+        # Prefer the freshly collected signed HLS URL. UTIC's legacy KBS
+        # resolver can report a false 404 for still-playable scenic cameras.
+        url = cctv.get('directUrl') or cctv.get('url')
     elif (source == 'NTIC' or kind == 'Z3') and cctvip:
         url = f'{ORACLE_BASE}/utic?kind=Z3&cctvid={quote(cctvid)}&cctvip={quote(cctvip)}'
     elif source == 'UTIC' and kind in ['KB', 'EE', 'EEE'] and cctvip:

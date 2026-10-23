@@ -7,21 +7,22 @@
     <style>
         :root { color-scheme: dark; --bg:#07111f; --card:#111c2e; --line:#203047; --text:#e5edf8; --muted:#8da0ba; --green:#34d399; --yellow:#fbbf24; --red:#fb7185; --blue:#60a5fa; }
         * { box-sizing: border-box; }
-        body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at top left, #123d2c, transparent 34rem), radial-gradient(circle at top right, #18315f, transparent 30rem), var(--bg); color: var(--text); }
-        main { width: min(1220px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 60px; }
+        html { word-break: keep-all; overflow-wrap: break-word; }
+        body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at top left, #123d2c, transparent 34rem), radial-gradient(circle at top right, #18315f, transparent 30rem), var(--bg); color: var(--text); word-break: keep-all; overflow-wrap: break-word; }
+        main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
         header { display: flex; justify-content: space-between; gap: 20px; align-items: flex-end; margin-bottom: 24px; }
         h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.04em; }
         .sub { margin-top: 8px; color: var(--muted); }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
         .grid.ops { grid-template-columns: repeat(5, minmax(0, 1fr)); }
         .grid.inventory { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-        .card { background: color-mix(in oklab, var(--card), transparent 6%); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 20px 50px rgba(0,0,0,.22); }
-        .metric { font-size: 30px; font-weight: 850; letter-spacing: -0.04em; }
-        .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+        .card { background: color-mix(in oklab, var(--card), transparent 6%); border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: 0 20px 50px rgba(0,0,0,.22); }
+        .metric { font-size: 28px; font-weight: 850; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+        .label { color: var(--muted); font-size: 12px; margin-top: 4px; font-weight: 650; }
         section { margin-top: 18px; }
         h2 { margin: 0 0 10px; font-size: 18px; }
         table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 14px; }
-        th, td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.07); text-align: left; font-size: 13px; }
+        th, td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.07); text-align: left; font-size: 13px; vertical-align: top; }
         th { color: var(--muted); font-weight: 700; background: rgba(255,255,255,.03); }
         tr:last-child td { border-bottom: 0; }
         .pill { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,.08); font-weight: 800; font-size: 12px; }
@@ -35,8 +36,9 @@
         .status-card[data-severity="warn"] { border-color: color-mix(in oklab, var(--yellow), transparent 35%); background: rgba(113, 63, 18, .22); }
         .status-card[data-severity="ok"] { border-color: color-mix(in oklab, var(--green), transparent 35%); background: rgba(6, 78, 59, .18); }
         .mono { font-variant-numeric: tabular-nums; }
-        .wide-table { overflow-x: auto; }
-        .mini { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.4; }
+        .wide-table { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+        .wide-table table { min-width: 680px; }
+        .mini { color: var(--muted); font-size: 12px; margin-top: 5px; line-height: 1.4; }
         .meter { height: 8px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.08); min-width: 90px; }
         .meter > span { display: block; height: 100%; background: linear-gradient(90deg, var(--green), var(--blue)); }
         .trend-grid { display: grid; gap: 12px; }
@@ -55,8 +57,36 @@
         .impact-none { color: var(--green); }
         .impact-possible { color: var(--yellow); }
         .impact-service { color: var(--red); }
-        @media (max-width: 1100px) { .grid.ops, .grid.inventory { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        @media (max-width: 900px) { header { align-items: flex-start; flex-direction: column; } .grid, .grid.ops, .split { grid-template-columns: 1fr; } }
+        .section-heading { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
+        .section-heading h2 { margin:0; }
+        .info-wrap { position:relative; display:inline-flex; }
+        .info-toggle { width:18px; height:18px; padding:0; border-radius:50%; border:1px solid #39516f; background:#17263b; color:#b7c9df; font:800 11px/1 ui-sans-serif,system-ui,sans-serif; cursor:pointer; }
+        .info-bubble { position:absolute; z-index:10; top:calc(100% + 7px); left:50%; width:min(260px, calc(100vw - 48px)); padding:10px 11px; border:1px solid #38516e; border-radius:10px; background:#0c1728; color:#c8d5e6; font-size:12px; font-weight:600; line-height:1.5; box-shadow:0 14px 32px rgba(0,0,0,.34); transform:translateX(-50%); visibility:hidden; opacity:0; pointer-events:none; }
+        .info-wrap.open .info-bubble { visibility:visible; opacity:1; pointer-events:auto; }
+        .table-info { margin-left:5px; vertical-align:middle; }
+        .compact-details, .advanced-details { border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.025); }
+        .compact-details summary, .advanced-details summary { padding:11px 12px; color:#c8d5e6; font-size:13px; font-weight:750; cursor:pointer; }
+        .compact-details .defs { padding:0 12px 12px; }
+        .advanced-details { margin-top:18px; }
+        .advanced-details > section { margin:18px; }
+        .advanced-details > section:last-child { padding-bottom:2px; }
+        .status-summary { color:var(--muted); font-size:12px; margin:0 0 12px; }
+        @media (max-width: 1100px) { .grid.ops, .grid.inventory { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
+        @media (max-width: 720px) {
+            main { width:calc(100% - 20px); padding:20px 0 32px; }
+            header { align-items:stretch; flex-direction:column; gap:14px; margin-bottom:16px; }
+            h1 { font-size:28px; } .sub { font-size:13px; line-height:1.45; }
+            .toolbar { width:100%; } .toolbar > * { flex:1; text-align:center; }
+            .grid, .grid.ops, .grid.inventory, .split { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:9px; }
+            .split { display:block; } .split > section + section { margin-top:12px; }
+            .card { padding:13px; border-radius:15px; } .metric { font-size:23px; } .label { font-size:11px; }
+            section { margin-top:12px; } h2 { font-size:16px; }
+            .wide-table { margin:0 -2px; } .wide-table table { min-width:600px; }
+            th, td { padding:9px 8px; font-size:12px; }
+            .priority-table th:nth-child(3), .priority-table td:nth-child(3) { display:none; }
+            .advanced-details > section { margin:14px 0; padding:0 13px; }
+            .advanced-details > section:last-child { padding-bottom:1px; }
+        }
     </style>
 </head>
 <body>
@@ -73,10 +103,10 @@
     </header>
 
     <div class="grid">
-        <div class="card"><div class="metric" id="camera-count">-</div><div class="label">집계된 CCTV</div></div>
-        <div class="card"><div class="metric" id="sample-count">-</div><div class="label">실사용 재생 샘플</div></div>
-        <div class="card"><div class="metric" id="success-rate">-</div><div class="label">가중 평균 성공률</div></div>
-        <div class="card"><div class="metric" id="avg-load">-</div><div class="label">평균 첫 화면 로딩</div></div>
+        <div class="card"><div class="metric" id="camera-count">-</div><div class="label">집계 영상</div></div>
+        <div class="card"><div class="metric" id="sample-count">-</div><div class="label">재생 샘플</div></div>
+        <div class="card"><div class="metric" id="success-rate">-</div><div class="label">성공률</div></div>
+        <div class="card"><div class="metric" id="avg-load">-</div><div class="label">첫 화면</div></div>
     </div>
 
     <div class="grid ops">
@@ -99,27 +129,24 @@
 
     <div class="split">
         <section class="card">
-            <h2>우선 점검 CCTV</h2>
-        <table><thead><tr><th>CCTV</th><th>소스</th><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>샘플</th><th>원인/조치</th></tr></thead><tbody id="camera-rows"></tbody></table>
+            <div class="section-heading"><h2>우선 점검</h2><span class="info-wrap"><button type="button" class="info-toggle" aria-label="우선 점검 기준">i</button><span class="info-bubble">반복 실패, 느린 첫 화면, 충분한 재생 표본이 있는 영상부터 보여줍니다.</span></span></div>
+            <p class="status-summary">실제 재생 품질이 낮은 후보만 표시합니다.</p>
+            <div class="wide-table"><table class="priority-table"><thead><tr><th>영상</th><th>상태</th><th>첫 화면</th><th>조치</th></tr></thead><tbody id="camera-rows"></tbody></table></div>
         </section>
         <section class="card">
-            <h2>상태 정의</h2>
-            <div class="defs">
-                <div><b>Actions 실패</b>: 스크립트, 커밋, 푸시, 데이터 보존 실패입니다. 외부 CCTV 장애는 워크플로우 실패가 아니라 운영 상태 데이터로 분리합니다.</div>
-                <div><b>서비스 영향 있음</b>: 진도, 제주, 대전, 구리, 남양주, 독도 카나리에서 정상 후보가 기준 미달인 상태입니다.</div>
-                <div><b>Z3 캐시 장애</b>: 캐시가 8시간을 넘으면 경고가 아니라 운영 장애로 보고 Z3 영상을 강하게 후순위 처리합니다.</div>
-                <div><b>실사용 불안정</b>: 최근 사용자 재생 실패율이 높거나 성공률이 낮은 상태입니다.</div>
-                <div><b>로딩 느림</b>: 재생은 가능하지만 첫 화면까지 8초 이상 걸리는 샘플이 많은 상태입니다.</div>
-                <div><b>점검 실패</b>: 서버 샘플 점검 실패입니다. 목록 삭제 사유가 아니며, 복구 스크립트/토큰 갱신/대체 후보 추천을 위한 입력값입니다.</div>
-                <div><b>샘플 없음</b>: 장애가 아니라 아직 품질 샘플이 없는 상태입니다. Sentinel은 최근 점검 이력이 없는 CCTV를 우선 순환 점검해 전체 카탈로그 커버리지를 누적합니다.</div>
-                <div><b>교통우선</b>: UTIC, NTIC, 국도, IC, 고속도로, 자동차전용도로, 터널, 램프를 우선 추천합니다.</div>
-            </div>
+            <details class="compact-details"><summary>상태 기준 보기</summary><div class="defs">
+                <div><b>빨강</b>: 충분한 표본에서 반복 실패하거나 핵심 지역의 정상 후보가 부족합니다.</div>
+                <div><b>노랑</b>: 표본 부족, 일시 지연, 대체 후보 점검이 필요한 상태입니다.</div>
+                <div><b>회색</b>: 아직 표본이 없습니다. 장애로 단정하지 않습니다.</div>
+                <div><b>점검 실패</b>: 영상은 삭제하지 않고 자동 갱신·후순위·대체 후보 선택에만 사용합니다.</div>
+            </div></details>
         </section>
     </div>
 
+    <details class="advanced-details"><summary>상세 운영 데이터</summary>
     <section class="card">
         <h2>핵심 카나리 지역</h2>
-        <table><thead><tr><th>지역</th><th>상태</th><th>성공/점검</th><th>성공률</th><th>평균 로딩</th><th>주요 실패</th><th>권장 조치</th></tr></thead><tbody id="canary-rows"></tbody></table>
+        <div class="wide-table"><table><thead><tr><th>지역</th><th>상태</th><th>성공/점검</th><th>성공률</th><th>평균 로딩</th><th>주요 실패</th><th>권장 조치</th></tr></thead><tbody id="canary-rows"></tbody></table></div>
     </section>
 
     <section class="card">
@@ -141,7 +168,7 @@
 
     <section class="card">
         <h2>소스별 품질</h2>
-        <table><thead><tr><th>소스</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table>
+        <div class="wide-table"><table><thead><tr><th>소스</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table></div>
     </section>
 
     <section class="card">
@@ -171,13 +198,14 @@
 
     <section class="card">
         <h2>지역별 품질</h2>
-        <table><thead><tr><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table>
+        <div class="wide-table"><table><thead><tr><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table></div>
     </section>
 
     <section class="card">
         <h2>지역별 총 현황</h2>
         <div class="wide-table"><table><thead><tr><th>지역</th><th>보유</th><th>품질 샘플</th><th>누적 점검</th><th>최근 24h</th><th>성공률</th><th>주요 소스</th><th>주의</th></tr></thead><tbody id="inventory-region-rows"></tbody></table></div>
     </section>
+    </details>
 </main>
 <script src="js/runtime-config.js?v=20260814-b69de665"></script>
 <script>
@@ -357,6 +385,20 @@ function qualityRow(item, label) {
     const rateLabel = Number.isFinite(item.successRate) ? pct(item.successRate) : '별도 분류';
     return `<tr><td>${esc(label)}</td><td><span class="pill ${qTone}">${rateLabel}</span><div class="mini">${esc(qualityStatusLabel(item))} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.directPlayableSamples} / ${item.samples}</td></tr>`;
 }
+function infoButton(text) {
+    const detail = esc(text || '추가 정보가 없습니다.');
+    return `<span class="info-wrap table-info"><button type="button" class="info-toggle" aria-label="상세 보기" aria-expanded="false">i</button><span class="info-bubble">${detail}</span></span>`;
+}
+function compactAction(item) {
+    const detail = item.recommended_action || item.reason || item.category || '';
+    if (!detail) return '-';
+    const normalized = String(detail).toLowerCase();
+    let label = '점검';
+    if (/token|auth|signed|url/.test(normalized)) label = 'URL 갱신';
+    else if (/timeout|slow|stall/.test(normalized)) label = '재시도';
+    else if (/404|not.?found|mapping|stream/.test(normalized)) label = '매핑 확인';
+    return `${label}${infoButton(detail)}`;
+}
 function render(summary, opsData = {}) {
     const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
     const sources = Object.entries(summary.sources || {}).map(([id, item]) => ({ id, ...normalize(item) }));
@@ -382,8 +424,8 @@ function render(summary, opsData = {}) {
     $('camera-rows').innerHTML = problemCameras
         .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
         .slice(0, 35)
-        .map(item => `<tr><td>${esc(item.camera_name || item.id)}</td><td>${esc(item.source || '-')}</td><td>${esc(item.region || '-')}</td><td><span class="pill ${qualityTone(item)}">${esc(qualityStatusLabel(item))}</span><div class="mini">${pct(item.successRate)} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td>${item.samples}</td><td>${esc(item.recommended_action || item.reason || item.category || '-')}</td></tr>`)
-        .join('') || '<tr><td colspan="8">우선 점검 후보가 아직 없습니다.</td></tr>';
+        .map(item => `<tr><td>${esc(item.camera_name || item.id)}<div class="mini">${esc(item.source || '-')} · ${esc(item.region || '-')}</div></td><td><span class="pill ${qualityTone(item)}">${esc(qualityStatusLabel(item))}</span><div class="mini">${pct(item.successRate)} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td>${compactAction(item)}</td></tr>`)
+        .join('') || '<tr><td colspan="4">우선 점검 후보가 아직 없습니다.</td></tr>';
 
     $('source-rows').innerHTML = sources
         .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
@@ -616,7 +658,7 @@ function renderOps({ canary, ops, cache, audit }) {
     const degraded = Object.values(canaryRegions).filter(item => item?.status === 'DEGRADED');
     const serviceSeverity = ops?.severity || (impact.length ? 'danger' : (degraded.length ? 'warn' : 'ok'));
     const serviceText = ops?.service_status === 'SERVICE_IMPACT' || impact.length
-        ? '영향 있음'
+        ? `${impact.length || 1}곳 점검`
         : (ops?.service_status === 'DEGRADED' || degraded.length ? '주의' : '정상');
     const z3Severity = z3.severity || (Number(z3.age_hours) > 8 ? 'danger' : (Number(z3.age_hours) > 4 ? 'warn' : 'ok'));
     const auditRuns = Array.isArray(audit) ? audit : (Array.isArray(audit?.runs) ? audit.runs : []);
@@ -669,6 +711,25 @@ function renderCanaryTrends(currentRegions, history) {
         </div>`;
     }).join('');
 }
+document.addEventListener('click', event => {
+    const toggle = event.target.closest('.info-toggle');
+    const closeAll = () => document.querySelectorAll('.info-wrap.open').forEach(wrap => {
+        wrap.classList.remove('open');
+        wrap.querySelector('.info-toggle')?.setAttribute('aria-expanded', 'false');
+    });
+    if (!toggle) {
+        if (!event.target.closest('.info-wrap')) closeAll();
+        return;
+    }
+    event.stopPropagation();
+    const wrap = toggle.closest('.info-wrap');
+    const wasOpen = wrap.classList.contains('open');
+    closeAll();
+    if (!wasOpen) {
+        wrap.classList.add('open');
+        toggle.setAttribute('aria-expanded', 'true');
+    }
+});
 $('refresh').addEventListener('click', loadSummary);
 loadSummary();
 </script>

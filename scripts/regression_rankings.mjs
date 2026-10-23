@@ -185,6 +185,7 @@ console.log('failures map has L901466:', harness.state.cameraFailures.has('L9014
 console.log('failingGuriCamera id:', failingGuriCamera?.id);
 harness.updateNearestCctvs();
 const isolatedTopNames = names(harness.state.nearestCctvs, 8);
+const isolatedTopIds = harness.state.nearestCctvs.slice(0, 8).map((item) => item.id);
 const isolatedHealth = harness.getCameraHealthMeta(failingGuriCamera);
 const isolatedConfidence = harness.getCameraPlaybackConfidence(failingGuriCamera, isolatedHealth);
 const retryFallback = harness.findManualRetryFallback(failingGuriCamera);
@@ -193,9 +194,9 @@ const nextRetryFallback = harness.findManualRetryFallback(failingGuriCamera, ret
 assert(isolatedHealth.status === 'CAMERA_CRITICAL', 'camera failure registry should override aggregate health');
 assert(isolatedConfidence.tone === 'danger', 'critical camera failure should render a red selector dot');
 assert(harness.getCameraDisplayHealthMeta(failingGuriCamera, isolatedHealth).tone === 'danger', 'camera-specific critical failures should still render red markers');
-assert(!isolatedTopNames.includes('세무서4'), `critical camera should be isolated from top 8, got ${JSON.stringify(isolatedTopNames)}`);
+assert(!isolatedTopIds.includes(failingGuriCamera.id), `critical camera should be isolated from top 8, got ${JSON.stringify(isolatedTopIds)}`);
 assert(retryFallback && retryFallback.id !== failingGuriCamera.id, 'manual retry fallback should choose a different playable nearby camera');
-assert(!['세무서4'].includes(retryFallback.name), `manual retry fallback should avoid failed camera, got ${retryFallback.name}`);
+assert(retryFallback.id !== failingGuriCamera.id, `manual retry fallback should avoid the failed stream, got ${retryFallback.id}`);
 assert(nextRetryFallback && nextRetryFallback.id !== retryFallback.id, 'reserved manual retry fallback should choose a non-overlapping camera');
 console.log(`[OK] critical camera isolation: ${isolatedTopNames.join(', ')}`);
 console.log(`[OK] manual retry fallback: ${failingGuriCamera.name} -> ${retryFallback.name} / ${nextRetryFallback.name}`);

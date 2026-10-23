@@ -30,6 +30,9 @@ SCHEMA_VERSION = 1
 TASKS = {
     "gits_ingest": {"base_hours": 12, "min_hours": 3, "max_hours": 36, "source": "GITS"},
     "utic_renew": {"base_hours": 24, "min_hours": 6, "max_hours": 96, "source": "UTIC"},
+    # KBS/Loomex URLs carry a short-lived Wowza token. Treating them like a
+    # static catalog entry lets every KBS camera expire together.
+    "kbs_renew": {"base_hours": 12, "min_hours": 4, "max_hours": 24, "source": "KBS"},
     "full_refresh": {"base_hours": 168, "min_hours": 48, "max_hours": 336, "source": "*"},
 }
 

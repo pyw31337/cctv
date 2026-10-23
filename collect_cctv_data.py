@@ -516,6 +516,12 @@ def main():
         print("ITS fetch failed/empty. Attempting to recover existing ITS data...")
         its_data = [item for item in existing_data_map.values() if item.get("source") == "NTIC"]
 
+    # KBS issues short-lived signed URLs. If its CDN rejects a newly issued
+    # token, retain camera identity instead of dropping the source at merge.
+    if not kbs_data:
+        print("KBS fetch has no verified streams. Preserving existing KBS catalog entries...")
+        kbs_data = [item for item in existing_data_map.values() if item.get("source") == "KBS"]
+
     preserved_count = preserve_direct_urls(utic_data, existing_data_map)
     if preserved_count > 0:
         print(f"Preserved {preserved_count} existing directUrl entries.")

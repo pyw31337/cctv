@@ -4491,7 +4491,9 @@ function dedupeSceneCandidates(candidates, limit = NEAREST_RESULT_LIMIT) {
 function applyLocalPlacePriority(ordered, lat, lng) {
     // 1. Jei Hair (Guri Sutaek-dong) pinpoint core 4 cameras
     if (isJeiHairSearchContext(lat, lng)) {
-        const jeiHairPriorityIds = ['L901246', 'GITS_6741', 'L900440', 'GITS_7356', 'L901466', 'GITS_6740', 'L902339', 'GITS_9608', 'KBS_9974'];
+        // The legacy UTIC EE resolver for this block no longer resolves these
+        // camera IDs. Prefer their independently verified GITS counterparts.
+        const jeiHairPriorityIds = ['GITS_6741', 'GITS_7356', 'GITS_6740', 'GITS_9608', 'L901246', 'L900440', 'L901466', 'L902339'];
         const byId = new Map((ordered || []).map(cctv => [cctv.id, cctv]));
         const promoted = [];
         const seenNames = new Set();
@@ -4514,7 +4516,9 @@ function applyLocalPlacePriority(ordered, lat, lng) {
 
     // 2. Crown Motel (Namyangju Hwado-eup Maseok) pinpoint core 4 cameras
     if (isCrownMotelSearchContext(lat, lng)) {
-        const priorityIds = ['L180075', 'GITS_95551', 'L180076', 'GITS_95552', 'L180196', 'L180074', 'GITS_95550', 'KBS_9974'];
+        // These four locked direct streams are probe-verified. Do not seed the
+        // grid with retired GITS IDs that can only create a needless failover.
+        const priorityIds = ['L180076', 'L180075', 'L180196', 'L180195', 'L180074', 'GITS_95550', 'KBS_9974'];
         const byId = new Map((ordered || []).map(cctv => [cctv.id, cctv]));
         const promoted = [];
         const seenNames = new Set();
@@ -9826,7 +9830,7 @@ function renderHighwayRouteList() {
         return `
             <button type="button" class="highway-route-item" data-route="${escapeHtml(route.routeName)}">
                 <span class="highway-route-name">${escapeHtml(route.routeName)}</span>
-                <span class="highway-route-count">CCTV ${route.cctvs.length}</span>
+                <span class="highway-route-count" aria-label="CCTV ${route.cctvs.length}대">${route.cctvs.length}</span>
                 ${pill}
             </button>
         `;

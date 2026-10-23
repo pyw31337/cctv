@@ -85,7 +85,7 @@ class KBSCollector:
                         "status": "active"
                     })
             
-            print(f"[KBS] Successfully collected {len(results)} playable streams.")
+            print(f"[KBS] Successfully collected {len(results)} signed streams.")
             return results
 
         except Exception as e:

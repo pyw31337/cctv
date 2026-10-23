@@ -4,9 +4,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.build_quality_summary_fallback import row_from_check_registry
-from scripts.canary_probe import SimpleResponse, select_candidates, summarize_region, verify_hls_segment
+from scripts.canary_probe import SimpleResponse, resolve_probe_url, select_candidates, summarize_region, verify_hls_segment
 from scripts.ingest_gits import merge_gits_catalog
-from scripts.adaptive_collection import browser_grid_signal, effective_interval, source_quality_signal
+from scripts.adaptive_collection import TASKS, browser_grid_signal, effective_interval, source_quality_signal
+from scripts.renew_cctv_urls import kbs_renewal_candidates, kbs_token_expires_soon
 from cctv_runtime import NAMYANGJU_GOLDEN_STREAMS
 
 
@@ -73,6 +74,15 @@ class CanarySelectionTests(unittest.TestCase):
         selected = select_candidates(cameras, self.REGION)
         self.assertEqual([item["id"] for item in selected], ["good"])
 
+    def test_pinned_customer_cameras_are_probed_even_when_marked_for_review(self):
+        cameras = [
+            {"id": "locked", "name": "locked", "source": "UTIC", "status": "manual_check", "lat": 37.5, "lng": 127.0},
+            {"id": "good", "name": "good", "source": "GITS", "status": "active", "lat": 37.51, "lng": 127.0},
+        ]
+        region = {**self.REGION, "pinned_ids": ["locked"]}
+        selected = select_candidates(cameras, region)
+        self.assertEqual(selected[0]["id"], "locked")
+
     def test_verified_fallback_keeps_service_status_green(self):
         candidates = [{"id": "ok"}, {"id": "bad"}]
         results = [
@@ -82,6 +92,12 @@ class CanarySelectionTests(unittest.TestCase):
         summary = summarize_region(self.REGION, candidates, results)
         self.assertEqual(summary["status"], "OK")
         self.assertEqual(summary["severity"], "ok")
+
+    def test_kbs_canary_probes_the_fresh_signed_url_not_legacy_oracle_resolver(self):
+        camera = {"id": "KBS_9957", "source": "KBS", "original_id": "9957", "url": "https://kbs.example/live.m3u8?token=fresh"}
+        url, resolver, _ = resolve_probe_url(camera, {})
+        self.assertEqual(url, camera["url"])
+        self.assertEqual(resolver, "direct_kbs_signed")
 
 
 class HlsSegmentProbeTests(unittest.TestCase):
@@ -124,6 +140,16 @@ class HlsSegmentProbeTests(unittest.TestCase):
 
 
 class AdaptiveQualityTests(unittest.TestCase):
+    def test_kbs_tokens_are_scheduled_before_they_expire(self):
+        self.assertIn("kbs_renew", TASKS)
+        self.assertTrue(kbs_token_expires_soon("https://example.test/live.m3u8?wowzatokenendtime=100", now=100))
+        self.assertFalse(kbs_token_expires_soon("https://example.test/live.m3u8?wowzatokenendtime=999999", now=100, within_seconds=60))
+        candidates = kbs_renewal_candidates({
+            "KBS_1": {"source": "KBS", "url": "https://example.test/live.m3u8?wowzatokenendtime=100"},
+            "UTIC_1": {"source": "UTIC", "url": "https://example.test/live.m3u8?wowzatokenendtime=100"},
+        }, now=100)
+        self.assertEqual(candidates, ["KBS_1"])
+
     def test_low_sample_telemetry_does_not_overreact(self):
         signal = source_quality_signal({"sources": {"GITS": {"samples": 1, "failure_rate": 1}}}, "GITS")
         self.assertLess(signal["confidence"], 0.1)

@@ -108,6 +108,9 @@ CANARY_REGIONS = [
         "lng": 127.1296,
         "radius_km": 12,
         "keywords": ["구리", "수택", "세무서", "돌다리", "왕숙", "교문"],
+        # These are the four streams seeded for the Jei Hair search result.
+        # Probe the actual customer-facing set, not only a broad nearby sample.
+        "pinned_ids": ["GITS_6741", "GITS_7356", "GITS_6740", "GITS_9608"],
         "min_ok": 2,
         "max_candidates": 10,
     },
@@ -118,6 +121,8 @@ CANARY_REGIONS = [
         "lng": 127.2650,
         "radius_km": 28,
         "keywords": ["남양주", "마석", "화도", "평내", "호평", "왕숙"],
+        # Locked direct mappings used by the Crown Motel search result.
+        "pinned_ids": ["L180076", "L180075", "L180196", "L180195"],
         "min_ok": 2,
         "max_candidates": 10,
     },
@@ -264,11 +269,12 @@ def resolve_probe_url(cam: dict, z3_cache: dict) -> tuple[str, str, dict]:
 
     if source == "KBS":
         cctvip = cam.get("original_id") or z3_cctvip(url) or str(cam.get("id", "")).split("_")[-1]
-        meta.update({"resolver": "oracle_kbs", "cctvip": cctvip})
-        if cctvip:
-            return f"{ORACLE_BASE}/kb?cctvip={quote(str(cctvip))}", "oracle_kbs", meta
-        meta["resolver"] = "direct_kbs_no_id"
-        return url, "direct_kbs_no_id", meta
+        # KBS catalog entries already contain a fresh signed HLS URL. The
+        # legacy UTIC /kb resolver returns 404 for scenic KBS cameras such as
+        # Dokdo even while that signed URL is healthy, producing false
+        # service-impact alerts. Probe the same direct URL the browser plays.
+        meta.update({"resolver": "direct_kbs_signed", "cctvip": cctvip})
+        return url, "direct_kbs_signed", meta
 
     if source in {"NOWJEJU", "TRENDWORLD"} and url and not url.startswith(ORACLE_BASE):
         meta["resolver"] = "oracle_proxy"
@@ -544,6 +550,8 @@ def select_candidates(
     terms = [term.lower() for term in region.get("keywords", [])]
     passed_ids = passed_ids or set()
     failed_ids = failed_ids or set()
+    camera_by_id = {str(cam.get("id") or ""): cam for cam in cameras}
+    pinned_ids = [str(cid) for cid in region.get("pinned_ids", []) if cid]
     out = []
     for cam in cameras:
         if str(cam.get("status") or "active").lower() in {"manual_check", "disabled", "inactive", "broken"}:
@@ -579,8 +587,31 @@ def select_candidates(
     remaining = [item for item in out if item not in success_seed]
     ordered_candidates = success_seed + remaining
 
+    # Customer-facing pinned cameras are included first. This keeps a broad
+    # regional green status from hiding a failure in the exact four streams
+    # users see after a saved-location search.
+    pinned = []
+    for cid in pinned_ids:
+        cam = camera_by_id.get(cid)
+        if not cam:
+            continue
+        try:
+            dist = haversine_km(region["lat"], region["lng"], float(cam.get("lat")), float(cam.get("lng")))
+        except Exception:
+            continue
+        clone = dict(cam)
+        clone["_canary_distance_km"] = round(dist, 3)
+        pinned.append(clone)
+
     seen = set()
     selected = []
+    for cam in pinned:
+        cid = cam.get("id")
+        if cid and cid not in seen:
+            selected.append(cam)
+            seen.add(cid)
+        if len(selected) >= max_candidates:
+            return selected
     for _, dist, cam in ordered_candidates:
         cid = cam.get("id")
         if not cid or cid in seen:

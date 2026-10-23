@@ -26,6 +26,7 @@ FAILED_STREAMS_FILE = "failed_streams.json"
 RENEWAL_REPORT_FILE = "renewal_report.json"
 API_URL = "https://www.utic.go.kr/map/getCctvInfoById.do"
 KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
+KBS_RENEW_WITHIN_SECONDS = int(os.getenv("KBS_RENEW_WITHIN_SECONDS", str(8 * 60 * 60)))
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Referer": "https://www.utic.go.kr/"
@@ -109,6 +110,45 @@ def construct_url(cctv_id, details):
     query_string = urllib.parse.urlencode(params)
     return f"{base_url}?{query_string}"
 
+
+def kbs_token_expires_soon(url, now=None, within_seconds=KBS_RENEW_WITHIN_SECONDS):
+    """Return True when a KBS/Loomex signed URL should be resolved again."""
+    try:
+        token_end = urllib.parse.parse_qs(urllib.parse.urlparse(str(url)).query).get("wowzatokenendtime", [""])[0]
+        expires_at = int(token_end)
+    except (TypeError, ValueError):
+        return True
+    now = time.time() if now is None else now
+    return expires_at <= now + max(0, within_seconds)
+
+
+def kbs_renewal_candidates(data_map, now=None):
+    return [
+        camera_id
+        for camera_id, item in data_map.items()
+        if item.get("source") == "KBS" and kbs_token_expires_soon(item.get("url"), now=now)
+    ]
+
+
+def renew_kbs_candidate(data_map, cctv_id, collector):
+    """Refresh only a signed URL; catalog identity and verified mappings stay intact."""
+    item = data_map.get(cctv_id)
+    if not item:
+        return False
+    original_id = str(item.get("original_id") or cctv_id.removeprefix("KBS_"))
+    new_url = collector.resolve_stream_url(original_id)
+    if not new_url or ".m3u8" not in new_url:
+        return False
+    # KBS tokens are short-lived and can be single-session/CDN-rate limited.
+    # Do not consume the customer token in the collection job; browser canaries
+    # continue to report real playback health separately from token renewal.
+    if new_url == item.get("url"):
+        return None
+    item["url"] = new_url
+    item["lastRenewed"] = datetime.now().isoformat()
+    item["status"] = "active"
+    return True
+
 def main():
     print("Starting CCTV URL Renewal Process...")
     
@@ -133,24 +173,51 @@ def main():
         print("Could not import GitsCollector. GITS streams will be skipped.")
         gits_collector = None
     
+    renew_utic = os.getenv("RENEW_UTIC", "true").lower() == "true"
+    renew_kbs = os.getenv("RENEW_KBS", "true").lower() == "true"
+
     # Identify candidates for renewal
     # Focus on utic_null, http_404, and http_other
     candidates = []
     failed_groups = failed_streams.get("failures", {})
     
-    for category in ["utic_null", "http_404", "http_other", "connection_error", "timeout"]:
-        if category in failed_groups:
-            for item in failed_groups[category]:
-                if item.get("id"):
-                    candidates.append(item["id"])
+    if renew_utic:
+        for category in ["utic_null", "http_404", "http_other", "connection_error", "timeout"]:
+            if category in failed_groups:
+                for item in failed_groups[category]:
+                    if item.get("id"):
+                        candidates.append(item["id"])
     
     # Filter unique IDs
     candidates = list(set(candidates))
-    print(f"Found {len(candidates)} candidates for renewal.")
+    kbs_candidates = kbs_renewal_candidates(data_map) if renew_kbs else []
+    print(f"Found {len(candidates)} failed-stream candidates and {len(kbs_candidates)} expiring KBS URLs.")
     
     renewed_count = 0
     failed_count = 0
     skips = 0
+
+    if kbs_candidates:
+        try:
+            from collectors.kbs import KBSCollector
+            kbs_collector = KBSCollector()
+        except ImportError:
+            kbs_collector = None
+        for cctv_id in kbs_candidates:
+            if not kbs_collector:
+                print(f"Renewing {cctv_id}... FAILED (KBS collector unavailable)")
+                failed_count += 1
+                continue
+            result = renew_kbs_candidate(data_map, cctv_id, kbs_collector)
+            if result is True:
+                print(f"Renewing {cctv_id}... UPDATED (KBS token)")
+                renewed_count += 1
+            elif result is None:
+                print(f"Renewing {cctv_id}... No change")
+                skips += 1
+            else:
+                print(f"Renewing {cctv_id}... FAILED (KBS resolver)")
+                failed_count += 1
 
     for cctv_id in candidates:
         if cctv_id not in data_map:
@@ -268,7 +335,8 @@ def main():
     # Generate Report
     report = {
         "timestamp": datetime.now().isoformat(),
-        "candidates": len(candidates),
+        "candidates": len(candidates) + len(kbs_candidates),
+        "kbs_candidates": len(kbs_candidates),
         "renewed": renewed_count,
         "skipped": skips,
         "failed": failed_count
