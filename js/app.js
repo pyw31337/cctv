@@ -689,7 +689,11 @@ async function loadCctvData() {
             throw new Error(`HTTP ${response.status}`);
         }
         const rawData = await response.json();
-        state.cctvData = rawData.filter(cctv => !shouldExcludeCctv(cctv));
+        // Source prefixes are catalog metadata, not useful location names. Keep the
+        // raw source field for filtering/health while presenting a clean name.
+        state.cctvData = rawData
+            .filter(cctv => !shouldExcludeCctv(cctv))
+            .map(normalizeCctvPresentation);
         buildGeoIndex(state.cctvData);
         console.log(`Loaded ${state.cctvData.length} core CCTV entries.`, rawData.length !== state.cctvData.length ? `(excluded ${rawData.length - state.cctvData.length})` : '');
         
@@ -701,6 +705,14 @@ async function loadCctvData() {
         state.cctvById = new Map();
         state.geoIndex = new Map();
     }
+}
+
+function normalizeCctvPresentation(cctv) {
+    const item = { ...cctv };
+    item.name = String(item.name || '')
+        .replace(/^\s*\[(?:SPATIC|YOUTUBE)\]\s*/i, '')
+        .trim() || item.name;
+    return item;
 }
 
 async function loadCctvExtendedData(cacheBucket) {
@@ -716,6 +728,7 @@ async function loadCctvExtendedData(cacheBucket) {
             const ext = extendedMap[cctv.id];
             if (ext) {
                 Object.assign(cctv, ext);
+                normalizeCctvPresentation(cctv);
                 mergedCount++;
             }
         });
@@ -5490,10 +5503,16 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
         if (videoId) {
             const iframe = document.createElement('iframe');
-            iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playsinline=1&controls=0`;
+            const embedParams = new URLSearchParams({
+                autoplay: '1', mute: '1', playsinline: '1', controls: '0',
+                rel: '0', modestbranding: '1', enablejsapi: '1',
+                origin: window.location.origin
+            });
+            iframe.src = `https://www.youtube.com/embed/${videoId}?${embedParams}`;
             iframe.className = 'youtube-iframe';
             iframe.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;border:none;display:block;';
             iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+            iframe.referrerPolicy = 'strict-origin-when-cross-origin';
             iframe.allowFullscreen = true;
             return iframe;
         }
@@ -8990,7 +9009,7 @@ function ensureLiveBadge(element) {
     if (!badge) {
         badge = document.createElement('div');
         badge.className = 'live-badge';
-        badge.innerHTML = '<span class="live-dot"></span>STREAMING';
+        badge.innerHTML = '<span class="live-dot"></span>LIVE';
         parent.appendChild(badge);
     }
 }
@@ -9507,6 +9526,20 @@ function isPlayableHighwayCandidate(cctv) {
         && !isUnsupportedBrowserStream(cctv);
 }
 
+function hasFreshHighwayZ3Cache() {
+    return Boolean(z3CacheData)
+        && z3CacheAgeMs <= Z3_CACHE_STALE_MS
+        && Object.keys(z3CacheData).length > 0;
+}
+
+async function ensureHighwayPlaybackReady() {
+    await loadZ3Cache();
+    if (hasFreshHighwayZ3Cache()) return true;
+
+    alert('고속도로 CCTV 재생 토큰이 최신화되지 않았습니다. 빈 영상을 반복 표시하지 않도록 현재 선택을 중단했습니다. 잠시 후 다시 시도해 주세요.');
+    return false;
+}
+
 function decorateHighwaySelection(cctv) {
     const distance = getDistance(state.center.lat, state.center.lng, Number(cctv.lat), Number(cctv.lng));
     return { ...cctv, distance: Number.isFinite(distance) ? distance : cctv.distance, _health: getCameraHealthMeta(cctv) };
@@ -9547,6 +9580,7 @@ async function showCongestedHighwayCctvs() {
         alert('고속도로 소통 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
         return;
     }
+    if (!await ensureHighwayPlaybackReady()) return;
 
     const jamSections = data.sections
         .filter(section => section.grade === 3)
@@ -9587,9 +9621,10 @@ async function showCongestedHighwayCctvs() {
 }
 
 // 6. Highway route selector (SERVICE_ANALYSIS Phase 2 "Highway list selector").
-function showHighwayRouteCctvs(routeName) {
+async function showHighwayRouteCctvs(routeName) {
     const route = getHighwayRouteCatalog().find(item => item.routeName === routeName);
     if (!route) return;
+    if (!await ensureHighwayPlaybackReady()) return;
     const ranked = route.cctvs
         .filter(isPlayableHighwayCandidate)
         .map(cctv => ({ cctv, traffic: getHighwayTrafficForCctv(cctv) }))
@@ -9630,6 +9665,9 @@ function renderHighwayRouteList() {
             meta.textContent = `한국도로공사 실시간 소통${observed ? ` · ${observed} 기준` : ''} · 정체 ${jamCount}구간${data.stale ? ' · 최신 정보 지연' : ''}`;
         } else {
             meta.textContent = '소통 정보를 불러오지 못해 노선별 CCTV만 표시합니다.';
+        }
+        if (z3CacheData && !hasFreshHighwayZ3Cache()) {
+            meta.textContent = '고속도로 CCTV 재생 토큰 갱신이 지연되어 영상 선택을 일시 중단했습니다.';
         }
     }
     const jamBtn = $('#highway-congested-btn');
@@ -9674,7 +9712,7 @@ function openHighwayPanel() {
     $('#highway-btn')?.classList.add('active');
     $('#dim-overlay')?.classList.add('active');
     renderHighwayRouteList();
-    loadHighwayTraffic().then(() => {
+    Promise.all([loadHighwayTraffic(), loadZ3Cache()]).then(() => {
         if (layer.classList.contains('active')) renderHighwayRouteList();
         refreshHighwayTrafficBadges();
     }).catch(() => {});
