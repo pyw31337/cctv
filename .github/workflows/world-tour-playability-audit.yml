@@ -72,15 +72,16 @@ jobs:
           print(f"- Items: `{meta.get('itemCount', '-')}`")
           print(f"- Audited this run: `{meta.get('playabilityAuditedThisRun', '-')}`")
           print(f"- Source-only count: `{meta.get('sourceOnlyCount', '-')}`")
+          print(f"- Removed after five failed checks: `{meta.get('removedAfterFiveFailedChecksThisRun', 0)}`")
           print(f"- Verified: `{counts.get('verified', 0)}` / Source-only: `{counts.get('source-only', 0)}` / Unavailable: `{counts.get('unavailable', 0)}` / Embed disabled: `{counts.get('embed_disabled', 0)}`")
           print('')
-          print('Policy: keep catalog entries, but re-check stale/high-risk source-only and YouTube entries first; public YouTube/HLS embeds are promoted when currently playable.')
+          print('Policy: re-check stale/high-risk entries first. An item is removed only after five in-app failures inside 96 hours with no successful check.')
           PY
 
       - name: Commit and push changes
         run: |
-          if git diff --quiet -- data/world_tour_cams.json data/catalog_playability_report.json data/catalog_playability_history.json; then
+          if git diff --quiet -- data/world_tour_cams.json data/world_tour_playability_history.json data/catalog_playability_report.json data/catalog_playability_history.json; then
             echo "No world tour playability changes."
           else
-            scripts/commit_and_push_changes.sh "AUTO: Refresh world tour playability [skip ci]" data/world_tour_cams.json data/catalog_playability_report.json data/catalog_playability_history.json
+            scripts/commit_and_push_changes.sh "AUTO: Refresh world tour playability [skip ci]" data/world_tour_cams.json data/world_tour_playability_history.json data/catalog_playability_report.json data/catalog_playability_history.json
           fi

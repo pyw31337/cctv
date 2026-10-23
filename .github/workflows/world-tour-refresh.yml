@@ -62,7 +62,7 @@ jobs:
       - name: Check for changes
         id: check_changes
         run: |
-          if [[ -n $(git status -s data/world_tour_cams.json data/catalog_playability_report.json data/catalog_playability_history.json .cache/world_tour_http_cache.json .cache/world_tour_geocode_cache.json) ]]; then
+          if [[ -n $(git status -s data/world_tour_cams.json data/world_tour_playability_history.json data/catalog_playability_report.json data/catalog_playability_history.json .cache/world_tour_http_cache.json .cache/world_tour_geocode_cache.json) ]]; then
             echo "changes_detected=true" >> "$GITHUB_OUTPUT"
           else
             echo "changes_detected=false" >> "$GITHUB_OUTPUT"
@@ -73,6 +73,7 @@ jobs:
         run: |
           scripts/commit_and_push_changes.sh "Auto-update: World tour CCTV data [skip ci]" \
             data/world_tour_cams.json \
+            data/world_tour_playability_history.json \
             data/catalog_playability_report.json \
             data/catalog_playability_history.json \
             .cache/world_tour_http_cache.json \

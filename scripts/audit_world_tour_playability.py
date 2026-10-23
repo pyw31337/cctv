@@ -20,6 +20,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PATH = ROOT / 'data' / 'world_tour_cams.json'
+DEFAULT_HISTORY_PATH = ROOT / 'data' / 'world_tour_playability_history.json'
+FAILURE_WINDOW_HOURS = 96
+FAILURE_THRESHOLD = 5
 sys.path.insert(0, str(ROOT / 'scripts'))
 import build_world_tour_cams as world  # noqa: E402
 
@@ -37,7 +40,52 @@ def parse_date(value: object) -> dt.datetime:
         return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
 
 
-def audit_priority(item: dict) -> tuple:
+def load_history(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        return payload if isinstance(payload, dict) else {"cameras": {}}
+    except (OSError, json.JSONDecodeError):
+        return {"cameras": {}}
+
+
+def in_app_playable(item: dict) -> bool:
+    return bool(
+        item.get('playbackStatus') == 'verified'
+        and not item.get('sourceOnly')
+        and (item.get('videoId') or item.get('embedUrl') or item.get('playUrl'))
+    )
+
+
+def recent_attempts(history: dict, camera_id: str, now: dt.datetime) -> list[dict]:
+    entry = (history.get('cameras') or {}).get(camera_id, {}) if isinstance(history, dict) else {}
+    attempts = entry.get('attempts', []) if isinstance(entry, dict) else []
+    cutoff = now - dt.timedelta(hours=FAILURE_WINDOW_HOURS)
+    return [item for item in attempts if isinstance(item, dict) and parse_date(item.get('at')) >= cutoff]
+
+
+def should_prune(history: dict, item: dict, now: dt.datetime) -> bool:
+    attempts = recent_attempts(history, str(item.get('id') or ''), now)
+    return len(attempts) >= FAILURE_THRESHOLD and not any(bool(attempt.get('in_app')) for attempt in attempts)
+
+
+def record_attempt(history: dict, item: dict, now: dt.datetime) -> None:
+    camera_id = str(item.get('id') or '')
+    if not camera_id:
+        return
+    cameras = history.setdefault('cameras', {})
+    entry = cameras.setdefault(camera_id, {"attempts": []})
+    attempts = recent_attempts(history, camera_id, now)
+    attempts.append({
+        'at': now.isoformat(),
+        'in_app': in_app_playable(item),
+        'status': item.get('playbackStatus') or 'unknown',
+        'reason': item.get('sourceOnlyReason') or item.get('directProbeStatus') or item.get('embedProbeStatus') or '',
+    })
+    entry['attempts'] = attempts[-FAILURE_THRESHOLD:]
+    entry['last_title'] = item.get('title') or camera_id
+
+
+def audit_priority(item: dict, history: dict | None = None) -> tuple:
     """Oldest and highest-risk items are audited first when using --max-items."""
     status = str(item.get('playbackStatus') or 'unchecked').lower()
     source_only = bool(item.get('sourceOnly'))
@@ -50,7 +98,13 @@ def audit_priority(item: dict) -> tuple:
         'source-only': 2,
         'verified': 3,
     }.get(status, 1)
+    attempts = recent_attempts(history or {}, str(item.get('id') or ''), dt.datetime.now(dt.timezone.utc))
+    # Recheck an observed failure until it reaches a defensible five-attempt
+    # decision. This avoids keeping source-only entries forever just because
+    # a rotating audit visits each one too rarely.
+    incomplete_failure = bool(attempts) and len(attempts) < FAILURE_THRESHOLD and not any(a.get('in_app') for a in attempts)
     return (
+        0 if incomplete_failure else 1,
         parse_date(item.get('lastCheckedAt')),
         status_rank,
         0 if risky_source else 1,
@@ -157,27 +211,28 @@ def audit_item(item: dict) -> dict | None:
     return world.enrich_item_quality(item)
 
 
-def select_audit_items(items: list[dict], max_items: int | None = None) -> tuple[list[dict], set[str]]:
+def select_audit_items(items: list[dict], history: dict, max_items: int | None = None) -> tuple[list[dict], set[str]]:
     if not max_items or max_items <= 0 or max_items >= len(items):
         selected = list(items)
     else:
-        selected = sorted(items, key=audit_priority)[:max_items]
+        selected = sorted(items, key=lambda item: audit_priority(item, history))[:max_items]
     selected_ids = {str(item.get('id') or '') for item in selected}
     return selected, selected_ids
 
 
-def run(path: Path, max_workers: int = 10, max_items: int | None = None) -> dict:
+def run(path: Path, history_path: Path = DEFAULT_HISTORY_PATH, max_workers: int = 10, max_items: int | None = None) -> dict:
     payload = json.loads(path.read_text(encoding='utf-8'))
     items = payload.get('items', [])
-    selected_items, selected_ids = select_audit_items(items, max_items)
+    history = load_history(history_path)
+    selected_items, selected_ids = select_audit_items(items, history, max_items)
     preserved_items = [item for item in items if str(item.get('id') or '') not in selected_ids]
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         audited_selected = [item for item in executor.map(audit_item, selected_items) if item]
-    audited = [
-        item
-        for item in audited_selected + preserved_items
-        if not world.is_refused_original_only_item(item)
-    ]
+    now = dt.datetime.now(dt.timezone.utc)
+    for item in audited_selected:
+        record_attempt(history, item, now)
+    prune_ids = {str(item.get('id') or '') for item in audited_selected if should_prune(history, item, now)}
+    audited = [item for item in audited_selected + preserved_items if not world.is_refused_original_only_item(item) and str(item.get('id') or '') not in prune_ids]
     audited.sort(
         key=lambda item: (
             0 if world.is_in_app_video_item(item) and not item.get('sourceOnly') else 1,
@@ -212,6 +267,8 @@ def run(path: Path, max_workers: int = 10, max_items: int | None = None) -> dict
     meta['uncheckedCount'] = sum(1 for item in audited if item.get('playbackStatus') == 'unchecked')
     meta['playbackStatusCounts'] = dict(Counter(item.get('playbackStatus') or 'unknown' for item in audited))
     meta['sourceOnlyCount'] = sum(1 for item in audited if item.get('sourceOnly'))
+    meta['fiveAttemptRemovalPolicy'] = f'Remove only after {FAILURE_THRESHOLD} in-app playback failures within {FAILURE_WINDOW_HOURS} hours; one success resets eligibility.'
+    meta['removedAfterFiveFailedChecksThisRun'] = len(prune_ids)
     meta['sourceTypeHealth'] = {
         source: {
             'total': total,
@@ -246,21 +303,28 @@ def run(path: Path, max_workers: int = 10, max_items: int | None = None) -> dict
         )
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    history['schema'] = 'world-tour-playability-history-v1'
+    history['updated_at'] = now.isoformat()
+    history['window_hours'] = FAILURE_WINDOW_HOURS
+    history['failure_threshold'] = FAILURE_THRESHOLD
+    history_path.write_text(json.dumps(history, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return {
         'items': len(audited),
         'auditedThisRun': len(audited_selected),
         'status': meta['playbackStatusCounts'],
         'sourceOnly': meta['sourceOnlyCount'],
+        'removedAfterFiveFailedChecks': len(prune_ids),
     }
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, default=DEFAULT_PATH)
+    parser.add_argument('--history', type=Path, default=DEFAULT_HISTORY_PATH)
     parser.add_argument('--workers', type=int, default=10)
     parser.add_argument('--max-items', type=int, default=0, help='Audit only the stalest N retained items. 0 means full audit.')
     args = parser.parse_args(argv)
-    result = run(args.input, args.workers, args.max_items)
+    result = run(args.input, args.history, args.workers, args.max_items)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
