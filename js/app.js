@@ -4642,11 +4642,16 @@ function getCctvReservationKeys(cctv) {
     const originalId = cctv.original_id || '';
     const url = cctv.directUrl || cctv.url || '';
     const sceneKey = getCctvSceneKey(cctv);
+    const playbackKey = getCctvPlaybackKey(cctv);
 
     if (id) keys.push(`id:${id}`);
     if (sceneKey) keys.push(sceneKey);
     if (originalId) keys.push(`origin:${source}:${originalId}`);
     if (url) keys.push(`url:${url}`);
+    // URL wrappers can differ while resolving to the same camera. Reserve the
+    // normalized stream identity as well, so a failover never fills another
+    // grid slot with the same live picture.
+    if (playbackKey) keys.push(`playback:${playbackKey}`);
 
     return keys;
 }
@@ -6147,6 +6152,19 @@ const GridFailoverController = {
         return activeIds;
     },
 
+    getActiveGridReservationKeys() {
+        const reservedKeys = new Set();
+        const panels = document.querySelectorAll('.video-panel');
+        panels.forEach(panel => {
+            const activeId = panel.querySelector('video')?.dataset.activeCctvId;
+            const activeCctv = panel._activeCctv
+                || (activeId ? findCctvById(activeId) : null)
+                || getPanelCctv(panel);
+            addCctvReservationKeys(reservedKeys, activeCctv);
+        });
+        return reservedKeys;
+    },
+
     findFailoverCandidate(currentCctv) {
         if (!currentCctv) return null;
 
@@ -6157,12 +6175,15 @@ const GridFailoverController = {
         const list = Array.isArray(state.nearestCctvs) ? state.nearestCctvs : [];
         const idx = list.findIndex(item => item && item.id === currentCctv.id);
         const activeGridIds = this.getActiveGridCctvIds();
+        const activeGridReservationKeys = this.getActiveGridReservationKeys();
 
         const currentLat = Number(currentCctv.lat) || Number(state.center?.lat) || 37.5665;
         const currentLng = Number(currentCctv.lng) || Number(state.center?.lng) || 126.9780;
 
         const isFailed = (id) => state.failedSessionCams.has(id);
-        const isNotDuplicate = (id) => id !== currentCctv.id && !activeGridIds.has(id);
+        const isNotDuplicate = (item) => item?.id !== currentCctv.id
+            && !activeGridIds.has(item?.id)
+            && !hasReservedCctvKey(item, activeGridReservationKeys);
 
         const isGeofencedAndPlayable = (item) => {
             if (!item || !CctvPlayabilityEngine.isPlayableCandidate(item)) return false;
@@ -6178,19 +6199,19 @@ const GridFailoverController = {
         if (idx !== -1) {
             for (let offset = 1; offset < list.length; offset += 1) {
                 const candidate = list[(idx + offset) % list.length];
-                if (candidate && !isFailed(candidate.id) && isNotDuplicate(candidate.id) && isGeofencedAndPlayable(candidate)) {
+                if (candidate && !isFailed(candidate.id) && isNotDuplicate(candidate) && isGeofencedAndPlayable(candidate)) {
                     return candidate;
                 }
             }
         } else {
-            const found = list.find(item => item && !isFailed(item.id) && isNotDuplicate(item.id) && isGeofencedAndPlayable(item));
+            const found = list.find(item => item && !isFailed(item.id) && isNotDuplicate(item) && isGeofencedAndPlayable(item));
             if (found) return found;
         }
 
         // 2nd stage: search in full cctvData for closest geofenced, playable candidate
         if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
             const candidates = state.cctvData
-                .filter(item => item && !isFailed(item.id) && isNotDuplicate(item.id) && isGeofencedAndPlayable(item))
+                .filter(item => item && !isFailed(item.id) && isNotDuplicate(item) && isGeofencedAndPlayable(item))
                 .map(item => ({ item, distKm: getDistance(currentLat, currentLng, Number(item.lat), Number(item.lng)) }))
                 .sort((a, b) => a.distKm - b.distKm);
 
@@ -6199,28 +6220,30 @@ const GridFailoverController = {
             }
         }
 
-        // 3rd stage: relax de-duplication filter within geofence if grid is full
+        // Never relax stream de-duplication. A blank error state is preferable
+        // to silently showing a duplicate camera in another grid slot.
         if (idx !== -1) {
             for (let offset = 1; offset < list.length; offset += 1) {
                 const candidate = list[(idx + offset) % list.length];
-                if (candidate && candidate.id !== currentCctv.id && !isFailed(candidate.id) && isGeofencedAndPlayable(candidate)) {
+                if (candidate && !isFailed(candidate.id) && isNotDuplicate(candidate) && isGeofencedAndPlayable(candidate)) {
                     return candidate;
                 }
             }
         } else {
-            const found = list.find(item => item && item.id !== currentCctv.id && !isFailed(item.id) && isGeofencedAndPlayable(item));
+            const found = list.find(item => item && !isFailed(item.id) && isNotDuplicate(item) && isGeofencedAndPlayable(item));
             if (found) return found;
         }
 
-        // 4th stage: cycle back within geofence after clearing session failures
+        // 4th stage: permit a previous failed candidate only after the session
+        // cache is cleared, while preserving the no-duplicate invariant.
         state.failedSessionCams.clear();
         if (idx !== -1) {
             for (let offset = 1; offset < list.length; offset += 1) {
                 const candidate = list[(idx + offset) % list.length];
-                if (candidate && candidate.id !== currentCctv.id && isGeofencedAndPlayable(candidate)) return candidate;
+                if (candidate && isNotDuplicate(candidate) && isGeofencedAndPlayable(candidate)) return candidate;
             }
         }
-        return list.find(item => item && item.id !== currentCctv.id && isGeofencedAndPlayable(item)) || null;
+        return list.find(item => item && isNotDuplicate(item) && isGeofencedAndPlayable(item)) || null;
     }
 };
 

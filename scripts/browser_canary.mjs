@@ -61,6 +61,9 @@ async function main() {
         panel_count: 0,
         unique_stream_count: 0,
         duplicate_stream_keys: [],
+        duplicate_actual_stream_keys: [],
+        duplicate_camera_ids: [],
+        panel_details: [],
         mapping_errors: [],
         error_text: null,
       };
@@ -85,9 +88,13 @@ async function main() {
           });
         }, { timeout: TIMEOUT_MS });
         const metrics = await page.evaluate(async () => {
-          const key = (url) => {
+          const key = (url, depth = 0) => {
             try {
               const parsed = new URL(String(url || ''), location.href);
+              // The player may use a proxy wrapper while the catalog has the
+              // upstream URL. Unwrap it before comparing camera identities.
+              const wrappedUrl = parsed.searchParams.get('url') || parsed.searchParams.get('target');
+              if (wrappedUrl && depth < 2) return key(wrappedUrl, depth + 1);
               const media = parsed.pathname.match(/\/media\/(L\d+)/i);
               if (media) return `${parsed.hostname.toLowerCase()}:${media[1].toUpperCase()}`;
               const id = parsed.searchParams.get('cctvid') || parsed.searchParams.get('id');
@@ -105,12 +112,32 @@ async function main() {
             return (video && video.readyState >= 2 && video.videoWidth > 0)
               || (iframe && iframe.clientWidth > 100 && iframe.clientHeight > 100);
           });
-          const streamKeys = panels.map(panel => {
+          const panelDetails = panels.map(panel => {
             const item = byId.get(panel.dataset.cctvId || '');
-            return key(item?.directUrl || item?.url || panel.querySelector('video')?.currentSrc || panel.querySelector('iframe')?.src);
+            const video = panel.querySelector('video');
+            const iframe = panel.querySelector('iframe');
+            const actualUrl = video?.currentSrc || video?.src || iframe?.src || '';
+            // hls.js normally exposes a blob: URL through currentSrc. The
+            // active camera ID is therefore the reliable record of which
+            // catalog stream the player is actually rendering after fallback.
+            const activeCameraId = video?.dataset.activeCctvId || panel.dataset.cctvId || '';
+            const activeItem = byId.get(activeCameraId);
+            return {
+              camera_id: panel.dataset.cctvId || '',
+              active_camera_id: activeCameraId,
+              catalog_stream_key: key(item?.directUrl || item?.url || ''),
+              actual_stream_key: key(activeItem?.directUrl || activeItem?.url || actualUrl),
+              actual_source_kind: video ? 'video' : (iframe ? 'iframe' : 'none'),
+            };
           });
-          const counts = new Map();
-          streamKeys.filter(Boolean).forEach(value => counts.set(value, (counts.get(value) || 0) + 1));
+          const duplicates = (values) => {
+            const counts = new Map();
+            values.filter(Boolean).forEach(value => counts.set(value, (counts.get(value) || 0) + 1));
+            return [...counts.entries()].filter(([, count]) => count > 1).map(([value]) => value);
+          };
+          const streamKeys = panelDetails.map(item => item.catalog_stream_key);
+          const actualStreamKeys = panelDetails.map(item => item.actual_stream_key);
+          const cameraIds = panelDetails.map(item => item.active_camera_id);
           return {
             video_count: videos.length,
             playing_count: videos.filter(video => video.readyState >= 2 && video.videoWidth > 0).length,
@@ -118,12 +145,19 @@ async function main() {
             panel_count: panels.length,
             stream_keys: streamKeys,
             unique_stream_count: new Set(streamKeys.filter(Boolean)).size,
-            duplicate_stream_keys: [...counts.entries()].filter(([, count]) => count > 1).map(([value]) => value),
-            mapping_errors: streamKeys.map((value, index) => value ? null : panels[index]?.dataset.cctvId || '<missing>').filter(Boolean),
+            duplicate_stream_keys: duplicates(streamKeys),
+            duplicate_actual_stream_keys: duplicates(actualStreamKeys),
+            duplicate_camera_ids: duplicates(cameraIds),
+            panel_details: panelDetails,
+            mapping_errors: panelDetails
+              .map(item => item.camera_id && item.catalog_stream_key ? null : item.camera_id || '<missing>')
+              .filter(Boolean),
           };
         });
         result.ok = metrics.panel_count >= 4 && metrics.ready_panel_count >= 4
           && metrics.unique_stream_count >= 4 && metrics.duplicate_stream_keys.length === 0
+          && metrics.duplicate_actual_stream_keys.length === 0
+          && metrics.duplicate_camera_ids.length === 0
           && metrics.mapping_errors.length === 0;
         result.first_frame_ms = Date.now() - started;
         result.video_count = metrics.video_count;
@@ -132,6 +166,9 @@ async function main() {
         result.panel_count = metrics.panel_count;
         result.unique_stream_count = metrics.unique_stream_count;
         result.duplicate_stream_keys = metrics.duplicate_stream_keys;
+        result.duplicate_actual_stream_keys = metrics.duplicate_actual_stream_keys;
+        result.duplicate_camera_ids = metrics.duplicate_camera_ids;
+        result.panel_details = metrics.panel_details;
         result.mapping_errors = metrics.mapping_errors;
       } catch (error) {
         result.error_text = String(error?.message || error).slice(0, 300);
@@ -173,9 +210,11 @@ async function main() {
       failed: results.filter(item => !item.ok).length,
       service_impact_failed: results.filter(item => !item.ok
         && item.duplicate_stream_keys.length === 0
+        && item.duplicate_camera_ids.length === 0
         && item.mapping_errors.length === 0).length,
       service_impact_critical_failed: results.filter(item => item.key === 'namyangju' && !item.ok).length,
       hard_failed: results.filter(item => item.duplicate_stream_keys.length > 0
+        || item.duplicate_camera_ids.length > 0
         || item.mapping_errors.length > 0).length,
     },
   };
