@@ -5698,18 +5698,41 @@ function createVideoElement(cctv, sourceIndex = 0) {
                     hls.attachMedia(video);
                     bindHlsLiveCheck(hls, video);
                     let z3RetryCount = 0;
+                    const refreshZ3Session = async () => {
+                        if (!z3CctvIp || !video.parentElement) return false;
+                        try {
+                            // A Z3 appUrl can resolve while the first live segment is still
+                            // rotating. Re-resolve it here to get a new Nimble session instead
+                            // of repeatedly requesting a segment from the failed session.
+                            const resolverUrl = await getZ3StreamUrl(z3CctvIp);
+                            if (!resolverUrl) return false;
+                            const response = await fetch(resolverUrl, { cache: 'no-store' });
+                            const refreshedUrl = response.ok ? (await response.text()).trim() : '';
+                            if (!refreshedUrl.startsWith('http')) return false;
+                            streamUrl = normalizeResolvedZ3StreamUrl(refreshedUrl);
+                            hls.stopLoad();
+                            hls.loadSource(streamUrl);
+                            hls.startLoad(-1);
+                            console.log(`[UTIC Z3] Refreshed HLS session for ${z3CctvIp}.`);
+                            return true;
+                        } catch (error) {
+                            console.warn('[UTIC Z3] HLS session refresh failed:', error);
+                            return false;
+                        }
+                    };
                     hls.on(Hls.Events.ERROR, function(ev, data) {
                         if (data.fatal) {
-                            if ((data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) && z3RetryCount < 2) {
+                            if ((data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) && z3RetryCount < 3) {
                                 z3RetryCount++;
-                                console.log(`[UTIC Z3] Self-healing retry for fatal error (${z3RetryCount}/2)...`);
-                                setTimeout(() => {
+                                console.log(`[UTIC Z3] Self-healing retry for fatal error (${z3RetryCount}/3)...`);
+                                setTimeout(async () => {
                                     if (!video.parentElement) return;
+                                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR && await refreshZ3Session()) return;
                                     if (data.type === Hls.ErrorTypes.MEDIA_ERROR && typeof hls.recoverMediaError === 'function') {
                                         hls.recoverMediaError();
                                     }
                                     hls.startLoad(-1);
-                                }, 700 * z3RetryCount);
+                                }, 900 * z3RetryCount);
                                 return;
                             }
                             hls.destroy();
