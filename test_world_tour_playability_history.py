@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import audit_world_tour_playability as audit
-from scripts.audit_world_tour_playability import record_attempt, should_prune
+from scripts.audit_world_tour_playability import audit_priority, record_attempt, should_prune
 
 
 class WorldTourPlayabilityHistoryTests(unittest.TestCase):
@@ -40,6 +40,17 @@ class WorldTourPlayabilityHistoryTests(unittest.TestCase):
                 result = audit.run(data_path, history_path, max_workers=1)
             self.assertEqual(result["items"], 0)
             self.assertEqual(result["removedAfterFiveFailedChecks"], 1)
+
+    def test_near_threshold_failure_is_rechecked_before_lower_attempt_failure(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        history = {"cameras": {}}
+        near_threshold = {"id": "four", "title": "Four", "playbackStatus": "source-only", "sourceOnly": True}
+        lower_attempt = {"id": "two", "title": "Two", "playbackStatus": "source-only", "sourceOnly": True}
+        for _ in range(4):
+            record_attempt(history, near_threshold, now)
+        for _ in range(2):
+            record_attempt(history, lower_attempt, now)
+        self.assertLess(audit_priority(near_threshold, history), audit_priority(lower_attempt, history))
 
 
 if __name__ == "__main__":

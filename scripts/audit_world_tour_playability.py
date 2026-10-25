@@ -86,7 +86,7 @@ def record_attempt(history: dict, item: dict, now: dt.datetime) -> None:
 
 
 def audit_priority(item: dict, history: dict | None = None) -> tuple:
-    """Oldest and highest-risk items are audited first when using --max-items."""
+    """Recheck incomplete failures before rotating to lower-risk entries."""
     status = str(item.get('playbackStatus') or 'unchecked').lower()
     source_only = bool(item.get('sourceOnly'))
     source_type = str(item.get('sourceType') or '')
@@ -105,6 +105,7 @@ def audit_priority(item: dict, history: dict | None = None) -> tuple:
     incomplete_failure = bool(attempts) and len(attempts) < FAILURE_THRESHOLD and not any(a.get('in_app') for a in attempts)
     return (
         0 if incomplete_failure else 1,
+        -len(attempts) if incomplete_failure else 0,
         parse_date(item.get('lastCheckedAt')),
         status_rank,
         0 if risky_source else 1,
