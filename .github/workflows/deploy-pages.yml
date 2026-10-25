@@ -3,6 +3,16 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [main]
+  workflow_run:
+    # Data writers use [skip ci] to avoid a push loop. Re-deploy after the
+    # two world catalog writers finish so public Pages never serves a stale
+    # playability decision.
+    workflows: ["World Tour Playability Audit", "World Tour CCTV Refresh"]
+    types: [completed]
+  schedule:
+    # Other automated data commits (quality policy, domestic repair queue,
+    # weather, and cache status) also reach the public static site promptly.
+    - cron: '17 */4 * * *'
   workflow_dispatch:
 
 env:
@@ -19,6 +29,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
