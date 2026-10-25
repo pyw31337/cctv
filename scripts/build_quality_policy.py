@@ -47,6 +47,13 @@ def score(metrics: dict[str, Any], now: datetime) -> tuple[int, int, str, str | 
     if freshness is not None and freshness > 72: return value, confidence, "watch", "refresh_evidence"
     return value, confidence, "preferred" if value >= 75 else "watch", None
 
+def review_interval_hours(tier: str, score_value: int, confidence: int) -> int:
+    """Shorten verification only where evidence says users are at risk."""
+    if tier == "repair": return 6
+    if confidence < 20: return 24
+    if tier == "watch" or score_value < 75: return 24
+    return 72
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--summary", default=str(ROOT / "data" / "quality_summary.json"))
@@ -60,13 +67,15 @@ def main() -> int:
     for camera_id, metrics in cameras.items():
         if not isinstance(metrics, dict): continue
         quality, confidence, tier, action = score(metrics, now)
-        camera_policy[str(camera_id)] = {"score": quality, "confidence": confidence, "tier": tier}
-        if action: queue.append({"id": str(camera_id), "name": str(metrics.get("camera_name") or camera_id), "source": str(metrics.get("source") or "UNKNOWN"), "score": quality, "action": action, "updated_at": metrics.get("updated_at")})
+        interval = review_interval_hours(tier, quality, confidence)
+        camera_policy[str(camera_id)] = {"score": quality, "confidence": confidence, "tier": tier, "review_interval_hours": interval}
+        if action: queue.append({"id": str(camera_id), "name": str(metrics.get("camera_name") or camera_id), "source": str(metrics.get("source") or "UNKNOWN"), "score": quality, "action": action, "review_interval_hours": interval, "updated_at": metrics.get("updated_at")})
     for source, metrics in sources.items():
         if not isinstance(metrics, dict): continue
         quality, confidence, tier, action = score(metrics, now)
-        source_policy[str(source)] = {"score": quality, "confidence": confidence, "tier": tier}
-        if action and tier == "repair": queue.append({"id": f"source:{source}", "name": str(source), "source": str(source), "score": quality, "action": action, "updated_at": metrics.get("updated_at")})
+        interval = review_interval_hours(tier, quality, confidence)
+        source_policy[str(source)] = {"score": quality, "confidence": confidence, "tier": tier, "review_interval_hours": interval}
+        if action and tier == "repair": queue.append({"id": f"source:{source}", "name": str(source), "source": str(source), "score": quality, "action": action, "review_interval_hours": interval, "updated_at": metrics.get("updated_at")})
     queue.sort(key=lambda item: (item["score"], item["source"], item["id"]))
     stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     atomic_write_json(Path(args.output), {"schema": "cctv-quality-policy-v1", "generated_at": stamp, "policy": "Telemetry adjusts ranking only. Locked mappings require independent verification before promotion.", "cameras": camera_policy, "sources": source_policy}, sort_keys=True)

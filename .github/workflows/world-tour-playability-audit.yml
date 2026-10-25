@@ -80,8 +80,8 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          if git diff --quiet -- data/world_tour_cams.json data/world_tour_playability_history.json data/catalog_playability_report.json data/catalog_playability_history.json; then
+          if git diff --quiet -- data/world_tour_cams.json data/world_tour_playability_history.json data/world_tour_retired_streams.json data/catalog_playability_report.json data/catalog_playability_history.json; then
             echo "No world tour playability changes."
           else
-            scripts/commit_and_push_changes.sh "AUTO: Refresh world tour playability [skip ci]" data/world_tour_cams.json data/world_tour_playability_history.json data/catalog_playability_report.json data/catalog_playability_history.json
+            scripts/commit_and_push_changes.sh "AUTO: Refresh world tour playability [skip ci]" data/world_tour_cams.json data/world_tour_playability_history.json data/world_tour_retired_streams.json data/catalog_playability_report.json data/catalog_playability_history.json
           fi

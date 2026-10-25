@@ -21,8 +21,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PATH = ROOT / 'data' / 'world_tour_cams.json'
 DEFAULT_HISTORY_PATH = ROOT / 'data' / 'world_tour_playability_history.json'
+DEFAULT_RETIRED_PATH = ROOT / 'data' / 'world_tour_retired_streams.json'
 FAILURE_WINDOW_HOURS = 96
 FAILURE_THRESHOLD = 5
+PERMANENT_REVIEW_DAYS = 90
+TRANSIENT_REVIEW_DAYS = 1
 sys.path.insert(0, str(ROOT / 'scripts'))
 import build_world_tour_cams as world  # noqa: E402
 
@@ -66,6 +69,113 @@ def recent_attempts(history: dict, camera_id: str, now: dt.datetime) -> list[dic
 def should_prune(history: dict, item: dict, now: dt.datetime) -> bool:
     attempts = recent_attempts(history, str(item.get('id') or ''), now)
     return len(attempts) >= FAILURE_THRESHOLD and not any(bool(attempt.get('in_app')) for attempt in attempts)
+
+
+def failure_policy(item: dict, history: dict, now: dt.datetime) -> dict:
+    """Classify a five-failure result without mistaking a source policy for an outage."""
+    attempts = recent_attempts(history, str(item.get('id') or ''), now)
+    reasons = [str(attempt.get('reason') or '') for attempt in attempts]
+    reason = next((value for value in reversed(reasons) if value), 'unclassified')
+    permanent_markers = (
+        'forbidden', 'owner_disabled', 'detail_page_does_not_expose',
+        'verified_original_source_page_only', 'no_public_youtube',
+        'invalid_or_unstable_embed', 'not_embeddable',
+    )
+    transient_markers = ('timeout', 'http_error', 'httpstatus', 'http_status', 'certificate', 'direct_stream_probe_failed', 'embed_url_probe_failed', '404', '503', '429')
+    normalized = reason.lower().replace('-', '_')
+    if any(marker in normalized for marker in permanent_markers):
+        classification, days, action = 'provider_policy', PERMANENT_REVIEW_DAYS, 'recheck_provider_policy'
+    elif any(marker in normalized for marker in transient_markers):
+        classification, days, action = 'transient_delivery', TRANSIENT_REVIEW_DAYS, 'retry_and_refresh_source'
+    else:
+        classification, days, action = 'needs_investigation', 7, 'inspect_source_mapping'
+    return {
+        'classification': classification,
+        'root_cause': reason,
+        'recommended_action': action,
+        'review_interval_days': days,
+        'next_review_at': (now + dt.timedelta(days=days)).isoformat(),
+        'consecutive_failures': len(attempts),
+    }
+
+
+def load_retired(path: Path) -> dict:
+    payload = load_history(path)
+    payload.setdefault('items', {})
+    return payload
+
+
+def retire_item(retired: dict, item: dict, history: dict, now: dt.datetime) -> None:
+    camera_id = str(item.get('id') or '')
+    if not camera_id:
+        return
+    retired.setdefault('items', {})[camera_id] = {
+        'id': camera_id,
+        'title': item.get('title') or camera_id,
+        'source_type': item.get('sourceType') or 'unknown',
+        'removed_at': now.isoformat(),
+        'item': item,
+        **failure_policy(item, history, now),
+    }
+
+
+def backfill_retired(retired: dict, history: dict, active_ids: set[str], now: dt.datetime) -> int:
+    """Preserve policy review for streams removed before the registry existed."""
+    records = retired.setdefault('items', {})
+    added = 0
+    for camera_id, entry in (history.get('cameras') or {}).items():
+        if camera_id in active_ids or camera_id in records:
+            continue
+        attempts = recent_attempts(history, str(camera_id), now)
+        if len(attempts) < FAILURE_THRESHOLD or any(attempt.get('in_app') for attempt in attempts):
+            continue
+        item = {
+            'id': camera_id,
+            'title': entry.get('last_title') or camera_id,
+            'playbackStatus': attempts[-1].get('status') or 'source-only',
+            'sourceOnly': True,
+            'sourceOnlyReason': attempts[-1].get('reason') or 'unclassified',
+        }
+        retire_item(retired, item, history, now)
+        records[camera_id].pop('item', None)
+        added += 1
+    return added
+
+
+def review_retired(retired: dict, history: dict, now: dt.datetime, max_workers: int) -> tuple[list[dict], dict[str, int]]:
+    """Re-admit only a quarantined stream that has passed an independent recheck."""
+    records = retired.get('items') if isinstance(retired, dict) else {}
+    due = [record for record in records.values() if isinstance(record, dict) and parse_date(record.get('next_review_at')) <= now]
+    due = due[:max(1, min(40, max_workers * 4))]
+    candidates = [dict(record.get('item') or {}) for record in due if record.get('item')]
+    reviewed = []
+    if candidates:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            reviewed = [item for item in executor.map(audit_item, candidates) if item]
+    recovered = []
+    counts = Counter()
+    for item in reviewed:
+        camera_id = str(item.get('id') or '')
+        record_attempt(history, item, now)
+        record = records.get(camera_id)
+        if not record:
+            continue
+        if in_app_playable(item):
+            recovered.append(item)
+            records.pop(camera_id, None)
+            counts['recovered'] += 1
+            continue
+        policy = failure_policy(item, history, now)
+        # A repeatedly transient provider is not hammered forever; keep its
+        # reason visible and back off to weekly review after the first retry.
+        if policy['classification'] == 'transient_delivery' and record.get('transient_rechecks', 0) >= 1:
+            policy['review_interval_days'] = 7
+            policy['next_review_at'] = (now + dt.timedelta(days=7)).isoformat()
+        record.update({'item': item, **policy})
+        if policy['classification'] == 'transient_delivery':
+            record['transient_rechecks'] = int(record.get('transient_rechecks', 0)) + 1
+        counts[policy['classification']] += 1
+    return recovered, dict(counts)
 
 
 def record_attempt(history: dict, item: dict, now: dt.datetime) -> None:
@@ -221,18 +331,35 @@ def select_audit_items(items: list[dict], history: dict, max_items: int | None =
     return selected, selected_ids
 
 
-def run(path: Path, history_path: Path = DEFAULT_HISTORY_PATH, max_workers: int = 10, max_items: int | None = None) -> dict:
+def run(path: Path, history_path: Path = DEFAULT_HISTORY_PATH, retired_path: Path = DEFAULT_RETIRED_PATH, max_workers: int = 10, max_items: int | None = None) -> dict:
     payload = json.loads(path.read_text(encoding='utf-8'))
     items = payload.get('items', [])
     history = load_history(history_path)
+    retired = load_retired(retired_path)
+    now = dt.datetime.now(dt.timezone.utc)
+    backfilled_retired = backfill_retired(retired, history, {str(item.get('id') or '') for item in items}, now)
+    retired_ids = set((retired.get('items') or {}).keys())
+    for item in items:
+        record = (retired.get('items') or {}).get(str(item.get('id') or ''))
+        if record and not record.get('item'):
+            # A source collector rediscovered a historical record. Keep its
+            # candidate for the scheduled policy review, but do not show it.
+            record['item'] = item
+    # A daily source refresh can rediscover a quarantined listing. It stays
+    # hidden until this audit independently proves direct in-app playback.
+    items = [item for item in items if str(item.get('id') or '') not in retired_ids]
+    recovered_items, retirement_review = review_retired(retired, history, now, max_workers)
+    items.extend(recovered_items)
     selected_items, selected_ids = select_audit_items(items, history, max_items)
     preserved_items = [item for item in items if str(item.get('id') or '') not in selected_ids]
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         audited_selected = [item for item in executor.map(audit_item, selected_items) if item]
-    now = dt.datetime.now(dt.timezone.utc)
     for item in audited_selected:
         record_attempt(history, item, now)
     prune_ids = {str(item.get('id') or '') for item in audited_selected if should_prune(history, item, now)}
+    for item in audited_selected:
+        if str(item.get('id') or '') in prune_ids:
+            retire_item(retired, item, history, now)
     audited = [item for item in audited_selected + preserved_items if not world.is_refused_original_only_item(item) and str(item.get('id') or '') not in prune_ids]
     audited.sort(
         key=lambda item: (
@@ -270,6 +397,12 @@ def run(path: Path, history_path: Path = DEFAULT_HISTORY_PATH, max_workers: int 
     meta['sourceOnlyCount'] = sum(1 for item in audited if item.get('sourceOnly'))
     meta['fiveAttemptRemovalPolicy'] = f'Remove only after {FAILURE_THRESHOLD} in-app playback failures within {FAILURE_WINDOW_HOURS} hours; one success resets eligibility.'
     meta['removedAfterFiveFailedChecksThisRun'] = len(prune_ids)
+    retired_items = list((retired.get('items') or {}).values())
+    meta['retiredStreamPolicy'] = f'provider_policy items recheck every {PERMANENT_REVIEW_DAYS} days; transient delivery failures retry quickly then back off to weekly review.'
+    meta['retiredStreamCounts'] = dict(Counter(str(item.get('classification') or 'unknown') for item in retired_items))
+    meta['retiredReviewedThisRun'] = retirement_review
+    meta['retiredRecoveredThisRun'] = len(recovered_items)
+    meta['retiredBackfilledThisRun'] = backfilled_retired
     meta['sourceTypeHealth'] = {
         source: {
             'total': total,
@@ -309,12 +442,18 @@ def run(path: Path, history_path: Path = DEFAULT_HISTORY_PATH, max_workers: int 
     history['window_hours'] = FAILURE_WINDOW_HOURS
     history['failure_threshold'] = FAILURE_THRESHOLD
     history_path.write_text(json.dumps(history, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    retired['schema'] = 'world-tour-retired-streams-v1'
+    retired['updated_at'] = now.isoformat()
+    retired['failure_threshold'] = FAILURE_THRESHOLD
+    retired['permanent_review_days'] = PERMANENT_REVIEW_DAYS
+    retired_path.write_text(json.dumps(retired, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return {
         'items': len(audited),
         'auditedThisRun': len(audited_selected),
         'status': meta['playbackStatusCounts'],
         'sourceOnly': meta['sourceOnlyCount'],
         'removedAfterFiveFailedChecks': len(prune_ids),
+        'retiredRecovered': len(recovered_items),
     }
 
 
@@ -322,10 +461,11 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, default=DEFAULT_PATH)
     parser.add_argument('--history', type=Path, default=DEFAULT_HISTORY_PATH)
+    parser.add_argument('--retired', type=Path, default=DEFAULT_RETIRED_PATH)
     parser.add_argument('--workers', type=int, default=10)
     parser.add_argument('--max-items', type=int, default=0, help='Audit only the stalest N retained items. 0 means full audit.')
     args = parser.parse_args(argv)
-    result = run(args.input, args.history, args.workers, args.max_items)
+    result = run(args.input, args.history, args.retired, args.workers, args.max_items)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
