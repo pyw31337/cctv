@@ -5,21 +5,21 @@
 1. 브라우저 실사용 품질
    - 사용자의 실제 재생 성공, 실패, 첫 화면 로딩 시간, 대체 소스 사용 여부를 익명 집계합니다.
    - 앱은 이 집계가 있으면 카메라, 소스, 지역 순서로 마커 색상과 추천 순위를 보정합니다.
-  - `data/quality_policy.json`은 성공률, 실패율, 첫 화면 시간, 해상도, 표본 수, 최신성을 점수화합니다. 낮은 점수는 삭제하지 않고 `data/quality_repair_queue.json`으로 보내 재검증 우선순위를 높입니다. Sentinel은 이 정책을 실제 선택 기준으로 사용하며 `repair` 항목은 다음 6시간 주기에서 지역 점검 예산의 최대 60%까지 먼저 재검증합니다.
+  - `data/quality_policy.json`은 성공률, 실패율, 첫 화면 시간, 해상도, 표본 수, 최신성을 점수화합니다. 낮은 점수는 삭제하지 않고 `data/quality_repair_queue.json`으로 보내 재검증 우선순위를 높입니다. 전체 순환 점검은 이 정책을 실제 선택 기준으로 사용하며 `repair` 항목은 다음 6시간 주기에서 지역 점검 예산의 최대 60%까지 먼저 재검증합니다.
    - 잠긴 카메라 ID/stream ID 매핑은 이 점수나 AI가 변경할 수 없습니다. 독립 검증을 통과한 후보만 승격합니다.
   - `data/catalog_playability_report.json`과 `data/catalog_playability_history.json`은 국내·세계 카탈로그의 전체 수, 엄격한 인앱 재생 가능 수, 이전 수집 대비 증감을 기록합니다.
   - 국내의 낮은 점수 항목은 삭제하지 않고 `quality_repair_queue.json`에서 재생 재검증, URL 갱신, 근거 갱신 순으로 복구합니다. 품질 대시보드의 `반복 복구 대상`에서 현재 우선순위를 확인할 수 있습니다.
 
-2. 서버 샘플 점검
-   - Oracle 무료 서버가 `scripts/sentinel.py`를 주기적으로 실행합니다.
+2. 전체 순환 점검
+   - Oracle 무료 서버가 전국 영상을 점수별 주기로 나누어 점검합니다. 내부 스크립트 이름은 `sentinel.py`이지만, 운영 화면에서는 이 이름을 노출하지 않습니다.
    - 결과는 서버의 `data/status.json`에 저장되고 `/health-status`에서 즉시 제공합니다.
    - GitHub Pages 정적 `data/status.json`은 백업 용도입니다.
 
-3. 핵심 카나리 점검
-   - Oracle 무료 서버가 `scripts/canary_probe.py`를 주기적으로 실행합니다.
-   - 진도, 제주, 대전, 구리, 남양주, 독도를 핵심 카나리로 별도 확인합니다.
+3. 주요 지역 점검
+   - Oracle 무료 서버가 자주 사용하는 지역의 실제 재생 후보를 빠르게 확인합니다. 내부 스크립트 이름은 `canary_probe.py`이지만, 운영 화면에서는 이 이름을 노출하지 않습니다.
+   - 진도, 제주, 대전, 구리, 남양주, 독도를 주요 지역으로 별도 확인합니다.
    - 결과는 `/canary-status`, `/ops-status`에서 즉시 제공하고, GitHub Pages 정적 JSON은 백업 용도입니다.
-   - GitHub Actions 카나리는 Actions minutes 절감을 위해 3시간마다 정적 백업 스냅샷만 갱신합니다.
+  - GitHub Actions 주요 지역 점검은 Actions minutes 절감을 위해 3시간마다 정적 백업 스냅샷만 갱신합니다.
    - 핵심 지역은 후보 수를 넓혀 점검합니다. 일부 카메라가 죽어도 인접한 재생 가능 후보를 찾는 것이 목표입니다.
 
 4. 장기 장애 비상 진단

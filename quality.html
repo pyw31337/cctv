@@ -14,7 +14,7 @@
         h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.04em; }
         .sub { margin-top: 8px; color: var(--muted); }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
-        .grid.ops { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        .grid.ops { grid-template-columns: repeat(4, minmax(0, 1fr)); }
         .grid.inventory { grid-template-columns: repeat(6, minmax(0, 1fr)); }
         .card { background: color-mix(in oklab, var(--card), transparent 6%); border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: 0 20px 50px rgba(0,0,0,.22); }
         .metric { font-size: 28px; font-weight: 850; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
@@ -93,8 +93,8 @@
 <main>
     <header>
         <div>
-            <h1>CCTV 품질 대시보드</h1>
-            <div class="sub" id="updated">실사용 품질 요약을 불러오는 중입니다.</div>
+            <h1>영상 상태 점검</h1>
+            <div class="sub" id="updated">재생 가능 여부와 자동 복구 상태를 불러오는 중입니다.</div>
         </div>
         <div class="toolbar">
             <button id="refresh">새로고침</button>
@@ -110,10 +110,9 @@
     </div>
 
     <div class="grid ops">
-        <div class="card status-card" id="ops-service-card"><div class="metric" id="ops-service">-</div><div class="label">운영 영향 상태</div></div>
-        <div class="card status-card" id="ops-z3-card"><div class="metric" id="ops-z3">-</div><div class="label">Z3 캐시 최신성</div></div>
-        <div class="card status-card" id="ops-token-card"><div class="metric" id="ops-token">-</div><div class="label">토큰/URL 갱신 상태</div></div>
-        <div class="card status-card" id="ops-canary-card"><div class="metric" id="ops-canary">-</div><div class="label">핵심 카나리 지역</div></div>
+        <div class="card status-card" id="ops-service-card"><div class="metric" id="ops-service">-</div><div class="label">전체 상태</div></div>
+        <div class="card status-card" id="ops-z3-card"><div class="metric" id="ops-z3">-</div><div class="label">재생 주소 갱신</div></div>
+        <div class="card status-card" id="ops-canary-card"><div class="metric" id="ops-canary">-</div><div class="label">주요 지역 점검</div></div>
         <div class="card status-card" id="ops-recovery-card"><div class="metric" id="ops-recovery">-</div><div class="label">최근 자동 복구</div></div>
     </div>
 
@@ -141,7 +140,7 @@
 
     <details class="advanced-details"><summary>상세 운영 데이터</summary>
     <section class="card">
-        <h2>핵심 카나리 지역</h2>
+        <h2>주요 지역 표본 점검</h2>
         <div class="wide-table"><table><thead><tr><th>지역</th><th>상태</th><th>성공/점검</th><th>성공률</th><th>평균 로딩</th><th>주요 실패</th><th>권장 조치</th></tr></thead><tbody id="canary-rows"></tbody></table></div>
     </section>
 
@@ -158,7 +157,7 @@
     </section>
 
     <section class="card">
-        <h2>카나리 추세</h2>
+        <h2>주요 지역 점검 추세</h2>
         <div class="trend-grid" id="canary-trends">추세 데이터를 불러오는 중입니다.</div>
     </section>
 
@@ -183,7 +182,7 @@
 
     <section class="card">
         <h2>전체 소스 현황</h2>
-        <div class="mini">보유 목록은 삭제하지 않고 유지하며, 품질 샘플과 카나리 결과는 노출 우선순위 판단에만 사용합니다.</div>
+        <div class="mini">보유 목록은 삭제하지 않고 유지하며, 품질 샘플과 주요 지역 점검 결과는 노출 우선순위 판단에만 사용합니다.</div>
         <div class="wide-table"><table><thead><tr><th>소스</th><th>보유</th><th>점검 샘플</th><th>성공률</th><th>평균 로딩</th><th>프록시형</th><th>직접형</th><th>백업 보유</th></tr></thead><tbody id="inventory-source-rows"></tbody></table></div>
     </section>
 
@@ -508,12 +507,12 @@ function renderWorldTourQuality(worldTour) {
 
 function renderFreshness(summary, { canary, ops, cache, regionalStatus, z3Cache, workflowStatus }) {
     const rows = [
-        { label: '품질 요약', payload: summary, fallback: 'generated_at', warn: 120, danger: 360, role: '실사용/카나리 품질 대시보드 집계' },
-        { label: '핵심 카나리', payload: canary, fallback: 'generated_at', warn: 90, danger: 240, role: '진도, 제주, 대전, 구리, 남양주, 독도 실제 후보 점검' },
-        { label: '운영 상태', payload: ops, fallback: 'generated_at', warn: 90, danger: 240, role: '서비스 영향/복구/정책 요약' },
-        { label: '지역 헬스', payload: regionalStatus, fallback: 'last_updated', warn: 180, danger: 480, role: '지역별 공급처 상태와 카메라 실패 레지스트리' },
-        { label: 'Z3 캐시', payload: z3Cache, fallback: 'fetched', warn: 90, danger: 480, role: 'UTIC/NTIC 토큰형 영상 재생 URL 캐시' },
-        { label: '캐시 감사', payload: cache, fallback: 'generated_at', warn: 90, danger: 480, role: 'Z3 커버리지/누락률 감사' },
+        { label: '재생 품질 요약', payload: summary, fallback: 'generated_at', warn: 120, danger: 360, role: '실사용·자동 점검 결과 집계' },
+        { label: '주요 지역 점검', payload: canary, fallback: 'generated_at', warn: 90, danger: 240, role: '자주 쓰는 지역의 실제 재생 후보 점검' },
+        { label: '운영 상태', payload: ops, fallback: 'generated_at', warn: 90, danger: 240, role: '서비스 영향과 자동 복구 요약' },
+        { label: '전체 순환 점검', payload: regionalStatus, fallback: 'last_updated', warn: 180, danger: 480, role: '전국 카메라의 차등 재점검 결과' },
+        { label: '재생 주소 캐시', payload: z3Cache, fallback: 'fetched', warn: 90, danger: 480, role: '짧게 만료되는 제공처 재생 주소 갱신 정보' },
+        { label: '재생 주소 점검', payload: cache, fallback: 'generated_at', warn: 90, danger: 480, role: '재생 주소 누락과 최신성 확인' },
         { label: '워크플로우 알림', payload: workflowStatus, fallback: 'generated_at', warn: 1440, danger: 10080, role: '보존형 수집 실패와 커밋 충돌 경고 이벤트' },
     ];
     $('freshness-rows').innerHTML = rows.map(row => {
@@ -549,7 +548,7 @@ function renderWorkflowEvents(workflowStatus) {
 function cameraType(item) {
     const url = String(item.url || item.directUrl || '');
     const source = String(item.source || 'UNKNOWN');
-    if (/cctvsec\.ktict\.co\.kr|kind=Z3|openDataCctvStream\.jsp/.test(url)) return 'Z3/UTIC 토큰형';
+    if (/cctvsec\.ktict\.co\.kr|kind=Z3|openDataCctvStream\.jsp/.test(url)) return 'ITS/UTIC 토큰형';
     if (/kbscctv|\/kb\?/.test(url) || source === 'KBS') return 'KBS 토큰형';
     if (/\/jeju\?|jejuits|source=JEJU/.test(url) || source === 'JEJU') return '제주 프록시형';
     if (/\.m3u8|\.mp4/.test(url)) return '직접 HLS/MP4';
@@ -577,14 +576,14 @@ function sourceRegion(item) {
 }
 function isProxyLike(item) {
     const type = cameraType(item);
-    return /토큰형|프록시형|Z3/.test(type);
+    return /토큰형|프록시형/.test(type);
 }
 function isDirectLike(item) {
     return cameraType(item) === '직접 HLS/MP4';
 }
 function describeType(type) {
     return {
-        'Z3/UTIC 토큰형': 'ITS/UTIC 토큰을 최신 캐시로 갱신해야 안정적인 영상입니다.',
+        'ITS/UTIC 토큰형': '제공처 재생 주소를 주기적으로 갱신해야 안정적인 영상입니다.',
         'KBS 토큰형': 'KBS/Loomex signed URL 갱신 품질이 핵심입니다.',
         '제주 프록시형': '제주 ITS 세션/로딩 지연을 프록시에서 흡수합니다.',
         '직접 HLS/MP4': '프레임 없이 바로 재생 가능한 최우선 타입입니다.',
@@ -692,7 +691,6 @@ function renderOps({ canary, ops, cache, audit }) {
 
     setCard('ops-service', serviceText, serviceSeverity);
     setCard('ops-z3', ageText(z3.age_hours), z3Severity);
-    setCard('ops-token', z3.status || cache?.z3?.status || '-', z3Severity);
     setCard('ops-canary', `${Object.keys(canaryRegions).length || 0}지역`, serviceSeverity);
     setCard('ops-recovery', `${recoveries}건`, recoveries > 0 ? 'ok' : 'warn');
 
@@ -711,7 +709,7 @@ function renderOps({ canary, ops, cache, audit }) {
                 <td>${esc(`${item.recommended_action || '-'}${shared}`)}</td>
             </tr>`;
         })
-        .join('') || '<tr><td colspan="7">카나리 데이터가 아직 없습니다. 다음 30분 주기에서 생성됩니다.</td></tr>';
+        .join('') || '<tr><td colspan="7">주요 지역 점검 데이터가 아직 없습니다. 다음 점검 주기에서 생성됩니다.</td></tr>';
     renderCanaryTrends(canaryRegions, arguments[0]?.history || []);
 }
 function renderCanaryTrends(currentRegions, history) {
@@ -719,7 +717,7 @@ function renderCanaryTrends(currentRegions, history) {
     const rows = Array.isArray(history) ? history.slice(-48) : [];
     const regionKeys = Object.keys(currentRegions || {});
     if (!rows.length || !regionKeys.length) {
-        host.textContent = '아직 누적 추세가 없습니다. 카나리 주기가 2회 이상 돌면 자동으로 표시됩니다.';
+        host.textContent = '아직 누적 추세가 없습니다. 주요 지역 점검이 2회 이상 실행되면 자동으로 표시됩니다.';
         return;
     }
     host.innerHTML = regionKeys.map(key => {
