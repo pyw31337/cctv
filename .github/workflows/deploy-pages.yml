@@ -70,10 +70,22 @@ jobs:
           # Copy data directory fully (needed for app)
           mkdir -p _site/data
           cp data/*.json _site/data/
+          # The auto-bump workflow writes version tokens in a separate commit,
+          # which can run after this deployment starts. Version the artifact
+          # itself so a fresh deployment never reuses a prior shell or a
+          # lazy-loaded module from the browser/service-worker cache.
+          VERSION="$(date -u +%Y%m%d)-${GITHUB_SHA::8}"
+          sed -i -E "s|\\?v=[a-zA-Z0-9._-]+|?v=${VERSION}|g" _site/index.html _site/site.webmanifest _site/sw.js
+          sed -i -E "s|CACHE_VERSION = '[^']+';|CACHE_VERSION = 'v${VERSION}';|" _site/sw.js
+          sed -i -E "s|const buildVersion = '[^']+';|const buildVersion = '${VERSION}';|" _site/js/runtime-config.js
+          echo "Deploy shell version: ${VERSION}"
           test -f _site/index.html
           test -d _site/js
           test -d _site/css
           test -f _site/data/cctv_core.json
+          grep -q "js/app.js?v=${VERSION}" _site/index.html
+          grep -q "const buildVersion = '${VERSION}';" _site/js/runtime-config.js
+          grep -q "CACHE_VERSION = 'v${VERSION}';" _site/sw.js
           echo "=== Deploy size ==="
           du -sh _site/
           echo "=== File count ==="
