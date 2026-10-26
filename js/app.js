@@ -9955,13 +9955,16 @@ function renderHighwayRouteList() {
         const gradeMeta = HIGHWAY_GRADE_META[route.summary?.grade];
         const pill = gradeMeta
             ? `<span class="highway-grade-pill tone-${gradeMeta.tone}">${gradeMeta.label}${Number.isFinite(route.summary.avgSpeed) ? ` · ${route.summary.avgSpeed}km/h` : ''}</span>`
-            : '<span class="highway-grade-pill tone-none">정보없음</span>';
+            : '';
         return `
-            <button type="button" class="highway-route-item" data-route="${escapeHtml(route.routeName)}">
-                <span class="highway-route-name">${escapeHtml(route.routeName)}</span>
-                <span class="highway-route-count" aria-label="CCTV ${route.cctvs.length}대">${route.cctvs.length}</span>
+            <div class="highway-route-item">
+                <span class="highway-route-label">
+                    <span class="highway-route-name">${escapeHtml(route.routeName)}</span>
+                    <span class="highway-route-count" aria-label="CCTV ${route.cctvs.length}대">${route.cctvs.length}</span>
+                </span>
                 ${pill}
-            </button>
+                <button type="button" class="highway-route-view" data-route="${escapeHtml(route.routeName)}" aria-label="${escapeHtml(route.routeName)} 도로보기">도로보기</button>
+            </div>
         `;
     }).join('');
 }
@@ -10003,8 +10006,8 @@ function initHighwayTrafficUi() {
     $('#highway-close')?.addEventListener('click', closeHighwayPanel);
     $('#highway-congested-btn')?.addEventListener('click', showCongestedHighwayCctvs);
     $('#highway-route-list')?.addEventListener('click', event => {
-        const item = event.target.closest('.highway-route-item');
-        if (item?.dataset.route) showHighwayRouteCctvs(item.dataset.route);
+        const routeButton = event.target.closest('.highway-route-view');
+        if (routeButton?.dataset.route) showHighwayRouteCctvs(routeButton.dataset.route);
     });
     $('#highway-layer')?.addEventListener('click', event => {
         if (event.target.id === 'highway-layer') closeHighwayPanel();
