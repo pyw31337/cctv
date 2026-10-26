@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV 품질 대시보드</title>
+    <style>
+        :root { color-scheme: dark; --bg:#07111f; --card:#111c2e; --line:#203047; --text:#e5edf8; --muted:#8da0ba; --green:#34d399; --yellow:#fbbf24; --red:#fb7185; --blue:#60a5fa; }
+        * { box-sizing: border-box; }
+        html { word-break: keep-all; overflow-wrap: break-word; }
+        body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: radial-gradient(circle at top left, #123d2c, transparent 34rem), radial-gradient(circle at top right, #18315f, transparent 30rem), var(--bg); color: var(--text); word-break: keep-all; overflow-wrap: break-word; }
+        main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+        header { display: flex; justify-content: space-between; gap: 20px; align-items: flex-end; margin-bottom: 24px; }
+        h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.04em; }
+        .sub { margin-top: 8px; color: var(--muted); }
+        .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+        .grid.ops { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .grid.inventory { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+        .card { background: color-mix(in oklab, var(--card), transparent 6%); border: 1px solid var(--line); border-radius: 18px; padding: 16px; box-shadow: 0 20px 50px rgba(0,0,0,.22); }
+        .metric { font-size: 28px; font-weight: 850; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+        .label { color: var(--muted); font-size: 12px; margin-top: 4px; font-weight: 650; }
+        section { margin-top: 18px; }
+        h2 { margin: 0 0 10px; font-size: 18px; }
+        table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 14px; }
+        th, td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.07); text-align: left; font-size: 13px; vertical-align: top; }
+        th { color: var(--muted); font-weight: 700; background: rgba(255,255,255,.03); }
+        tr:last-child td { border-bottom: 0; }
+        .pill { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,.08); font-weight: 800; font-size: 12px; }
+        .ok { color: var(--green); } .warn { color: var(--yellow); } .bad { color: var(--red); } .info { color: var(--blue); } .muted { color: var(--muted); }
+        .toolbar { display: flex; gap: 8px; align-items: center; }
+        button, a.button { border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--text); border-radius: 999px; padding: 9px 13px; cursor: pointer; text-decoration: none; font-weight: 700; }
+        .split { display: grid; grid-template-columns: 1.2fr .8fr; gap: 18px; }
+        .defs { display: grid; gap: 10px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+        .defs b { color: var(--text); }
+        .status-card[data-severity="danger"] { border-color: color-mix(in oklab, var(--red), transparent 35%); background: rgba(127, 29, 29, .22); }
+        .status-card[data-severity="warn"] { border-color: color-mix(in oklab, var(--yellow), transparent 35%); background: rgba(113, 63, 18, .22); }
+        .status-card[data-severity="ok"] { border-color: color-mix(in oklab, var(--green), transparent 35%); background: rgba(6, 78, 59, .18); }
+        .mono { font-variant-numeric: tabular-nums; }
+        .wide-table { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+        .wide-table table { min-width: 680px; }
+        .mini { color: var(--muted); font-size: 12px; margin-top: 5px; line-height: 1.4; }
+        .meter { height: 8px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.08); min-width: 90px; }
+        .meter > span { display: block; height: 100%; background: linear-gradient(90deg, var(--green), var(--blue)); }
+        .trend-grid { display: grid; gap: 12px; }
+        .trend-row { display: grid; grid-template-columns: 92px 1fr 72px; align-items: center; gap: 12px; }
+        .trend-name { font-weight: 800; }
+        .trend-bars { display: flex; gap: 3px; min-width: 0; overflow: hidden; }
+        .trend-bar { width: 8px; height: 22px; border-radius: 999px; background: rgba(255,255,255,.12); flex: 0 0 auto; }
+        .trend-bar[data-severity="ok"] { background: var(--green); }
+        .trend-bar[data-severity="warn"] { background: var(--yellow); }
+        .trend-bar[data-severity="danger"] { background: var(--red); }
+        .trend-bar[data-severity="unknown"] { background: #64748b; }
+        .trend-meta { color: var(--muted); font-size: 12px; text-align: right; }
+        .fresh { color: var(--green); }
+        .stale { color: var(--yellow); }
+        .expired { color: var(--red); }
+        .impact-none { color: var(--green); }
+        .impact-possible { color: var(--yellow); }
+        .impact-service { color: var(--red); }
+        .section-heading { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
+        .section-heading h2 { margin:0; }
+        .info-wrap { position:relative; display:inline-flex; }
+        .info-toggle { width:18px; height:18px; padding:0; border-radius:50%; border:1px solid #39516f; background:#17263b; color:#b7c9df; font:800 11px/1 ui-sans-serif,system-ui,sans-serif; cursor:pointer; }
+        .info-bubble { position:absolute; z-index:10; top:calc(100% + 7px); left:50%; width:min(260px, calc(100vw - 48px)); padding:10px 11px; border:1px solid #38516e; border-radius:10px; background:#0c1728; color:#c8d5e6; font-size:12px; font-weight:600; line-height:1.5; box-shadow:0 14px 32px rgba(0,0,0,.34); transform:translateX(-50%); visibility:hidden; opacity:0; pointer-events:none; }
+        .info-wrap.open .info-bubble { visibility:visible; opacity:1; pointer-events:auto; }
+        .table-info { margin-left:5px; vertical-align:middle; }
+        .compact-details, .advanced-details { border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.025); }
+        .compact-details summary, .advanced-details summary { padding:11px 12px; color:#c8d5e6; font-size:13px; font-weight:750; cursor:pointer; }
+        .compact-details .defs { padding:0 12px 12px; }
+        .advanced-details { margin-top:18px; }
+        .advanced-details > section { margin:18px; }
+        .advanced-details > section:last-child { padding-bottom:2px; }
+        .status-summary { color:var(--muted); font-size:12px; margin:0 0 12px; }
+        @media (max-width: 1100px) { .grid.ops, .grid.inventory { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
+        @media (max-width: 720px) {
+            main { width:calc(100% - 20px); padding:20px 0 32px; }
+            header { align-items:stretch; flex-direction:column; gap:14px; margin-bottom:16px; }
+            h1 { font-size:28px; } .sub { font-size:13px; line-height:1.45; }
+            .toolbar { width:100%; } .toolbar > * { flex:1; text-align:center; }
+            .grid, .grid.ops, .grid.inventory, .split { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:9px; }
+            .split { display:block; } .split > section + section { margin-top:12px; }
+            .card { padding:13px; border-radius:15px; } .metric { font-size:23px; } .label { font-size:11px; }
+            section { margin-top:12px; } h2 { font-size:16px; }
+            .wide-table { margin:0 -2px; } .wide-table table { min-width:600px; }
+            th, td { padding:9px 8px; font-size:12px; }
+            .priority-table th:nth-child(3), .priority-table td:nth-child(3) { display:none; }
+            .advanced-details > section { margin:14px 0; padding:0 13px; }
+            .advanced-details > section:last-child { padding-bottom:1px; }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <div>
+            <h1>영상 상태 점검</h1>
+            <div class="sub" id="updated">재생 가능 여부와 자동 복구 상태를 불러오는 중입니다.</div>
+        </div>
+        <div class="toolbar">
+            <button id="refresh">새로고침</button>
+            <a class="button" href="../">서비스 보기</a>
+        </div>
+    </header>
+
+    <div class="grid">
+        <div class="card"><div class="metric" id="camera-count">-</div><div class="label">집계 영상</div></div>
+        <div class="card"><div class="metric" id="sample-count">-</div><div class="label">재생 샘플</div></div>
+        <div class="card"><div class="metric" id="success-rate">-</div><div class="label">성공률</div></div>
+        <div class="card"><div class="metric" id="avg-load">-</div><div class="label">첫 화면</div></div>
+    </div>
+
+    <div class="grid ops">
+        <div class="card status-card" id="ops-service-card"><div class="metric" id="ops-service">-</div><div class="label">전체 상태</div></div>
+        <div class="card status-card" id="ops-z3-card"><div class="metric" id="ops-z3">-</div><div class="label">재생 주소 갱신</div></div>
+        <div class="card status-card" id="ops-canary-card"><div class="metric" id="ops-canary">-</div><div class="label">주요 지역 점검</div></div>
+        <div class="card status-card" id="ops-recovery-card"><div class="metric" id="ops-recovery">-</div><div class="label">최근 자동 복구</div></div>
+    </div>
+
+    <div class="grid inventory">
+        <div class="card"><div class="metric" id="inv-total">-</div><div class="label">전체 보유 영상</div></div>
+        <div class="card"><div class="metric" id="inv-sources">-</div><div class="label">수집 소스</div></div>
+        <div class="card"><div class="metric" id="inv-proxy">-</div><div class="label">프록시/토큰형</div></div>
+        <div class="card"><div class="metric" id="inv-direct">-</div><div class="label">직접 재생형</div></div>
+        <div class="card"><div class="metric" id="inv-backup">-</div><div class="label">백업 URL 보유</div></div>
+        <div class="card"><div class="metric" id="inv-tested">-</div><div class="label">누적 점검 영상</div></div>
+        <div class="card"><div class="metric" id="inv-recent">-</div><div class="label">최근 24h 점검</div></div>
+    </div>
+
+    <section class="card priority-card">
+            <div class="section-heading"><h2>우선 점검</h2><span class="info-wrap"><button type="button" class="info-toggle" aria-label="상태 기준 보기">i</button><span class="info-bubble">연결 점검 실패, 느린 첫 화면, 충분한 재생 표본을 우선 표시합니다. 빨강은 반복 연결 실패, 노랑은 재확인 필요, 회색은 미점검입니다. 점검 결과는 브라우저 재생 검증과 분리해 관리하며, 실패 영상은 자동 갱신과 대체 후보 선택에 사용합니다.</span></span></div>
+            <p class="status-summary">연결 또는 실제 재생 검증에서 재확인이 필요한 후보입니다.</p>
+            <div class="wide-table"><table class="priority-table"><thead><tr><th>영상</th><th>상태</th><th>첫 화면</th><th>조치</th></tr></thead><tbody id="camera-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <div class="section-heading"><h2>반복 복구 대상</h2><span class="info-wrap"><button type="button" class="info-toggle" aria-label="반복 복구 대상 기준">i</button><span class="info-bubble">국내 영상은 삭제하지 않습니다. 실재생 실패·느린 로딩·낮은 품질 점수 후보를 수집과 URL 갱신에서 우선 처리합니다.</span></span></div>
+        <p class="status-summary">낮은 점수부터 표시합니다. 조치는 자동 수집과 재생 검증의 다음 우선순위입니다.</p>
+        <div class="wide-table"><table><thead><tr><th>영상</th><th>점수</th><th>조치</th><th>최근 점검</th></tr></thead><tbody id="repair-rows"></tbody></table></div>
+    </section>
+
+    <details class="advanced-details"><summary>상세 운영 데이터</summary>
+    <section class="card">
+        <h2>주요 지역 표본 점검</h2>
+        <div class="wide-table"><table><thead><tr><th>지역</th><th>상태</th><th>성공/점검</th><th>성공률</th><th>평균 로딩</th><th>주요 실패</th><th>권장 조치</th></tr></thead><tbody id="canary-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>데이터 최신성</h2>
+        <div class="mini">모든 품질 JSON은 공통 <code>time</code> 블록으로 표준화됩니다. 원본 갱신은 실제 점검/수집 기준 시각이고, 대시보드 기준 나이는 현재 브라우저에서 계산합니다.</div>
+        <div class="wide-table"><table><thead><tr><th>데이터</th><th>원본 갱신</th><th>표준화</th><th>대시보드 기준 나이</th><th>상태</th><th>역할</th></tr></thead><tbody id="freshness-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>GitHub 워크플로우 알림</h2>
+        <div class="mini">데이터가 보존되는 수집/갱신 실패는 메일 장애 대신 경고 이벤트로 남깁니다. 데이터 보존 검증 실패처럼 실제 위험이 있는 경우만 워크플로우 실패로 봅니다.</div>
+        <div class="wide-table"><table><thead><tr><th>시각</th><th>워크플로우</th><th>작업</th><th>상태</th><th>영향</th><th>메시지</th></tr></thead><tbody id="workflow-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>주요 지역 점검 추세</h2>
+        <div class="trend-grid" id="canary-trends">추세 데이터를 불러오는 중입니다.</div>
+    </section>
+
+    <section class="card">
+        <h2>소스별 품질</h2>
+        <div class="wide-table"><table><thead><tr><th>소스</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="source-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>글로벌 영상 소스별 품질</h2>
+        <div class="mini">글로벌 영상은 목록을 유지하되, 직통 HLS/신뢰 임베드/원본 전용을 분리해 기본 재생 후보의 신뢰도를 높입니다.</div>
+        <div class="grid inventory" style="margin-top:12px">
+            <div class="card"><div class="metric" id="world-total">-</div><div class="label">글로벌 보유</div></div>
+            <div class="card"><div class="metric" id="world-verified">-</div><div class="label">인앱 재생 검증</div></div>
+            <div class="card"><div class="metric" id="world-direct">-</div><div class="label">직통 HLS/프록시</div></div>
+            <div class="card"><div class="metric" id="world-source-only">-</div><div class="label">원본 사이트 필요</div></div>
+            <div class="card"><div class="metric" id="world-unchecked">-</div><div class="label">미점검</div></div>
+            <div class="card"><div class="metric" id="world-audit-age">-</div><div class="label">마지막 글로벌 점검</div></div>
+        </div>
+        <div class="wide-table"><table><thead><tr><th>출처</th><th>보유</th><th>검증</th><th>검증률</th><th>직통 HLS</th><th>신뢰 임베드</th><th>원본/차단</th><th>미점검</th></tr></thead><tbody id="world-source-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>전체 소스 현황</h2>
+        <div class="mini">보유 목록은 삭제하지 않고 유지하며, 품질 샘플과 주요 지역 점검 결과는 노출 우선순위 판단에만 사용합니다.</div>
+        <div class="wide-table"><table><thead><tr><th>소스</th><th>보유</th><th>점검 샘플</th><th>성공률</th><th>평균 로딩</th><th>프록시형</th><th>직접형</th><th>백업 보유</th></tr></thead><tbody id="inventory-source-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>타입별 총 현황</h2>
+        <div class="wide-table"><table><thead><tr><th>타입</th><th>보유</th><th>비율</th><th>대표 설명</th></tr></thead><tbody id="inventory-type-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>지역별 품질</h2>
+        <div class="wide-table"><table><thead><tr><th>지역</th><th>성공률</th><th>평균 로딩</th><th>실패</th><th>느림</th><th>대체</th><th>샘플</th></tr></thead><tbody id="region-rows"></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <h2>지역별 총 현황</h2>
+        <div class="wide-table"><table><thead><tr><th>지역</th><th>보유</th><th>품질 샘플</th><th>누적 점검</th><th>최근 24h</th><th>성공률</th><th>주요 소스</th><th>주의</th></tr></thead><tbody id="inventory-region-rows"></tbody></table></div>
+    </section>
+    </details>
+</main>
+<script src="../js/runtime-config.js?v=20260814-b69de665"></script>
+<script>
+const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
+const FALLBACK_URL = '../data/quality_summary.json';
+const ORACLE_BASE = window.CCTV_QUALITY_CONFIG?.publicProxyBase || '';
+const CANARY_URLS = ['../data/canary_status.json', ...(ORACLE_BASE ? [`${ORACLE_BASE}/canary-status`] : [])];
+const OPS_URLS = ['../data/ops_status.json', ...(ORACLE_BASE ? [`${ORACLE_BASE}/ops-status`] : [])];
+const CANARY_HISTORY_URLS = ['../data/canary_history.json', ...(ORACLE_BASE ? [`${ORACLE_BASE}/canary-history`] : [])];
+const CACHE_URL = '../data/cache_status.json';
+const UTIC_AUDIT_URL = '../data/utic_audit_history.json';
+const STATUS_URL = '../data/status.json';
+const Z3_CACHE_URL = '../data/z3_cache.json';
+const INVENTORY_URL = 'cctv_data.json';
+const WORKFLOW_STATUS_URL = '../data/workflow_status.json';
+const WORLD_TOUR_URL = '../data/world_tour_cams.json';
+const QUALITY_POLICY_URL = '../data/quality_policy.json';
+const REPAIR_QUEUE_URL = '../data/quality_repair_queue.json';
+const $ = (id) => document.getElementById(id);
+function esc(value) { return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[ch])); }
+function pct(value) { return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'; }
+function ms(value) { return value > 0 ? `${Math.round(value / 100) / 10}s` : '-'; }
+const MIN_STRONG_QUALITY_SAMPLES = 5;
+const MIN_RED_QUALITY_SAMPLES = 3;
+function evidenceLevel(item) {
+    const samples = Number(item?.directPlayableSamples ?? item?.direct_playable_samples ?? item?.samples ?? 0);
+    if (samples <= 0) return 'none';
+    if (samples < MIN_RED_QUALITY_SAMPLES) return 'thin';
+    if (samples < MIN_STRONG_QUALITY_SAMPLES) return 'limited';
+    return 'strong';
+}
+function qualityTone(item) {
+    const samples = Number(item?.samples || 0);
+    const directSamples = Number(item?.directPlayableSamples ?? item?.direct_playable_samples ?? samples);
+    const rate = Number(item?.successRate ?? item?.success_rate);
+    const avg = Number(item?.avgFirstFrameMs ?? item?.avg_first_frame_ms ?? 0);
+    const failure = Number(item?.failure || 0);
+    if (!samples || directSamples <= 0 || !Number.isFinite(rate)) return 'muted';
+    if (samples < MIN_RED_QUALITY_SAMPLES) return failure ? 'warn' : 'info';
+    if (rate < .35 && failure >= MIN_RED_QUALITY_SAMPLES) return 'bad';
+    if (rate < .75 || failure > 0 || avg > 8000) return 'warn';
+    return 'ok';
+}
+function tone(rate, avg, samples = MIN_STRONG_QUALITY_SAMPLES, failure = 0) {
+    return qualityTone({ successRate: rate, avgFirstFrameMs: avg, samples, failure });
+}
+function evidenceLabel(item) {
+    const level = evidenceLevel(item);
+    if (level === 'none') return '미점검';
+    if (level === 'thin') return '샘플 부족';
+    if (level === 'limited') return '제한 샘플';
+    return '충분';
+}
+function qualityStatusLabel(item) {
+    const directSamples = Number(item?.directPlayableSamples ?? item?.direct_playable_samples ?? item?.samples ?? 0);
+    if (directSamples <= 0 && Number(item?.source_only || 0) > 0) return '원본 전용';
+    if (directSamples <= 0 && Number(item?.monitor_unverified || 0) > 0) return '재생 모니터 대상';
+    const toneName = qualityTone(item);
+    if (toneName === 'bad') return item?.verification_kind === 'browser_playback' ? '반복 재생 실패' : '반복 연결 실패';
+    if (toneName === 'warn') return item.samples < MIN_STRONG_QUALITY_SAMPLES ? '재확인 필요' : '주의';
+    if (toneName === 'info') return '점검 중';
+    if (toneName === 'muted') return '미점검';
+    return '정상';
+}
+function severityClass(severity) { return severity === 'danger' ? 'bad' : (severity === 'warn' ? 'warn' : 'ok'); }
+function setCard(id, value, severity = 'ok') {
+    const metric = $(id);
+    const card = metric?.closest('.status-card');
+    if (metric) metric.textContent = value;
+    if (card) card.dataset.severity = severity;
+}
+function ageText(hours) {
+    const value = Number(hours);
+    if (!Number.isFinite(value)) return '-';
+    if (value < 1) return `${Math.round(value * 60)}분`;
+    return `${Math.round(value * 10) / 10}시간`;
+}
+
+function parseTime(value) {
+    if (!value) return null;
+    const dt = new Date(value);
+    return Number.isFinite(dt.getTime()) ? dt : null;
+}
+function formatDateTime(value) {
+    const dt = parseTime(value);
+    return dt ? dt.toLocaleString('ko-KR') : '-';
+}
+function ageMinutesFrom(value) {
+    const dt = parseTime(value);
+    return dt ? (Date.now() - dt.getTime()) / 60000 : NaN;
+}
+function formatAgeMinutes(minutes) {
+    if (!Number.isFinite(minutes)) return '-';
+    if (minutes < 1) return '방금 전';
+    if (minutes < 60) return `${Math.round(minutes)}분 전`;
+    if (minutes < 1440) return `${Math.round(minutes / 6) / 10}시간 전`;
+    return `${Math.round(minutes / 144) / 10}일 전`;
+}
+function freshnessTone(minutes, warnMinutes, dangerMinutes) {
+    if (!Number.isFinite(minutes)) return { cls: 'expired', label: '시간 없음' };
+    if (minutes >= dangerMinutes) return { cls: 'expired', label: '운영 확인 필요' };
+    if (minutes >= warnMinutes) return { cls: 'stale', label: '지연' };
+    return { cls: 'fresh', label: '정상' };
+}
+function timeMeta(payload, fallbackKey) {
+    const time = payload?.time || {};
+    const source = time.source_updated_at || payload?.[fallbackKey] || payload?.generated_at || payload?.last_updated || payload?.fetched || payload?._served_at;
+    return {
+        source_updated_at: source,
+        normalized_at: time.normalized_at || payload?.generated_at || payload?._served_at,
+        generated_at: time.generated_at || payload?.generated_at || payload?.last_updated || payload?.fetched,
+        schema: time.schema || 'legacy',
+    };
+}
+function normalize(item) {
+    const samples = Number(item.samples || item.total || 0);
+    const directPlayableSamples = Number(item.direct_playable_samples ?? samples);
+    const success = Number(item.success || 0);
+    const failure = Number(item.failure || 0);
+    const slow = Number(item.slow || 0);
+    const fallback = Number(item.fallback || 0);
+    const rawSuccessRate = item.direct_success_rate ?? item.success_rate;
+    const successRate = rawSuccessRate == null ? NaN : Number(rawSuccessRate);
+    const avgFirstFrameMs = Number(item.avg_first_frame_ms || 0);
+    return { ...item, samples, directPlayableSamples, success, failure, slow, fallback, successRate, avgFirstFrameMs };
+}
+function weightedRate(items) {
+    const total = items.reduce((sum, item) => sum + item.directPlayableSamples, 0);
+    if (!total) return NaN;
+    return items.reduce((sum, item) => sum + item.success, 0) / total;
+}
+function weightedLoad(items) {
+    const successful = items.reduce((sum, item) => sum + item.success, 0);
+    if (!successful) return 0;
+    return items.reduce((sum, item) => sum + (item.avgFirstFrameMs * item.success), 0) / successful;
+}
+async function loadSummary() {
+    let summary = null;
+    for (const url of [FALLBACK_URL, SUMMARY_URL]) {
+        try {
+            const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
+            if (!res.ok) throw new Error(res.status);
+            summary = await res.json();
+            break;
+        } catch {}
+    }
+    const [canary, ops, history, cache, audit, regionalStatus, z3Cache, workflowStatus, worldTour, qualityPolicy, repairQueue] = await Promise.all([
+        loadFirstJson(CANARY_URLS, null),
+        loadFirstJson(OPS_URLS, null),
+        loadFirstJson(CANARY_HISTORY_URLS, []),
+        loadLocalJson(CACHE_URL, null),
+        loadLocalJson(UTIC_AUDIT_URL, null),
+        loadLocalJson(STATUS_URL, null),
+        loadLocalJson(Z3_CACHE_URL, null),
+        loadLocalJson(WORKFLOW_STATUS_URL, null),
+        loadLocalJson(WORLD_TOUR_URL, null),
+        loadLocalJson(QUALITY_POLICY_URL, null),
+        loadLocalJson(REPAIR_QUEUE_URL, null)
+    ]);
+    const inventory = await loadLocalJson(INVENTORY_URL, []);
+    render(summary || { cameras: {}, sources: {}, regions: {} }, { canary, ops, history, cache, audit, regionalStatus, z3Cache, inventory, workflowStatus, worldTour, qualityPolicy, repairQueue });
+}
+async function loadLocalJson(url, fallback) {
+    try {
+        const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(res.status);
+        return await res.json();
+    } catch {
+        return fallback;
+    }
+}
+async function loadFirstJson(urls, fallback) {
+    for (const url of urls) {
+        const value = await loadLocalJson(url, null);
+        if (value) return value;
+    }
+    return fallback;
+}
+function qualityRow(item, label) {
+    const qTone = qualityTone(item);
+    const rateLabel = Number.isFinite(item.successRate) ? pct(item.successRate) : '별도 분류';
+    return `<tr><td>${esc(label)}</td><td><span class="pill ${qTone}">${rateLabel}</span><div class="mini">${esc(qualityStatusLabel(item))} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td class="${item.failure ? 'bad' : 'muted'}">${item.failure}</td><td class="warn">${item.slow}</td><td class="info">${item.fallback}</td><td>${item.directPlayableSamples} / ${item.samples}</td></tr>`;
+}
+function infoButton(text) {
+    const detail = esc(text || '추가 정보가 없습니다.');
+    return `<span class="info-wrap table-info"><button type="button" class="info-toggle" aria-label="상세 보기" aria-expanded="false">i</button><span class="info-bubble">${detail}</span></span>`;
+}
+function compactAction(item) {
+    const detail = item.recommended_action || item.reason || item.category || '';
+    if (!detail) return '-';
+    const normalized = String(detail).toLowerCase();
+    let label = '점검';
+    if (/token|auth|signed|url/.test(normalized)) label = 'URL 갱신';
+    else if (/timeout|slow|stall/.test(normalized)) label = '재시도';
+    else if (/404|not.?found|mapping|stream/.test(normalized)) label = '매핑 확인';
+    return `${label}${infoButton(detail)}`;
+}
+function render(summary, opsData = {}) {
+    const cameras = Object.entries(summary.cameras || {}).map(([id, item]) => ({ id, ...normalize(item) }));
+    const sources = Object.entries(summary.sources || {}).map(([id, item]) => ({ id, ...normalize(item) }));
+    const regions = Object.entries(summary.regions || {}).map(([id, item]) => ({ id, ...normalize(item) }));
+    const sampleCount = cameras.reduce((sum, item) => sum + item.samples, 0);
+    const problemCameras = cameras.filter(item => {
+        const qTone = qualityTone(item);
+        return qTone === 'bad' || qTone === 'warn' || item.avgFirstFrameMs > 8000;
+    });
+
+    $('camera-count').textContent = cameras.length.toLocaleString('ko-KR');
+    $('sample-count').textContent = sampleCount.toLocaleString('ko-KR');
+    $('success-rate').textContent = pct(weightedRate(cameras));
+    $('avg-load').textContent = ms(weightedLoad(cameras));
+    const summaryTime = timeMeta(summary, 'generated_at');
+    $('updated').textContent = summaryTime.source_updated_at ? `마지막 집계: ${formatDateTime(summaryTime.source_updated_at)} · 최근 ${summary.window_hours || 24}시간` : '아직 서버 집계 데이터가 없습니다.';
+    renderOps(opsData);
+    renderFreshness(summary, opsData);
+    renderWorkflowEvents(opsData.workflowStatus);
+    renderInventory(opsData.inventory || [], summary);
+    renderWorldTourQuality(opsData.worldTour);
+    renderRepairQueue(opsData.repairQueue, opsData.qualityPolicy);
+
+    $('camera-rows').innerHTML = problemCameras
+        .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
+        .slice(0, 35)
+        .map(item => `<tr><td>${esc(item.camera_name || item.id)}<div class="mini">${esc(item.source || '-')} · ${esc(item.region || '-')}</div></td><td><span class="pill ${qualityTone(item)}">${esc(qualityStatusLabel(item))}</span><div class="mini">${pct(item.successRate)} · ${esc(evidenceLabel(item))}</div></td><td>${ms(item.avgFirstFrameMs)}</td><td>${compactAction(item)}</td></tr>`)
+        .join('') || '<tr><td colspan="4">우선 점검 후보가 아직 없습니다.</td></tr>';
+
+    $('source-rows').innerHTML = sources
+        .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
+        .map(item => qualityRow(item, item.id))
+        .join('') || '<tr><td colspan="7">소스 집계가 아직 없습니다.</td></tr>';
+
+    $('region-rows').innerHTML = regions
+        .sort((a,b) => a.successRate - b.successRate || b.samples - a.samples)
+        .map(item => qualityRow(item, item.id))
+        .join('') || '<tr><td colspan="7">지역 집계가 아직 없습니다.</td></tr>';
+}
+
+function repairActionLabel(action) {
+    return {
+        probe_stream: '재생 재검증',
+        renew_url: 'URL 갱신',
+        refresh_evidence: '근거 갱신',
+        measure_startup: '로딩 측정',
+        inspect_mapping: '매핑 점검'
+    }[action] || '품질 점검';
+}
+function repairTone(score) {
+    if (score <= 30) return 'bad';
+    if (score < 65) return 'warn';
+    return 'info';
+}
+function renderRepairQueue(repairQueue, qualityPolicy) {
+    const queue = Array.isArray(repairQueue?.items) ? repairQueue.items : [];
+    const cameras = qualityPolicy?.cameras || {};
+    $('repair-rows').innerHTML = queue.slice(0, 30).map(item => {
+        const policy = cameras[item.id] || {};
+        const score = Number(item.score ?? policy.score);
+        const detail = `${item.source || 'UNKNOWN'} · ${policy.tier || 'repair'} · ${item.action || 'probe_stream'}`;
+        return `<tr><td>${esc(item.name || item.id)}<div class="mini">${esc(item.source || '-')}</div></td><td><span class="pill ${repairTone(score)}">${Number.isFinite(score) ? `${Math.round(score)}점` : '-'}</span></td><td>${esc(repairActionLabel(item.action))}${infoButton(detail)}</td><td class="mini">${formatDateTime(item.updated_at)}</td></tr>`;
+    }).join('') || '<tr><td colspan="4">현재 우선 복구 대기 항목이 없습니다.</td></tr>';
+}
+
+function renderWorldTourQuality(worldTour) {
+    const items = Array.isArray(worldTour?.items) ? worldTour.items : [];
+    const meta = worldTour?.collectionMeta || {};
+    const statusCounts = meta.playbackStatusCounts || {};
+    const sourceHealth = meta.sourceTypeHealth || {};
+    const directCount = items.filter(item => item.playUrl || ['direct_hls', 'proxied_hls'].includes(item.directPlaybackStatus)).length;
+    const verifiedCount = Number(statusCounts.verified ?? items.filter(item => item.playbackStatus === 'verified' && !item.sourceOnly).length);
+    const sourceOnlyCount = Number(meta.sourceOnlyCount ?? items.filter(item => item.sourceOnly).length);
+    const uncheckedCount = Number(meta.uncheckedCount ?? statusCounts.unchecked ?? items.filter(item => item.playbackStatus === 'unchecked').length);
+    const auditMinutes = ageMinutesFrom(meta.lastPlayabilityAuditAt || worldTour?.updated_at || worldTour?.generatedAt);
+    $('world-total').textContent = items.length.toLocaleString('ko-KR');
+    $('world-verified').textContent = verifiedCount.toLocaleString('ko-KR');
+    $('world-direct').textContent = directCount.toLocaleString('ko-KR');
+    $('world-source-only').textContent = sourceOnlyCount.toLocaleString('ko-KR');
+    $('world-unchecked').textContent = uncheckedCount.toLocaleString('ko-KR');
+    $('world-audit-age').textContent = formatAgeMinutes(auditMinutes);
+    const rows = Object.entries(sourceHealth)
+        .sort((a, b) => Number(b[1].total || 0) - Number(a[1].total || 0))
+        .map(([source, item]) => {
+            const total = Number(item.total || 0);
+            const verified = Number(item.verified || 0);
+            const external = Number(item.externalOnly ?? 0);
+            const eligible = Math.max(verified, Number(item.directHls || 0) + Number(item.trustedEmbed || 0));
+            const rate = eligible ? verified / eligible : NaN;
+            const externalOnly = eligible === 0 && external > 0;
+            const toneClass = externalOnly ? 'info' : eligible && rate >= .7 ? 'ok' : eligible && rate >= .25 ? 'warn' : 'bad';
+            const rateLabel = externalOnly ? '원본 전용' : pct(rate);
+            return `<tr>
+                <td>${esc(source)}</td>
+                <td>${total.toLocaleString('ko-KR')}</td>
+                <td>${verified.toLocaleString('ko-KR')}</td>
+                <td><span class="pill ${toneClass}">${rateLabel}</span></td>
+                <td class="ok">${Number(item.directHls || 0).toLocaleString('ko-KR')}</td>
+                <td class="info">${Number(item.trustedEmbed || 0).toLocaleString('ko-KR')}</td>
+                <td class="${external ? 'warn' : 'muted'}">${external.toLocaleString('ko-KR')}</td>
+                <td class="${Number(item.unchecked || 0) ? 'warn' : 'muted'}">${Number(item.unchecked || 0).toLocaleString('ko-KR')}</td>
+            </tr>`;
+        })
+        .join('');
+    $('world-source-rows').innerHTML = rows || '<tr><td colspan="8">글로벌 영상 품질 메타가 아직 없습니다.</td></tr>';
+}
+
+function renderFreshness(summary, { canary, ops, cache, regionalStatus, z3Cache, workflowStatus }) {
+    const rows = [
+        { label: '재생 품질 요약', payload: summary, fallback: 'generated_at', warn: 120, danger: 360, role: '실사용·자동 점검 결과 집계' },
+        { label: '주요 지역 점검', payload: canary, fallback: 'generated_at', warn: 90, danger: 240, role: '자주 쓰는 지역의 실제 재생 후보 점검' },
+        { label: '운영 상태', payload: ops, fallback: 'generated_at', warn: 90, danger: 240, role: '서비스 영향과 자동 복구 요약' },
+        { label: '전체 순환 점검', payload: regionalStatus, fallback: 'last_updated', warn: 180, danger: 480, role: '전국 카메라의 차등 재점검 결과' },
+        { label: '재생 주소 캐시', payload: z3Cache, fallback: 'fetched', warn: 90, danger: 480, role: '짧게 만료되는 제공처 재생 주소 갱신 정보' },
+        { label: '재생 주소 점검', payload: cache, fallback: 'generated_at', warn: 90, danger: 480, role: '재생 주소 누락과 최신성 확인' },
+        { label: '워크플로우 알림', payload: workflowStatus, fallback: 'generated_at', warn: 1440, danger: 10080, role: '보존형 수집 실패와 커밋 충돌 경고 이벤트' },
+    ];
+    $('freshness-rows').innerHTML = rows.map(row => {
+        const meta = timeMeta(row.payload, row.fallback);
+        const minutes = ageMinutesFrom(meta.source_updated_at);
+        const toneInfo = freshnessTone(minutes, row.warn, row.danger);
+        return `<tr>
+            <td>${esc(row.label)}</td>
+            <td>${formatDateTime(meta.source_updated_at)}</td>
+            <td>${formatDateTime(meta.normalized_at)}</td>
+            <td class="mono ${toneInfo.cls}">${formatAgeMinutes(minutes)}</td>
+            <td><span class="pill ${toneInfo.cls}">${esc(toneInfo.label)}</span></td>
+            <td>${esc(row.role)}</td>
+        </tr>`;
+    }).join('');
+}
+function renderWorkflowEvents(workflowStatus) {
+    const events = Array.isArray(workflowStatus?.events) ? workflowStatus.events.slice(-25).reverse() : [];
+    $('workflow-rows').innerHTML = events.map(event => {
+        const impact = event.impact || 'none';
+        const impactClass = impact === 'service' ? 'impact-service' : (impact === 'possible' ? 'impact-possible' : 'impact-none');
+        const statusClass = event.status === 'error' || event.status === 'failed' ? 'bad' : (event.status === 'warning' ? 'warn' : 'ok');
+        return `<tr>
+            <td>${formatDateTime(event.at)}</td>
+            <td>${esc(event.workflow || '-')}</td>
+            <td>${esc(event.job || '-')}</td>
+            <td><span class="pill ${statusClass}">${esc(event.status || '-')}</span></td>
+            <td class="${impactClass}">${esc(impact)}</td>
+            <td>${event.category === 'key_problem' ? '<span class="pill bad">인증키 문제</span> ' : ''}${esc(event.message || '-')}</td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="6">최근 보존형 워크플로우 경고가 없습니다.</td></tr>';
+}
+function cameraType(item) {
+    const url = String(item.url || item.directUrl || '');
+    const source = String(item.source || 'UNKNOWN');
+    if (/cctvsec\.ktict\.co\.kr|kind=Z3|openDataCctvStream\.jsp/.test(url)) return 'ITS/UTIC 토큰형';
+    if (/kbscctv|\/kb\?/.test(url) || source === 'KBS') return 'KBS 토큰형';
+    if (/\/jeju\?|jejuits|source=JEJU/.test(url) || source === 'JEJU') return '제주 프록시형';
+    if (/\.m3u8|\.mp4/.test(url)) return '직접 HLS/MP4';
+    if (/youtube|youtu\.be/.test(url) || source.includes('YT') || source.includes('YOUTUBE')) return 'YouTube';
+    if (/popup|cctvPopup|player/.test(url)) return '프레임/팝업형';
+    return '기타';
+}
+function sourceRegion(item) {
+    const name = String(item.name || '');
+    const source = String(item.source || '');
+    if (/진도|전남|목포|여수|순천|광주/.test(name)) return /광주/.test(name) ? '광주/전남' : '전남';
+    if (/제주|서귀포|한림|애월/.test(name) || source.includes('JEJU')) return '제주';
+    if (/대전|유성|둔산|한밭/.test(name)) return '대전';
+    if (/구리|남양주|마석|화도|수택|왕숙|호평|평내/.test(name)) return '구리/남양주';
+    if (/독도|울릉/.test(name)) return '울릉/독도';
+    if (/서울|강남|종로|한강|남산/.test(name) || source === 'TOPIS') return '서울';
+    if (/부산|해운대|광안/.test(name) || source === 'BUSAN_ITS') return '부산';
+    if (/인천|송도|부평/.test(name) || source === 'INCHEON_ITS') return '인천';
+    if (/대구|수성|달서/.test(name) || source === 'DAEGU') return '대구';
+    if (/울산/.test(name) || source === 'ULSAN') return '울산';
+    if (/강릉|춘천|원주|강원/.test(name) || source === 'GANGWON') return '강원';
+    if (/세종/.test(name) || source === 'SEJONG') return '세종';
+    if (/경기|수원|용인|파주|고양|성남|평택/.test(name) || source === 'GITS') return '경기';
+    return source || '기타';
+}
+function isProxyLike(item) {
+    const type = cameraType(item);
+    return /토큰형|프록시형/.test(type);
+}
+function isDirectLike(item) {
+    return cameraType(item) === '직접 HLS/MP4';
+}
+function describeType(type) {
+    return {
+        'ITS/UTIC 토큰형': '제공처 재생 주소를 주기적으로 갱신해야 안정적인 영상입니다.',
+        'KBS 토큰형': 'KBS/Loomex signed URL 갱신 품질이 핵심입니다.',
+        '제주 프록시형': '제주 ITS 세션/로딩 지연을 프록시에서 흡수합니다.',
+        '직접 HLS/MP4': '프레임 없이 바로 재생 가능한 최우선 타입입니다.',
+        'YouTube': '삭제/비공개 여부를 별도 검수해야 합니다.',
+        '프레임/팝업형': '원본 프레임 의존도가 높아 후순위 후보입니다.',
+        '기타': '추가 분류가 필요한 후보입니다.'
+    }[type] || '-';
+}
+function qualityById(summary) {
+    return new Map(Object.entries(summary.cameras || {}).map(([id, item]) => [id, normalize(item)]));
+}
+function renderInventory(items, summary) {
+    const cameras = Array.isArray(items) ? items : [];
+    const qById = qualityById(summary);
+    const coverage = summary?.coverage || {};
+    const coverageRegions = coverage?.regions || {};
+    const bySource = {};
+    const byRegion = {};
+    const byType = {};
+    let proxyCount = 0;
+    let directCount = 0;
+    let backupCount = 0;
+    cameras.forEach(item => {
+        const source = item.source || 'UNKNOWN';
+        const region = sourceRegion(item);
+        const type = cameraType(item);
+        const quality = qById.get(item.id);
+        if (isProxyLike(item)) proxyCount += 1;
+        if (isDirectLike(item)) directCount += 1;
+        if (Array.isArray(item.backup_urls) && item.backup_urls.length) backupCount += 1;
+        bySource[source] ||= { total: 0, proxy: 0, direct: 0, backup: 0, samples: 0, success: 0, load: 0 };
+        byRegion[region] ||= { total: 0, samples: 0, success: 0, load: 0, sources: {} };
+        byType[type] ||= { total: 0 };
+        bySource[source].total += 1;
+        byRegion[region].total += 1;
+        byRegion[region].sources[source] = (byRegion[region].sources[source] || 0) + 1;
+        byType[type].total += 1;
+        if (isProxyLike(item)) bySource[source].proxy += 1;
+        if (isDirectLike(item)) bySource[source].direct += 1;
+        if (Array.isArray(item.backup_urls) && item.backup_urls.length) bySource[source].backup += 1;
+        if (quality) {
+            bySource[source].samples += quality.directPlayableSamples;
+            bySource[source].success += quality.success;
+            bySource[source].load += quality.avgFirstFrameMs * quality.success;
+            byRegion[region].samples += quality.directPlayableSamples;
+            byRegion[region].success += quality.success;
+            byRegion[region].load += quality.avgFirstFrameMs * quality.success;
+        }
+    });
+    $('inv-total').textContent = cameras.length.toLocaleString('ko-KR');
+    $('inv-sources').textContent = Object.keys(bySource).length.toLocaleString('ko-KR');
+    $('inv-proxy').textContent = proxyCount.toLocaleString('ko-KR');
+    $('inv-direct').textContent = directCount.toLocaleString('ko-KR');
+    $('inv-backup').textContent = backupCount.toLocaleString('ko-KR');
+    $('inv-tested').textContent = Number(coverage.checked_cameras || qById.size || 0).toLocaleString('ko-KR');
+    $('inv-recent').textContent = Number(coverage.recent_24h || 0).toLocaleString('ko-KR');
+    const rateCell = (success, samples) => samples ? pct(success / samples) : '샘플 없음';
+    const loadCell = (load, success) => success ? ms(load / success) : '-';
+    $('inventory-source-rows').innerHTML = Object.entries(bySource)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([source, item]) => `<tr><td>${esc(source)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${loadCell(item.load, item.success)}</td><td>${item.proxy.toLocaleString('ko-KR')}</td><td>${item.direct.toLocaleString('ko-KR')}</td><td>${item.backup.toLocaleString('ko-KR')}</td></tr>`)
+        .join('') || '<tr><td colspan="8">전체 목록을 불러오지 못했습니다.</td></tr>';
+    $('inventory-type-rows').innerHTML = Object.entries(byType)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([type, item]) => {
+            const ratio = cameras.length ? item.total / cameras.length : 0;
+            return `<tr><td>${esc(type)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td><div class="meter" title="${pct(ratio)}"><span style="width:${Math.round(ratio * 100)}%"></span></div>${pct(ratio)}</td><td>${esc(describeType(type))}</td></tr>`;
+        })
+        .join('') || '<tr><td colspan="4">타입 집계가 없습니다.</td></tr>';
+    $('inventory-region-rows').innerHTML = Object.entries(byRegion)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([region, item]) => {
+            const topSources = Object.entries(item.sources).sort((a,b) => b[1] - a[1]).slice(0, 3).map(([s,n]) => `${s} ${n}`).join(', ');
+            const inventoryTone = qualityTone({
+                samples: item.samples,
+                successRate: item.samples ? item.success / item.samples : 0,
+                avgFirstFrameMs: item.success ? item.load / item.success : 0,
+                failure: Math.max(0, item.samples - item.success)
+            });
+            const status = item.samples
+                ? `<span class="${inventoryTone}">${esc(qualityStatusLabel({
+                    samples: item.samples,
+                    successRate: item.success / item.samples,
+                    avgFirstFrameMs: item.success ? item.load / item.success : 0,
+                    failure: Math.max(0, item.samples - item.success)
+                }))}</span>`
+                : '<span class="warn">샘플 없음</span>';
+            const cov = coverageRegions[region] || {};
+            return `<tr><td>${esc(region)}</td><td>${item.total.toLocaleString('ko-KR')}</td><td>${item.samples.toLocaleString('ko-KR')}</td><td>${Number(cov.checked || 0).toLocaleString('ko-KR')}</td><td>${Number(cov.recent_24h || 0).toLocaleString('ko-KR')}</td><td>${rateCell(item.success, item.samples)}</td><td>${esc(topSources)}</td><td>${status}</td></tr>`;
+        })
+        .join('') || '<tr><td colspan="8">지역 집계가 없습니다.</td></tr>';
+}
+function renderOps({ canary, ops, cache, audit }) {
+    const z3 = ops?.cache?.z3 || cache?.z3 || {};
+    const canaryRegions = canary?.regions || ops?.canary?.regions || {};
+    const impact = Object.values(canaryRegions).filter(item => ['IMPACT', 'NO_CANDIDATES'].includes(item?.status));
+    const degraded = Object.values(canaryRegions).filter(item => item?.status === 'DEGRADED');
+    const serviceSeverity = ops?.severity || (impact.length ? 'danger' : (degraded.length ? 'warn' : 'ok'));
+    const serviceText = ops?.service_status === 'SERVICE_IMPACT' || impact.length
+        ? `${impact.length || 1}곳 점검`
+        : (ops?.service_status === 'DEGRADED' || degraded.length ? '주의' : '정상');
+    const z3Severity = z3.severity || (Number(z3.age_hours) > 8 ? 'danger' : (Number(z3.age_hours) > 4 ? 'warn' : 'ok'));
+    const auditRuns = Array.isArray(audit) ? audit : (Array.isArray(audit?.runs) ? audit.runs : []);
+    const recoveries = auditRuns.reduce((sum, run) => sum + Number(run.recovered || run.restored || 0), 0);
+
+    setCard('ops-service', serviceText, serviceSeverity);
+    setCard('ops-z3', ageText(z3.age_hours), z3Severity);
+    setCard('ops-canary', `${Object.keys(canaryRegions).length || 0}지역`, serviceSeverity);
+    setCard('ops-recovery', `${recoveries}건`, recoveries > 0 ? 'ok' : 'warn');
+
+    $('canary-rows').innerHTML = Object.values(canaryRegions)
+        .map(item => {
+            const severity = item.severity || (item.status === 'OK' ? 'ok' : item.status === 'DEGRADED' ? 'warn' : 'danger');
+            const failure = item.dominant_failure || Object.keys(item.failure_categories || {})[0] || '-';
+            const shared = item.shared_incident?.message ? ` ${item.shared_incident.message}` : '';
+            return `<tr>
+                <td>${esc(item.label || item.key)}</td>
+                <td><span class="pill ${severityClass(severity)}">${esc(item.status || '-')}</span></td>
+                <td class="mono">${Number(item.passed || 0)} / ${Number(item.checked || 0)}</td>
+                <td>${pct(Number(item.success_rate))}</td>
+                <td>${ms(Number(item.avg_ok_ms || 0))}</td>
+                <td>${esc(failure)}</td>
+                <td>${esc(`${item.recommended_action || '-'}${shared}`)}</td>
+            </tr>`;
+        })
+        .join('') || '<tr><td colspan="7">주요 지역 점검 데이터가 아직 없습니다. 다음 점검 주기에서 생성됩니다.</td></tr>';
+    renderCanaryTrends(canaryRegions, arguments[0]?.history || []);
+}
+function renderCanaryTrends(currentRegions, history) {
+    const host = $('canary-trends');
+    const rows = Array.isArray(history) ? history.slice(-48) : [];
+    const regionKeys = Object.keys(currentRegions || {});
+    if (!rows.length || !regionKeys.length) {
+        host.textContent = '아직 누적 추세가 없습니다. 주요 지역 점검이 2회 이상 실행되면 자동으로 표시됩니다.';
+        return;
+    }
+    host.innerHTML = regionKeys.map(key => {
+        const current = currentRegions[key] || {};
+        const bars = rows.map(point => {
+            const region = point?.regions?.[key] || {};
+            const severity = region.severity || (region.status === 'OK' ? 'ok' : region.status === 'DEGRADED' ? 'warn' : region.status ? 'danger' : 'unknown');
+            const title = `${point?.generated_at || ''} ${region.status || 'UNKNOWN'} ${Math.round(Number(region.success_rate || 0) * 100)}%`;
+            return `<span class="trend-bar" data-severity="${esc(severity)}" title="${esc(title)}"></span>`;
+        }).join('');
+        const latestRate = Number(current.success_rate);
+        return `<div class="trend-row">
+            <div class="trend-name">${esc(current.label || key)}</div>
+            <div class="trend-bars" aria-label="${esc(current.label || key)} 최근 추세">${bars}</div>
+            <div class="trend-meta">${Number.isFinite(latestRate) ? pct(latestRate) : '-'}</div>
+        </div>`;
+    }).join('');
+}
+document.addEventListener('click', event => {
+    const toggle = event.target.closest('.info-toggle');
+    const closeAll = () => document.querySelectorAll('.info-wrap.open').forEach(wrap => {
+        wrap.classList.remove('open');
+        wrap.querySelector('.info-toggle')?.setAttribute('aria-expanded', 'false');
+    });
+    if (!toggle) {
+        if (!event.target.closest('.info-wrap')) closeAll();
+        return;
+    }
+    event.stopPropagation();
+    const wrap = toggle.closest('.info-wrap');
+    const wasOpen = wrap.classList.contains('open');
+    closeAll();
+    if (!wasOpen) {
+        wrap.classList.add('open');
+        toggle.setAttribute('aria-expanded', 'true');
+    }
+});
+$('refresh').addEventListener('click', loadSummary);
+loadSummary();
+</script>
+</body>
+</html>

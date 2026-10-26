@@ -75,7 +75,7 @@ def build_utic_headers(utic_api_key):
 
 # Upstream key/availability problems seen during this run. Reported to
 # data/workflow_status.json at the end of main() so a silently failing
-# collector (e.g. missing GitHub secret) shows up on quality.html.
+# collector (e.g. missing GitHub secret) shows up on the admin dashboard.
 SOURCE_ISSUES = []
 _SOURCE_ISSUES_LOCK = threading.Lock()
 

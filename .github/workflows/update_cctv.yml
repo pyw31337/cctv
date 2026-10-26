@@ -118,7 +118,7 @@ jobs:
           fi
 
       # When the refresh was rejected, still publish the status events (key
-      # problems, failed refresh) so the failure is visible on quality.html.
+      # problems, failed refresh) so the failure is visible on the admin dashboard.
       # The rejected cctv_data.json is restored first and never committed.
       - name: Publish workflow status after rejected refresh
         if: always() && steps.plan.outputs.due_full_refresh == 'true' && steps.check_changes.outputs.changes_detected != 'true'

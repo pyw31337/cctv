@@ -32,9 +32,9 @@ Actions 실패 메일은 두 종류로 나누어 본다.
 
 ## 관리자 대시보드 확인 항목
 
-운영 대시보드는 `https://pyw31337.github.io/cctv/quality.html` 이다. 로컬에서는 `quality.html`을 직접 열어도 같은 정적 fallback을 확인할 수 있다.
+운영 대시보드는 `https://pyw31337.github.io/cctv/admin` 이다. 로컬에서는 `admin/index.html`을 직접 열어도 같은 정적 fallback을 확인할 수 있다.
 
-`quality.html`에서 다음을 우선 확인한다.
+`admin` 대시보드에서 다음을 우선 확인한다.
 
 - 운영 영향 상태
 - Z3 캐시 최신성
