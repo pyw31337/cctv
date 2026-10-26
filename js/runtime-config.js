@@ -2,7 +2,7 @@
     // Keep lazy-loaded modules on the same release as the HTML shell. This
     // must change with every frontend release so a service worker cannot hand
     // an older World Tour module back to a newly deployed page.
-    const buildVersion = '20261026-b22feb6d';
+    const buildVersion = '20261026-62de5667';
     const quality = Object.freeze({
         telemetryEndpoint: 'https://cctv-quality.pyw31337.workers.dev/v1/events',
         summaryUrl: 'https://cctv-quality.pyw31337.workers.dev/v1/summary',
