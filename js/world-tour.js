@@ -1843,15 +1843,33 @@ async function initWorldTourMap(selected, visibleCams) {
 
         L.control.zoom({ position: 'topright' }).addTo(worldTourLeafletMap);
 
-        // Tile choice: CartoDB Voyager — uses Latin (English) place names
-        // worldwide, which is much more readable than OSM Standard (where
-        // labels in CJK / Cyrillic / Arabic regions appear in the local script).
-        // {r} adds @2x for HiDPI screens automatically.
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        // Carto's formerly public raster endpoint now returns an "API key
+        // required" image with HTTP 200. Leaflet treats that as a successful
+        // tile, leaving the map permanently blank. Use a keyless provider and
+        // swap to a second independent host if its tiles stop loading.
+        const tileOptions = {
             maxZoom: 19,
-            subdomains: 'abcd',
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-        }).addTo(worldTourLeafletMap);
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://wikimediafoundation.org/">Wikimedia Foundation</a>'
+        };
+        const fallbackTileOptions = {
+            maxZoom: 18,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        };
+        let baseLayer = L.tileLayer('https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png', tileOptions)
+            .addTo(worldTourLeafletMap);
+        let fallbackActivated = false;
+        let tileErrors = 0;
+
+        baseLayer.on('tileerror', () => {
+            tileErrors += 1;
+            // A single request can fail on a flaky mobile network. Only
+            // replace the layer after multiple failures, and never loop.
+            if (fallbackActivated || tileErrors < 3 || !worldTourLeafletMap) return;
+            fallbackActivated = true;
+            worldTourLeafletMap.removeLayer(baseLayer);
+            baseLayer = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', fallbackTileOptions)
+                .addTo(worldTourLeafletMap);
+        });
 
         const mappableCams = visibleCams
             .filter(cam => Number.isFinite(Number(cam.lat)) && Number.isFinite(Number(cam.lng)));
