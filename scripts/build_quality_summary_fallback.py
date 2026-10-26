@@ -107,6 +107,8 @@ def row_from_result(result: dict[str, Any], region_label: str) -> dict[str, Any]
         "avg_height": 0,
         "updated_at": result.get("checked_at"),
         "quality_basis": "core_canary_fallback",
+        # This fallback is an origin reachability probe, not browser-frame proof.
+        "verification_kind": "network_probe",
         "reason": result.get("reason"),
         "category": result.get("category"),
         "recommended_action": result.get("recommended_action"),
@@ -184,6 +186,7 @@ def row_from_status_sample(
         "avg_height": 0,
         "updated_at": checked_at,
         "quality_basis": "regional_health_sample",
+        "verification_kind": "network_probe",
         "reason": (failed_sample or {}).get("reason"),
         "category": category,
         "recommended_action": (((failed_sample or {}).get("diagnosis") or {}).get("recommended_action") or ((region.get("failure_breakdown") or {}).get("dominant") or {}).get("recommended_action")),
@@ -255,6 +258,10 @@ def row_from_check_registry(
         "avg_height": 0,
         "updated_at": entry.get("last_checked_at"),
         "quality_basis": "cumulative_camera_check_registry",
+        # The registry records HTTP stream checks. Keep it distinct from a
+        # browser playback result so a provider-side probe failure is never
+        # presented as certain user-visible playback failure.
+        "verification_kind": "network_probe",
         "reason": reason,
         "category": category,
         "recommended_action": entry.get("recommended_action"),

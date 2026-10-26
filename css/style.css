@@ -249,7 +249,7 @@ body {
 .search-box input {
     width: 100%;
     height: var(--control-height);
-    padding: 0 46px 0 16px;
+    padding: 0 78px 0 16px;
     background: var(--bg-primary);
     border: 2px solid var(--accent);
     border-radius: var(--radius-full);
@@ -277,6 +277,29 @@ body {
     cursor: pointer;
     display: none;
 }
+
+.search-location {
+    position: absolute;
+    right: 40px;
+    top: 50%;
+    width: 28px;
+    height: 28px;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.search-location:hover,
+.search-location:focus-visible { color: var(--accent); background: rgba(34, 197, 94, 0.12); }
+.search-location.loading { animation: search-location-pulse 850ms ease-in-out infinite alternate; pointer-events: none; }
+@keyframes search-location-pulse { to { color: var(--accent); transform: translateY(-50%) scale(1.12); } }
 
 /* The bottom bar deliberately keeps just search and one navigation doorway. */
 .app-menu-trigger {
@@ -362,6 +385,7 @@ body.app-menu-open #header {
 .app-menu-card.is-primary { border-color: rgba(74, 222, 128, 0.42); background: linear-gradient(145deg, rgba(22, 101, 52, 0.65), rgba(20, 83, 45, 0.36)); }
 .app-menu-card.is-active { box-shadow: inset 0 0 0 1px rgba(134, 239, 172, 0.75); }
 .app-menu-icon { display: block; margin-bottom: 8px; color: #86efac; font-size: 26px; line-height: 1; }
+.app-menu-icon svg, .app-menu-row-icon svg { display: block; width: 1em; height: 1em; }
 .app-menu-card strong, .app-menu-row strong { display: block; font-size: 14px; }
 .app-menu-card small, .app-menu-row small { display: block; margin-top: 4px; color: #94a3b8; font-size: 11px; line-height: 1.35; }
 .app-menu-row { display: flex; width: 100%; min-height: 62px; align-items: center; gap: 10px; padding: 11px 13px; border-radius: 14px; }
@@ -370,13 +394,15 @@ body.app-menu-open #header {
 .app-menu-row > b { color: #94a3b8; font-size: 24px; font-weight: 400; }
 .app-menu-highway { background: linear-gradient(100deg, rgba(30, 64, 175, 0.34), rgba(30, 41, 59, 0.72)); }
 .app-menu-tools { display: flex; align-items: center; gap: 8px; margin-top: 17px; padding-top: 14px; border-top: 1px solid rgba(148, 163, 184, 0.15); }
-.app-menu-tools button, .app-menu-tools label { min-height: 38px; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 12px; background: rgba(15, 23, 42, 0.5); color: #cbd5e1; font-size: 12px; font-weight: 700; }
-.app-menu-tools button { padding: 0 12px; cursor: pointer; }
-.app-menu-tools label { display: flex; flex: 1; align-items: center; justify-content: space-between; padding-left: 11px; }
-.app-menu-tools select { height: 34px; max-width: 108px; border: 0; border-radius: 10px; background: rgba(51, 65, 85, 0.76); color: white; font: inherit; outline: 0; }
+.app-menu-tools > button, .quality-badge { min-height: 38px; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 12px; background: rgba(15, 23, 42, 0.5); color: #cbd5e1; font-size: 12px; font-weight: 700; cursor: pointer; }
+.app-menu-tools > button { flex: 0 0 auto; padding: 0 12px; }
+.quality-badge-group { display: flex; flex: 1; flex-wrap: wrap; gap: 6px; }
+.quality-badge { flex: 1 1 calc(50% - 3px); min-width: 72px; padding: 0 9px; }
+.quality-badge:hover, .quality-badge:focus-visible { border-color: rgba(134, 239, 172, 0.6); color: #dcfce7; }
+.quality-badge.active { border-color: var(--accent); background: rgba(22, 163, 74, 0.28); color: #dcfce7; }
 @media (max-width: 390px) { .app-menu-sheet { padding-inline: 12px; } .app-menu-card { padding: 11px; } .app-menu-card strong, .app-menu-row strong { font-size: 13px; } }
 
-.search-box input:not(:placeholder-shown)+.search-clear {
+.search-box input:not(:placeholder-shown) ~ .search-clear {
     display: flex;
     align-items: center;
     justify-content: center;

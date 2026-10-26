@@ -952,6 +952,11 @@ function renderQualityControls() {
     $$('[data-quality-sort-select]').forEach(sortSelect => {
         sortSelect.value = state.sortMode;
     });
+    $$('[data-quality-sort]').forEach(button => {
+        const active = button.dataset.qualitySort === state.sortMode;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+    });
 }
 
 function setSortMode(mode) {
@@ -1093,6 +1098,7 @@ function setupEventListeners() {
         searchInput.focus();
         showSearchHistory();
     });
+    $('#search-location')?.addEventListener('click', handleCurrentLocation);
 
     // Dim Overlay
     $('#dim-overlay').addEventListener('click', closeAllOverlays);
@@ -1112,6 +1118,9 @@ function setupEventListeners() {
         sortSelect.addEventListener('change', () => {
             setSortMode(sortSelect.value);
         });
+    });
+    $$('[data-quality-sort]').forEach(button => {
+        button.addEventListener('click', () => setSortMode(button.dataset.qualitySort));
     });
 
     // Video Layer
@@ -1845,13 +1854,13 @@ async function openWorldTourFromSearchResult(worldCamId, meta = {}) {
 
 // === Geolocation ===
 async function handleCurrentLocation() {
-    const btn = $('#location-btn');
+    const buttons = [$('#location-btn'), $('#search-location')].filter(Boolean);
     if (!navigator.geolocation) {
         alert('이 브라우저는 위치 정보를 지원하지 않습니다.');
         return;
     }
 
-    btn?.classList.add('loading');
+    buttons.forEach(button => button.classList.add('loading'));
 
     navigator.geolocation.getCurrentPosition(async (position) => {
         const { latitude, longitude } = position.coords;
@@ -1859,7 +1868,7 @@ async function handleCurrentLocation() {
         // Use Geocoder to get address name
         const geocoder = new kakao.maps.services.Geocoder();
         geocoder.coord2Address(longitude, latitude, (result, status) => {
-            btn?.classList.remove('loading');
+            buttons.forEach(button => button.classList.remove('loading'));
             if (status === kakao.maps.services.Status.OK) {
                 const addr = result[0].address;
                 const addressName = addr.address_name;
@@ -1873,7 +1882,7 @@ async function handleCurrentLocation() {
             }
         });
     }, (error) => {
-        btn?.classList.remove('loading');
+        buttons.forEach(button => button.classList.remove('loading'));
         console.error('Geolocation error:', error);
         const msg = error.code === 1 ? '위치 정보 권한이 거부되었습니다.' : '위치 정보를 가져오는데 실패했습니다.';
         alert(msg);

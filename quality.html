@@ -127,21 +127,11 @@
         <div class="card"><div class="metric" id="inv-recent">-</div><div class="label">최근 24h 점검</div></div>
     </div>
 
-    <div class="split">
-        <section class="card">
-            <div class="section-heading"><h2>우선 점검</h2><span class="info-wrap"><button type="button" class="info-toggle" aria-label="우선 점검 기준">i</button><span class="info-bubble">반복 실패, 느린 첫 화면, 충분한 재생 표본이 있는 영상부터 보여줍니다.</span></span></div>
-            <p class="status-summary">실제 재생 품질이 낮은 후보만 표시합니다.</p>
+    <section class="card priority-card">
+            <div class="section-heading"><h2>우선 점검</h2><span class="info-wrap"><button type="button" class="info-toggle" aria-label="상태 기준 보기">i</button><span class="info-bubble">연결 점검 실패, 느린 첫 화면, 충분한 재생 표본을 우선 표시합니다. 빨강은 반복 연결 실패, 노랑은 재확인 필요, 회색은 미점검입니다. 점검 결과는 브라우저 재생 검증과 분리해 관리하며, 실패 영상은 자동 갱신과 대체 후보 선택에 사용합니다.</span></span></div>
+            <p class="status-summary">연결 또는 실제 재생 검증에서 재확인이 필요한 후보입니다.</p>
             <div class="wide-table"><table class="priority-table"><thead><tr><th>영상</th><th>상태</th><th>첫 화면</th><th>조치</th></tr></thead><tbody id="camera-rows"></tbody></table></div>
-        </section>
-        <section class="card">
-            <details class="compact-details"><summary>상태 기준 보기</summary><div class="defs">
-                <div><b>빨강</b>: 충분한 표본에서 반복 실패하거나 핵심 지역의 정상 후보가 부족합니다.</div>
-                <div><b>노랑</b>: 표본 부족, 일시 지연, 대체 후보 점검이 필요한 상태입니다.</div>
-                <div><b>회색</b>: 아직 표본이 없습니다. 장애로 단정하지 않습니다.</div>
-                <div><b>점검 실패</b>: 영상은 삭제하지 않고 자동 갱신·후순위·대체 후보 선택에만 사용합니다.</div>
-            </div></details>
-        </section>
-    </div>
+    </section>
 
     <section class="card">
         <div class="section-heading"><h2>반복 복구 대상</h2><span class="info-wrap"><button type="button" class="info-toggle" aria-label="반복 복구 대상 기준">i</button><span class="info-bubble">국내 영상은 삭제하지 않습니다. 실재생 실패·느린 로딩·낮은 품질 점수 후보를 수집과 URL 갱신에서 우선 처리합니다.</span></span></div>
@@ -270,7 +260,7 @@ function qualityStatusLabel(item) {
     if (directSamples <= 0 && Number(item?.source_only || 0) > 0) return '원본 전용';
     if (directSamples <= 0 && Number(item?.monitor_unverified || 0) > 0) return '재생 모니터 대상';
     const toneName = qualityTone(item);
-    if (toneName === 'bad') return '반복 실패';
+    if (toneName === 'bad') return item?.verification_kind === 'browser_playback' ? '반복 재생 실패' : '반복 연결 실패';
     if (toneName === 'warn') return item.samples < MIN_STRONG_QUALITY_SAMPLES ? '재확인 필요' : '주의';
     if (toneName === 'info') return '점검 중';
     if (toneName === 'muted') return '미점검';
