@@ -149,6 +149,7 @@ def fetch_z3_map_with_curl(max_attempts: int = 3) -> dict[str, str]:
                 subprocess.run(
                     [
                         "curl",
+                        "-4",
                         "-k",
                         "-L",
                         "-sS",
@@ -174,6 +175,7 @@ def fetch_z3_map_with_curl(max_attempts: int = 3) -> dict[str, str]:
                 result = subprocess.run(
                     [
                         "curl",
+                        "-4",
                         "-k",
                         "-L",
                         "-sS",
@@ -300,6 +302,14 @@ def fetch_fallback_cache(urls: list[str]) -> dict | None:
     return None
 
 
+def cache_payload_age_minutes(payload: dict | None) -> float | None:
+    """Return the embedded data age, never the time a fallback was downloaded."""
+    fetched = parse_utc_stamp(payload.get("fetched") if isinstance(payload, dict) else None)
+    if not fetched:
+        return None
+    return (utc_now() - fetched).total_seconds() / 60
+
+
 def z3_expected_cctvips(data_file: Path) -> set[str]:
     return set(z3_expected_cameras(data_file).keys())
 
@@ -418,7 +428,9 @@ def main() -> int:
         except Exception as error:
             refresh_error = str(error)
             fallback_payload = fetch_fallback_cache(args.fallback_cache_url)
-            if fallback_payload:
+            fallback_age_minutes = cache_payload_age_minutes(fallback_payload)
+            allowed_stale_minutes = args.stale_ok_on_refresh_failure_hours * 60
+            if fallback_payload and fallback_age_minutes is not None and fallback_age_minutes <= allowed_stale_minutes:
                 cache_payload = fallback_payload
                 atomic_write_json(args.cache_file, cache_payload)
                 refresh_failure_with_existing_cache = True
@@ -428,14 +440,19 @@ def main() -> int:
                     file=sys.stderr,
                 )
             else:
+                if fallback_payload:
+                    print(
+                        "[WARN] fallback cache was rejected because its embedded data is too old "
+                        f"({fallback_age_minutes:.1f}min > {allowed_stale_minutes:.1f}min).",
+                        file=sys.stderr,
+                    )
                 existing_cache = load_json(args.cache_file, {})
                 existing_data = existing_cache.get("data", {}) if isinstance(existing_cache, dict) else {}
                 has_existing_cache = isinstance(existing_data, dict) and bool(existing_data)
                 age_minutes = get_cache_age_minutes(args.cache_file)
-                allow_minutes = args.stale_ok_on_refresh_failure_hours * 60
+                allow_minutes = allowed_stale_minutes
                 if has_existing_cache and (
-                    (allow_minutes > 0 and age_minutes is not None and age_minutes <= allow_minutes)
-                    or args.fallback_cache_url
+                    allow_minutes > 0 and age_minutes is not None and age_minutes <= allow_minutes
                 ):
                     refresh_failure_with_existing_cache = True
                     print(
@@ -455,6 +472,10 @@ def main() -> int:
         z3["refresh_status"] = "FAILED_USING_EXISTING_CACHE" if refresh_failure_with_existing_cache else "FAILED"
         z3["refresh_error"] = refresh_error[:500]
         z3["refresh_failure_at"] = utc_stamp()
+        if z3["status"] == "STALE":
+            # A stale cache is usable only as an emergency fallback. Make the
+            # operational cause explicit instead of presenting the run as healthy.
+            z3["status"] = "STALE_UPSTREAM_UNREACHABLE"
     print(
         "[INFO] Z3 audit: "
         f"status={z3['status']} fetched={z3['fetched']} age={z3['age_minutes']}min "

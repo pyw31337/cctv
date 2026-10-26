@@ -700,6 +700,7 @@ function renderOps({ canary, ops, cache, audit }) {
         .map(item => {
             const severity = item.severity || (item.status === 'OK' ? 'ok' : item.status === 'DEGRADED' ? 'warn' : 'danger');
             const failure = item.dominant_failure || Object.keys(item.failure_categories || {})[0] || '-';
+            const shared = item.shared_incident?.message ? ` ${item.shared_incident.message}` : '';
             return `<tr>
                 <td>${esc(item.label || item.key)}</td>
                 <td><span class="pill ${severityClass(severity)}">${esc(item.status || '-')}</span></td>
@@ -707,7 +708,7 @@ function renderOps({ canary, ops, cache, audit }) {
                 <td>${pct(Number(item.success_rate))}</td>
                 <td>${ms(Number(item.avg_ok_ms || 0))}</td>
                 <td>${esc(failure)}</td>
-                <td>${esc(item.recommended_action || '-')}</td>
+                <td>${esc(`${item.recommended_action || '-'}${shared}`)}</td>
             </tr>`;
         })
         .join('') || '<tr><td colspan="7">카나리 데이터가 아직 없습니다. 다음 30분 주기에서 생성됩니다.</td></tr>';

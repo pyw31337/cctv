@@ -2561,11 +2561,15 @@ function getCanaryHealthMeta(cctv, regionKey) {
 
     const checkedAt = state.canaryStatus?.generated_at || null;
     if (region.status === 'IMPACT' || region.status === 'NO_CANDIDATES') {
+        const shared = region.shared_incident;
+        const incidentText = shared?.message
+            ? ` ${shared.message} 개별 카메라 고장으로 처리하지 않습니다.`
+            : '';
         return {
             regionKey,
             status: 'CANARY_REGION_IMPACT',
             shortLabel: '핵심지역 주의',
-            longLabel: `${region.label || getRegionLabel(regionKey)} 카나리 정상 후보가 기준 미달입니다. 개별 카메라는 실제 재생을 우선 확인합니다. ${region.recommended_action || ''}`,
+            longLabel: `${region.label || getRegionLabel(regionKey)} 카나리 정상 후보가 기준 미달입니다. 개별 카메라는 실제 재생을 우선 확인합니다.${incidentText} ${region.recommended_action || ''}`,
             tone: 'warn',
             penalty: 2.8,
             lastUpdated: checkedAt

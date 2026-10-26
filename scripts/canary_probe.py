@@ -651,6 +651,21 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
     else:
         dominant = None
 
+    failed = [item for item in results if not item.get("ok")]
+    failed_resolvers = {str(item.get("resolver") or "UNKNOWN") for item in failed}
+    failed_sources = {str(item.get("source") or "UNKNOWN") for item in failed}
+    shared_incident = None
+    if failed and len(failed) == checked and len(failed_resolvers) == 1 and len(failed_sources) == 1:
+        resolver = next(iter(failed_resolvers))
+        source = next(iter(failed_sources))
+        shared_incident = {
+            "code": "SHARED_RESOLVER_OUTAGE",
+            "resolver": resolver,
+            "source": source,
+            "affected_candidates": len(failed),
+            "message": f"{source} {resolver} 공통 해석 경로가 모든 후보에서 실패했습니다.",
+        }
+
     action = region_recovery_action(region, status, categories, results)
     recovery = region_recovery_plan(region, status, categories, results)
     if status == "OK":
@@ -678,6 +693,7 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
         "failed_ids": [item.get("id") for item in results if not item.get("ok")],
         "failure_categories": dict(categories.most_common()),
         "dominant_failure": dominant,
+        "shared_incident": shared_incident,
         "recommended_action": action,
         "recovery_plan": recovery,
         "results": results,
@@ -693,6 +709,12 @@ def region_recovery_action(region: dict, status: str, categories: Counter, resul
     key = str(region.get("key") or "")
     dominant = categories.most_common(1)[0][0] if categories else None
     sources = Counter(str(item.get("source") or "UNKNOWN") for item in results if not item.get("ok"))
+
+    if key == "jindo":
+        resolvers = {str(item.get("resolver") or "UNKNOWN") for item in results if not item.get("ok")}
+        if len(resolvers) == 1 and resolvers == {"oracle_z3"}:
+            return "진도 UTIC Z3 공통 해석 경로가 실패했습니다. 개별 카메라 10건의 고장이 아니므로, 오래된 Z3 캐시를 폐기하고 ITS IPv4 갱신을 우선 복구한 뒤 검증된 비-Z3 대체 후보만 승격하세요."
+        return "진도 후보의 공급처와 해석 경로를 분리 점검하세요. 자동 수집 결과만으로 서명 HLS 주소를 승격하지 말고, 실제 미디어 세그먼트 검증을 통과한 대체 후보만 사용하세요."
 
     if key == "daejeon":
         if dominant in {"timeout", "not_found"}:

@@ -93,6 +93,16 @@ class CanarySelectionTests(unittest.TestCase):
         self.assertEqual(summary["status"], "OK")
         self.assertEqual(summary["severity"], "ok")
 
+    def test_shared_resolver_outage_is_recorded_once_for_the_region(self):
+        candidates = [{"id": "one"}, {"id": "two"}]
+        results = [
+            {"id": "one", "ok": False, "category": "network_error", "source": "UTIC", "resolver": "oracle_z3"},
+            {"id": "two", "ok": False, "category": "network_error", "source": "UTIC", "resolver": "oracle_z3"},
+        ]
+        summary = summarize_region({**self.REGION, "key": "jindo"}, candidates, results)
+        self.assertEqual(summary["shared_incident"]["code"], "SHARED_RESOLVER_OUTAGE")
+        self.assertIn("공통 해석 경로", summary["recommended_action"])
+
     def test_kbs_canary_probes_the_fresh_signed_url_not_legacy_oracle_resolver(self):
         camera = {"id": "KBS_9957", "source": "KBS", "original_id": "9957", "url": "https://kbs.example/live.m3u8?token=fresh"}
         url, resolver, _ = resolve_probe_url(camera, {})
