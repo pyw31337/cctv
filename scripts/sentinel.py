@@ -1283,13 +1283,23 @@ def test_region(region_name, cameras, current_status=None, target_size=None, qua
 
     if target_size is None:
         target_size = get_target_sample_size(len(cameras))
-    sample, stable_count, exploratory_count, coverage_count = select_representative_cameras(
-        region_name,
-        cameras,
-        target_size,
-        current_status=current_status,
-        quality_policy=quality_policy
-    )
+    # Keep the legacy call shape when no policy was supplied.  This also keeps
+    # external callers that only exercise resilience sampling compatible.
+    if quality_policy is None:
+        sample, stable_count, exploratory_count, coverage_count = select_representative_cameras(
+            region_name,
+            cameras,
+            target_size,
+            current_status=current_status
+        )
+    else:
+        sample, stable_count, exploratory_count, coverage_count = select_representative_cameras(
+            region_name,
+            cameras,
+            target_size,
+            current_status=current_status,
+            quality_policy=quality_policy
+        )
     sample_ids = [cam.get('id') for cam in sample if cam.get('id')]
     failed_ids = []
     passed_ids = []
