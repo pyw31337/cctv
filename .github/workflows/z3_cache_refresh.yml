@@ -5,10 +5,10 @@ on:
   # capacity has reset. Local launchd/Oracle refresh remains the emergency
   # backup path if Actions capacity is exhausted again.
   schedule:
-    # Oracle refreshes the live resolver every 15 minutes. Keep Pages as a
-    # slower static disaster fallback so token refresh does not trigger 96
-    # repository writes and deployments per day.
-    - cron: '15 */3 * * *'
+    # Keep the independently served Pages fallback fresh while the Oracle
+    # cache monitor reports stale data. This prevents an Oracle cron outage
+    # from exposing expired Z3 tokens to visitors.
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 env:
