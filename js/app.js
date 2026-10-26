@@ -16,10 +16,11 @@ const RUNTIME_CONFIG = window.CCTV_RUNTIME_CONFIG || {};
 // 사실상 무기한 유효함이 실측됨. 60분 게이트는 strategy 1 을 거의 항상 무력화시켜
 // playback이 strategy 2(URL 내장 토큰: 보통 수개월 묵은 데이터로 502) → strategy 3
 // (Oracle /utic: 현재 hang) 으로 전부 떨어지는 원인이었음. → 24시간 으로 완화.
-// Z3 appUrls eventually stop minting valid short-lived HLS sessions. Keep the
-// catalog well inside the scheduled 15-minute refresh cadence.
+// The catalog is an emergency fallback only. Primary Z3 playback obtains a
+// brand-new, short-lived HLS session from the resolver for every selection.
 const Z3_CACHE_RELOAD_MS = 20 * 60 * 1000;
-const Z3_CACHE_STALE_MS = 45 * 60 * 1000;
+const Z3_CACHE_STALE_MS = 4 * 60 * 60 * 1000;
+const Z3_RESOLVER_TIMEOUT_MS = 6500;
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
@@ -417,12 +418,12 @@ async function loadZ3Cache(force = false) {
     if (z3CacheData) return z3CacheData;
     if (z3CachePromise) return z3CachePromise;
     const cacheBucket = Math.floor(Date.now() / 1800000);
-    // Static GitHub snapshot first — Oracle /z3-cache.json can hang long enough to
-    // block Z3 playback. Keep the static cache fresh via GHA and stop trusting it
-    // once it is old enough to produce expired appUrl tokens.
+    // The server snapshot is preferred because it can be refreshed independently.
+    // This remains a fallback for the per-camera resolver below, never a reason to
+    // delay issuing a fresh HLS session for the camera the visitor selected.
     const urls = [
-        `data/z3_cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
-        `${ORACLE_BASE}/z3-cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+        `${ORACLE_BASE}/z3-cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`,
+        `data/z3_cache.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
     ];
 
     z3CachePromise = (async () => {
@@ -5803,41 +5804,60 @@ function createVideoElement(cctv, sourceIndex = 0) {
 
             try {
                 if (isZ3 && z3CctvIp) {
-                    // Z3 전략 1: Oracle /z3-cache.json 우선, 정적 GitHub 캐시는 긴급 fallback
+                    // Z3 strategy 1: ask the resolver for a new HLS session for
+                    // this camera. The signed HLS URL lasts only a few minutes,
+                    // so a catalog snapshot must never be the primary path.
                     try {
-                        const cacheWorkerUrl = await getZ3StreamUrl(z3CctvIp);
-                        if (cacheWorkerUrl) {
-                            const cacheResp = await fetch(cacheWorkerUrl, { cache: 'no-store' });
-                            if (cacheResp.ok) {
-                                const cacheText = (await cacheResp.text()).trim();
-                                if (cacheText && cacheText.startsWith('http')) {
-                                    streamUrl = cacheText;
-                                    console.log(`[Z3] Resolved ${z3CctvIp} through ${z3CacheSource} cache (${Math.round(z3CacheAgeMs / 60000)}min old)`);
-                                }
+                        let uticSearch = '';
+                        try { uticSearch = new URL(uticSourceUrl).search.substring(1); } catch (_) {
+                            try { uticSearch = new URL(url).search.substring(1); } catch (_) {}
+                        }
+                        if (!uticSearch) throw new Error('missing Z3 camera parameters');
+
+                        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                        const timeoutId = controller
+                            ? window.setTimeout(() => controller.abort(), Z3_RESOLVER_TIMEOUT_MS)
+                            : null;
+                        const resolverUrl = `${PUBLIC_PROXY_BASE}/utic?${uticSearch}&_t=${Date.now()}`;
+                        try {
+                            const response = await fetch(resolverUrl, {
+                                cache: 'no-store',
+                                redirect: 'follow',
+                                signal: controller?.signal
+                            });
+                            if (!response.ok || !response.url || !response.url.startsWith('http')) {
+                                throw new Error(`resolver HTTP ${response.status}`);
                             }
+                            streamUrl = response.url;
+                            console.log(`[Z3] Resolved ${z3CctvIp} with a fresh server session`);
+                        } finally {
+                            if (timeoutId !== null) window.clearTimeout(timeoutId);
                         }
                     } catch(e2) { console.warn('[Z3] 전략1 실패:', e2); }
 
-                    // Z3 전략 2: cctv_data.json의 id 파라미터 사용 (fallback)
+                    // Z3 strategy 2: use the refreshed appUrl catalog through the
+                    // worker when the resolver is temporarily unavailable.
                     if (!streamUrl) {
                         try {
-                            const idParam = new URL(uticSourceUrl).searchParams.get('id');
-                            if (idParam) {
-                                // URLSearchParams는 literal +를 space로 디코딩 → 복원
-                                const tokenUrl = `https://cctvsec.ktict.co.kr/${idParam.replace(/ /g, '+')}`;
+                            const cacheWorkerUrl = await getZ3StreamUrl(z3CctvIp);
+                            if (cacheWorkerUrl) {
                                 const z3Resp = await fetch(
-                                    `${WORKER_PROXY_BASE}/z3?url=${encodeURIComponent(tokenUrl)}`,
+                                    cacheWorkerUrl,
                                     { cache: 'no-store' }
                                 );
                                 if (z3Resp.ok) {
                                     const text = (await z3Resp.text()).trim();
-                                    if (text && text.startsWith('http')) streamUrl = text;
+                                    if (text && text.startsWith('http')) {
+                                        streamUrl = text;
+                                        console.log(`[Z3] Resolved ${z3CctvIp} through ${z3CacheSource} fallback`);
+                                    }
                                 }
                             }
                         } catch(e2) { console.warn('[Z3] 전략2 실패:', e2); }
                     }
 
-                    // Z3 전략 3: Oracle /utic가 서버 로컬 최신 캐시를 읽고 /proxy로 리다이렉트한다.
+                    // Z3 strategy 3: retain the redirect endpoint as a last-resort
+                    // media URL for older browsers that reject the probe request.
                     if (!streamUrl) {
                         try {
                             let uticSearch = '';

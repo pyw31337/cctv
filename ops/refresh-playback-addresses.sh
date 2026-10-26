@@ -8,7 +8,11 @@ REPO_DIR="$OPS_HOME/repository"
 CACHE_DIR="$OPS_HOME/current"
 LOG_FILE="${CCTV_OPS_LOG:-$OPS_HOME/refresh.log}"
 LOCK_DIR="${CCTV_OPS_LOCK:-$OPS_HOME/refresh.lock}"
-PUBLISH_INTERVAL_SECONDS="${CCTV_OPS_PUBLISH_INTERVAL_SECONDS:-1800}"
+# The local catalog is refreshed every 30 minutes. The public static fallback
+# is intentionally published less often because normal Z3 playback obtains a
+# new HLS session from the resolver per camera, and committing a 1 MB catalog
+# every 30 minutes would create unnecessary Pages deploys and Git history.
+PUBLISH_INTERVAL_SECONDS="${CCTV_OPS_PUBLISH_INTERVAL_SECONDS:-10800}"
 PUBLISH_STATE="$OPS_HOME/last_publish_epoch"
 REMOTE_URL="${CCTV_OPS_REMOTE_URL:-https://github.com/pyw31337/cctv.git}"
 
