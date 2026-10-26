@@ -1,14 +1,11 @@
 name: Refresh Playback Addresses
 
 on:
-  # Keep the static GitHub Pages fallback fresh now that monthly Actions
-  # capacity has reset. Local launchd/Oracle refresh remains the emergency
-  # backup path if Actions capacity is exhausted again.
+  # GitHub scheduling is not a real-time service and may delay 15-minute
+  # jobs for hours. The dedicated local/Oracle operation is primary; this is
+  # a low-frequency independent fallback for sleeping/offline operation hosts.
   schedule:
-    # Keep the independently served Pages fallback fresh while the Oracle
-    # cache monitor reports stale data. This prevents an Oracle cron outage
-    # from exposing expired Z3 tokens to visitors.
-    - cron: '*/15 * * * *'
+    - cron: '17 */3 * * *'
   workflow_dispatch:
 
 env:

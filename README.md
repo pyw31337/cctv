@@ -71,6 +71,17 @@ npm run browser:canary
 - `Z3_LOCAL_CACHE_FILE`: 로컬 Z3 캐시 경로
 - `Z3_REFRESH_RETRY_SECONDS`: Z3 캐시 갱신이 실패했을 때 다시 시도하기까지의 최소 간격(기본 300초). 그 사이에는 기존 캐시로 즉시 응답합니다
 - `CCTV_SENTINEL_MAX_RUNTIME_SECONDS`: Sentinel 실행 시간 상한(기본 600초). 도달하면 점검을 멈추고 그때까지의 결과를 저장합니다
+
+### 재생 주소 운영 갱신
+
+GitHub Actions의 예약 실행은 정확한 15분 주기를 보장하지 않습니다. 운영 맥에서는 개발 폴더와 분리된 전용 체크아웃으로 재생 주소만 30분마다 갱신합니다.
+
+```bash
+ops/install-playback-address-refresh.sh
+ops/check-playback-address-refresh.sh
+```
+
+이 작업은 `z3_cache.json`과 `cache_status.json`만 다루며, 개발 브랜치·품질 상태·카메라 목록을 수정하지 않습니다. 실제 짧은 재생 토큰은 사용자가 영상을 열 때 서버에서 즉시 발급합니다.
 - `JEJU_ID_MAP_PATH`: 제주 short-id 매핑 파일
 - `CCTV_DISABLE_STARTUP_JOBS`: 테스트 시 백그라운드 잡 비활성화
 
