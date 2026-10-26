@@ -5538,22 +5538,27 @@ body.map-moving *::after {
 .highway-route-item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     width: 100%;
     padding: 12px 8px;
-    background: none;
+    background: transparent;
     border: none;
     border-bottom: 1px solid var(--border-color);
     color: var(--text-primary);
     text-align: left;
-    cursor: pointer;
     font: inherit;
 }
 .highway-route-item:last-child { border-bottom: none; }
-.highway-route-item:hover { background: rgba(255, 255, 255, 0.04); }
+
+.highway-route-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
 
 .highway-route-name {
-    flex: 1;
     min-width: 0;
     font-size: 14px;
     font-weight: 500;
@@ -5575,6 +5580,28 @@ body.map-moving *::after {
     font-size: 11px;
     font-weight: 750;
     font-variant-numeric: tabular-nums;
+}
+
+.highway-route-view {
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid rgba(110, 231, 183, 0.46);
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: #86efac;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 750;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition);
+}
+.highway-route-view:hover,
+.highway-route-view:focus-visible {
+    border-color: var(--accent);
+    background: rgba(34, 197, 94, 0.14);
+    outline: none;
 }
 
 .highway-grade-pill {
