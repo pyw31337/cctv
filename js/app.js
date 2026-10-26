@@ -856,18 +856,34 @@ function applyQualitySummary(summary) {
 async function loadCanaryStatus() {
     const cacheBucket = Math.floor(Date.now() / CANARY_STATUS_BUCKET_MS);
     const urls = [
-        CANARY_STATUS_URL ? `${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}` : null,
-        `${CANARY_STATUS_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`
+        // The static snapshot is an independently refreshed fallback. Never
+        // let a fast but older Oracle response erase a newer verified result.
+        { url: `${CANARY_STATUS_FALLBACK_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`, source: 'static' },
+        ...(CANARY_STATUS_URL ? [{ url: `${CANARY_STATUS_URL}?v=${APP_BUILD_VERSION}&t=${cacheBucket}`, source: 'oracle' }] : [])
     ].filter(Boolean);
 
-    for (const url of urls) {
+    const settled = await Promise.all(urls.map(async candidate => {
         try {
-            const snapshot = await fetchJsonWithTimeout(url, CANARY_STATUS_TIMEOUT_MS);
-            applyCanaryStatus(snapshot);
-            return true;
+            const snapshot = await fetchJsonWithTimeout(candidate.url, CANARY_STATUS_TIMEOUT_MS);
+            const generatedAt = new Date(snapshot?.generated_at || snapshot?.generatedAt || 0).getTime();
+            if (!snapshot || typeof snapshot !== 'object' || !Number.isFinite(generatedAt)) {
+                throw new Error('invalid canary snapshot');
+            }
+            return { ...candidate, snapshot, generatedAt };
         } catch (error) {
-            console.debug('[Canary] Status load skipped:', url, error.message || error);
+            console.debug('[Canary] Status load skipped:', candidate.url, error.message || error);
+            return null;
         }
+    }));
+
+    const candidates = settled.filter(Boolean).sort((a, b) => {
+        // Prefer the Pages snapshot for identical timestamps: it carries the
+        // same deploy revision as the browser's Z3 token cache.
+        return (b.generatedAt - a.generatedAt) || (a.source === 'static' ? -1 : 1);
+    });
+    if (candidates.length) {
+        applyCanaryStatus(candidates[0].snapshot);
+        return true;
     }
 
     return false;
