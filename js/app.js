@@ -687,6 +687,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderServiceStatusBanner();
         refreshVisiblePanelHealth();
         renderMapMarkers();
+        updateHighwayMenuAvailability();
     });
 });
 
@@ -983,6 +984,7 @@ function setAppMenuOpen(isOpen) {
     trigger.setAttribute('aria-expanded', String(isOpen));
     document.body.classList.toggle('app-menu-open', isOpen);
     if (isOpen) {
+        updateHighwayMenuAvailability();
         $('#search-results')?.classList.remove('active');
         $('#dim-overlay')?.classList.remove('active');
     }
@@ -9705,6 +9707,18 @@ function hasFreshHighwayZ3Cache() {
         && Object.keys(z3CacheData).length > 0;
 }
 
+function updateHighwayMenuAvailability() {
+    const section = $('#app-menu-highway-section');
+    const button = section?.querySelector('[data-menu-action="highway"]');
+    if (!section || !button) return;
+
+    // Most route cameras need a short-lived Z3 token. Do not advertise a
+    // route product that we already know will stop before a frame can load.
+    const available = hasFreshHighwayZ3Cache();
+    section.hidden = !available;
+    button.disabled = !available;
+}
+
 async function ensureHighwayPlaybackReady() {
     await loadZ3Cache();
     if (hasFreshHighwayZ3Cache()) return true;
@@ -9877,6 +9891,10 @@ function renderHighwayRouteList() {
 }
 
 function openHighwayPanel() {
+    if (!hasFreshHighwayZ3Cache()) {
+        updateHighwayMenuAvailability();
+        return;
+    }
     const layer = $('#highway-layer');
     if (!layer) return;
     $('#search-results')?.classList.remove('active');
