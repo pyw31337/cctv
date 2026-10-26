@@ -26,6 +26,9 @@ const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
 const QUALITY_SUMMARY_STALE_MS = 2 * 60 * 60 * 1000;
 const CANARY_STATUS_STALE_MS = 2 * 60 * 60 * 1000;
 const CAMERA_FAILURE_RECENT_MS = 3 * 60 * 60 * 1000;
+// Aggregated telemetry is valuable for ranking trends, but a camera marker
+// must not stay red because of an old historical sample.
+const CAMERA_QUALITY_DISPLAY_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const APP_BUILD_VERSION = RUNTIME_CONFIG.buildVersion || '20260901-playback1';
 // These constants were lost in a recent rebase and broke the map: every
 // zoom_changed event called updateNearestCctvs → getCameraHealthMeta →
@@ -2403,6 +2406,12 @@ function normalizeQualitySummary(summary) {
     };
 }
 
+function isRecentQualityEvidence(metrics, maxAgeMs = CAMERA_QUALITY_DISPLAY_MAX_AGE_MS) {
+    if (!metrics?.updatedAt) return false;
+    const updatedAt = Date.parse(metrics.updatedAt);
+    return Number.isFinite(updatedAt) && Date.now() - updatedAt <= maxAgeMs;
+}
+
 function getEffectiveQualitySummary(cctv, regionKey) {
     const cameraSummary = getCameraQualitySummary(cctv);
     const cameraMetrics = normalizeQualitySummary(cameraSummary);
@@ -2448,6 +2457,10 @@ function getQualitySummaryAdjustment(cctv) {
     if (!effective) return 0;
     const { metrics } = effective;
 
+    // Keep old aggregate data visible on the dashboard, but do not allow it
+    // to keep demoting nearby cameras after the evidence window has expired.
+    if (!isRecentQualityEvidence(metrics, 24 * 60 * 60 * 1000)) return 0;
+
     let adjustment = 0;
     if (metrics.successRate < 0.5) adjustment += 6;
     else if (metrics.successRate < 0.72) adjustment += 3.2;
@@ -2482,6 +2495,7 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
     if (!effective) return null;
 
     const { metrics } = effective;
+    if (!isRecentQualityEvidence(metrics)) return null;
     const label = effective.label || getRegionLabel(regionKey);
     const timeText = metrics.updatedAt || state.qualitySummary?.generated_at || null;
     const aggregate = effective.scope !== 'camera';
@@ -2490,7 +2504,10 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
     const slowRate = aggregate ? 0.5 : 0.4;
     const slowFirstFrameMs = aggregate ? 10000 : QUALITY_SLOW_FIRST_FRAME_MS;
 
-    if (metrics.failureRate >= downFailureRate || metrics.successRate < downSuccessRate) {
+    // A source/region aggregate is a routing signal, not proof that every
+    // marker in that area is broken. Only recent camera-specific evidence may
+    // turn a marker red; aggregate trouble remains amber.
+    if (effective.scope === 'camera' && (metrics.failureRate >= downFailureRate || metrics.successRate < downSuccessRate)) {
         return {
             regionKey,
             status: 'QUALITY_DOWN',
@@ -2498,6 +2515,18 @@ function getQualitySummaryHealthMeta(cctv, regionKey) {
             longLabel: `${label} 실사용 재생 실패가 최근 많이 감지되었습니다`,
             tone: 'danger',
             penalty: aggregate ? 4.2 : 7,
+            lastUpdated: timeText
+        };
+    }
+
+    if (effective.scope !== 'camera' && (metrics.failureRate >= downFailureRate || metrics.successRate < downSuccessRate)) {
+        return {
+            regionKey,
+            status: 'QUALITY_SLOW',
+            shortLabel: '소스 재확인',
+            longLabel: `${label} 집계에서 실패가 늘어 재검증 중입니다. 개별 카메라 재생 결과가 우선입니다`,
+            tone: 'warn',
+            penalty: 1.6,
             lastUpdated: timeText
         };
     }
@@ -2862,7 +2891,7 @@ function getCameraPlaybackConfidence(cctv, health = getCameraHealthMeta(cctv)) {
     }
 
     const cameraMetrics = normalizeQualitySummary(getCameraQualitySummary(cctv));
-    if (cameraMetrics && cameraMetrics.samples >= 5) {
+    if (cameraMetrics && isRecentQualityEvidence(cameraMetrics) && cameraMetrics.samples >= 5) {
         if (cameraMetrics.failureRate >= 0.25 || cameraMetrics.successRate < 0.72) {
             return {
                 tone: 'danger',

@@ -23,6 +23,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_FILE = os.path.join(BASE_DIR, 'cctv_data.json')
 CONFIG_FILE = os.path.join(BASE_DIR, 'configs', 'region_config.json')
 STATUS_FILE = os.path.join(BASE_DIR, 'data', 'status.json')
+QUALITY_POLICY_FILE = os.path.join(BASE_DIR, 'data', 'quality_policy.json')
 LOG_FILE = os.path.join(BASE_DIR, 'sentinel.log')
 try:
     REQUEST_TIMEOUT = int(os.getenv('CCTV_SENTINEL_REQUEST_TIMEOUT_SECONDS', '15'))
@@ -833,6 +834,37 @@ def checked_sort_key(camera_checks, cam):
     return (last_checked, check_count, cam_id, cam.get('name', ''))
 
 
+def camera_review_priority(camera_checks, camera_failures, quality_policy, cam, now):
+    """Return whether a camera is due and how urgently it needs rechecking.
+
+    The quality policy used to be written for the dashboard but was not used by
+    the sentinel selector.  That allowed a repeatedly failing camera to wait
+    behind a catalog-wide rotation.  Keep the policy advisory (it never edits a
+    mapping) but make it operational: repair entries are retried at their
+    recorded cadence and recent direct failures always take precedence.
+    """
+    camera_id = str(cam.get('id') or '')
+    check = camera_checks.get(camera_id, {}) if isinstance(camera_checks, dict) else {}
+    failure = camera_failures.get(camera_id, {}) if isinstance(camera_failures, dict) else {}
+    policy = ((quality_policy.get('cameras') or {}).get(camera_id) or {}) if isinstance(quality_policy, dict) else {}
+    tier = str(policy.get('tier') or '')
+    interval_hours = policy.get('review_interval_hours')
+    try:
+        interval_hours = max(1, min(168, float(interval_hours)))
+    except (TypeError, ValueError):
+        interval_hours = 6 if failure else 24
+
+    checked_at = parse_utc_timestamp(check.get('last_checked_at') or check.get('checked_at'))
+    age_hours = float('inf') if checked_at is None else max(0.0, (now - checked_at).total_seconds() / 3600)
+    due = age_hours >= interval_hours
+    level = str(failure.get('emergency_level') or '')
+    direct_failure = bool(failure) and level in {'watch', 'investigate', 'critical'}
+    # Lower sort keys are selected first.  A direct failure is stronger
+    # evidence than telemetry; a repair tier is next, then ordinary rotation.
+    urgency = 0 if level == 'critical' else 1 if level == 'investigate' else 2 if direct_failure else 3 if tier == 'repair' else 4 if tier == 'watch' else 5
+    return (not due, urgency, -age_hours if age_hours != float('inf') else float('-inf'), camera_id)
+
+
 def pick_unique(target, candidates, seen_ids, limit):
     picked = []
     for cam in candidates:
@@ -847,7 +879,7 @@ def pick_unique(target, candidates, seen_ids, limit):
     return len(picked)
 
 
-def select_representative_cameras(region_name, cameras, target_size, current_status=None):
+def select_representative_cameras(region_name, cameras, target_size, current_status=None, quality_policy=None):
     if not cameras:
         return [], 0, 0, 0
 
@@ -858,24 +890,23 @@ def select_representative_cameras(region_name, cameras, target_size, current_sta
     current_status = current_status if isinstance(current_status, dict) else {}
     camera_checks = current_status.get('camera_checks') if isinstance(current_status.get('camera_checks'), dict) else {}
     camera_failures = current_status.get('camera_failures') if isinstance(current_status.get('camera_failures'), dict) else {}
+    now = datetime.utcnow()
 
     stable = []
     coverage = []
     exploratory = []
     seen_ids = set()
 
-    failed_candidates = [
+    repair_candidates = [
         cam for cam in ordered
-        if str(cam.get('id') or '') in camera_failures
-        and camera_failures.get(str(cam.get('id') or ''), {}).get('region') == region_name
+        if camera_review_priority(camera_checks, camera_failures, quality_policy or {}, cam, now)[0] is False
     ]
-    failed_candidates.sort(key=lambda cam: (
-        camera_failures.get(str(cam.get('id') or ''), {}).get('last_failed_at') or '',
-        str(cam.get('id') or '')
-    ))
-    retry_target = min(len(failed_candidates), max(1, math.ceil(target_size * 0.2))) if failed_candidates else 0
+    repair_candidates.sort(key=lambda cam: camera_review_priority(camera_checks, camera_failures, quality_policy or {}, cam, now))
+    # Give due repair work the majority of the regional budget.  This keeps a
+    # problematic group on a six-hour loop while preserving fresh coverage.
+    retry_target = min(len(repair_candidates), max(1, math.ceil(target_size * 0.60))) if repair_candidates else 0
     retry = []
-    pick_unique(retry, failed_candidates, seen_ids, retry_target)
+    pick_unique(retry, repair_candidates, seen_ids, retry_target)
 
     coverage_target = max(0, math.ceil(target_size * 0.7) - len(retry))
     least_checked = sorted(ordered, key=lambda cam: checked_sort_key(camera_checks, cam))
@@ -1228,7 +1259,7 @@ def summarize_failed_samples(failed_samples):
     }
 
 
-def test_region(region_name, cameras, current_status=None, target_size=None):
+def test_region(region_name, cameras, current_status=None, target_size=None, quality_policy=None):
     if not cameras:
         return {
             'status': 'UNKNOWN',
@@ -1256,7 +1287,8 @@ def test_region(region_name, cameras, current_status=None, target_size=None):
         region_name,
         cameras,
         target_size,
-        current_status=current_status
+        current_status=current_status,
+        quality_policy=quality_policy
     )
     sample_ids = [cam.get('id') for cam in sample if cam.get('id')]
     failed_ids = []
@@ -1397,6 +1429,7 @@ def run_sentinel():
             return
 
         config = load_json(CONFIG_FILE)
+        quality_policy = load_json(QUALITY_POLICY_FILE)
         current_status = load_status_file(STATUS_FILE)
         if not isinstance(current_status, dict):
             log('Status file is not a dict. Initializing.')
@@ -1429,7 +1462,8 @@ def run_sentinel():
                 region_name,
                 cameras,
                 current_status=current_status,
-                target_size=region_budgets.get(region_name)
+                target_size=region_budgets.get(region_name),
+                quality_policy=quality_policy
             )
             if result['checked'] == 0 and result.get('skipped'):
                 log(f'{region_name}: nothing was checked this run; keeping its previous status.')
@@ -1443,7 +1477,7 @@ def run_sentinel():
         current_status['last_updated'] = utc_timestamp()
         current_status['coverage'] = summarize_check_coverage(current_status, len(cctv_data), region_map)
         current_status['sampling_policy'] = {
-            'policy': 'least_recently_checked_rotation',
+            'policy': 'repair-cadence-first_then_least-recently-checked_rotation',
             'total_check_budget': env_int('CCTV_SENTINEL_TOTAL_CHECK_BUDGET', DEFAULT_SENTINEL_TOTAL_CHECK_BUDGET, minimum=1, maximum=5000),
             'min_region_checks': env_int('CCTV_SENTINEL_MIN_REGION_CHECKS', DEFAULT_SENTINEL_MIN_REGION_CHECKS, minimum=0, maximum=100),
             'max_region_checks': env_int('CCTV_SENTINEL_MAX_REGION_CHECKS', DEFAULT_SENTINEL_MAX_REGION_CHECKS, minimum=1, maximum=5000),
@@ -1452,7 +1486,7 @@ def run_sentinel():
             'request_timeout_seconds': REQUEST_TIMEOUT,
             'region_budgets': region_budgets,
             'target': 'GitHub Actions 주 실행은 1~2일 내 전체 카탈로그 1회전을 목표로 하고, 로컬/Oracle 백업 실행은 최소한의 연속 커버리지를 유지합니다.',
-            'note': '각 실행마다 최근 점검되지 않은 CCTV를 우선 선택해 전체 카탈로그 커버리지를 누적합니다. 샘플 부족 항목은 확정 장애가 아니라 재확인 대상으로 분리합니다.'
+            'note': '반복 실패·repair 등급은 review_interval_hours가 지나면 먼저 재검증하고, 나머지는 최근 점검되지 않은 CCTV를 우선 선택합니다. 샘플 부족 항목은 확정 장애가 아니라 재확인 대상으로 분리합니다.'
         }
         save_json(STATUS_FILE, current_status)
         log('--- Sentinel Finished ---')

@@ -11,7 +11,9 @@ on:
         default: 'https://pyw31337.github.io/cctv/'
 
 concurrency:
-  group: cctv-browser-canary
+  # Browser evidence writes the shared catalog; serialize it with all other
+  # snapshot writers so an older checkout cannot overwrite newer evidence.
+  group: cctv-repo-writes
   cancel-in-progress: false
 
 env:
