@@ -317,11 +317,11 @@ _z3_cache = {
     'last_forced_attempt': None,  # monotonic time of the last forced its.go.kr refresh
     'lock': threading.Lock()
 }
-Z3_CACHE_TTL_MINUTES = 50
+Z3_CACHE_TTL_MINUTES = env_int('Z3_CACHE_TTL_MINUTES', 15)
 # A refresh chain that fails (its.go.kr geo-blocked, GitHub copy stale) is not
 # retried more often than this, so failures cannot turn into a retry storm.
 Z3_REFRESH_RETRY_SECONDS = env_int('Z3_REFRESH_RETRY_SECONDS', 300)
-Z3_CACHE_STALE_HOURS = 2   # If GitHub data is older than this, try its.go.kr directly
+Z3_CACHE_STALE_HOURS = env_float('Z3_CACHE_STALE_HOURS', 0.75)  # Try its.go.kr after 45 minutes
 Z3_GITHUB_RAW_URL = 'https://raw.githubusercontent.com/pyw31337/cctv/main/data/z3_cache.json'
 Z3_LOCAL_CACHE_FILE = os.environ.get('Z3_LOCAL_CACHE_FILE', os.path.join(ROOT_DIR, 'data', 'z3_cache.json'))
 

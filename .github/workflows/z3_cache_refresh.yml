@@ -5,7 +5,10 @@ on:
   # capacity has reset. Local launchd/Oracle refresh remains the emergency
   # backup path if Actions capacity is exhausted again.
   schedule:
-    - cron: '15 */2 * * *'
+    # Oracle refreshes the live resolver every 15 minutes. Keep Pages as a
+    # slower static disaster fallback so token refresh does not trigger 96
+    # repository writes and deployments per day.
+    - cron: '15 */3 * * *'
   workflow_dispatch:
 
 env:
@@ -34,9 +37,9 @@ jobs:
       - name: Refresh and audit Z3 cache
         run: >
           python scripts/refresh_z3_cache.py
-          --max-age-minutes 45
+          --max-age-minutes 10
           --force
-          --stale-ok-on-refresh-failure-hours 8
+          --stale-ok-on-refresh-failure-hours 0.75
           --fallback-cache-url https://158.179.194.163.sslip.io/z3-cache.json
 
       - name: Normalize dashboard timestamps

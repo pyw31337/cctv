@@ -16,7 +16,10 @@ const RUNTIME_CONFIG = window.CCTV_RUNTIME_CONFIG || {};
 // 사실상 무기한 유효함이 실측됨. 60분 게이트는 strategy 1 을 거의 항상 무력화시켜
 // playback이 strategy 2(URL 내장 토큰: 보통 수개월 묵은 데이터로 502) → strategy 3
 // (Oracle /utic: 현재 hang) 으로 전부 떨어지는 원인이었음. → 24시간 으로 완화.
-const Z3_CACHE_STALE_MS = 8 * 60 * 60 * 1000;
+// Z3 appUrls eventually stop minting valid short-lived HLS sessions. Keep the
+// catalog well inside the scheduled 15-minute refresh cadence.
+const Z3_CACHE_RELOAD_MS = 20 * 60 * 1000;
+const Z3_CACHE_STALE_MS = 45 * 60 * 1000;
 const CCTV_DATA_BUCKET_MS = 30 * 60 * 1000;
 const HEALTH_STATUS_BUCKET_MS = 5 * 60 * 1000;
 const HEALTH_STALE_MS = 2 * 60 * 60 * 1000;
@@ -403,7 +406,11 @@ const SOURCE_QUALITY_SCORES = {
     YT_CUSTOM: 0.96
 };
 
-async function loadZ3Cache() {
+async function loadZ3Cache(force = false) {
+    if (force) {
+        z3CacheData = null;
+        z3CachePromise = null;
+    }
     if (z3CacheData) return z3CacheData;
     if (z3CachePromise) return z3CachePromise;
     const cacheBucket = Math.floor(Date.now() / 1800000);
@@ -472,7 +479,9 @@ async function loadZ3Cache() {
     return z3CachePromise;
 }
 async function getZ3StreamUrl(cctvip) {
-    const cache = await loadZ3Cache();
+    // A long-lived page must not keep using its launch-time token map after
+    // the background refresher has published a newer snapshot.
+    const cache = await loadZ3Cache(z3CacheAgeMs > Z3_CACHE_RELOAD_MS);
     // 캐시가 너무 오래됐으면 만료된 토큰 사용 안 함
     if (z3CacheAgeMs > Z3_CACHE_STALE_MS) return null;
     const rawUrl = cache[String(cctvip)];

@@ -32,11 +32,11 @@ echo "[$(date -Is)] start regional sentinel" >> "$LOG_FILE"
 
 echo "[$(date -Is)] start z3 cache guard" >> "$LOG_FILE"
 if command -v timeout >/dev/null 2>&1; then
-  if ! timeout 6m "$PYTHON" scripts/refresh_z3_cache.py --max-age-minutes 45 >> "$LOG_FILE" 2>&1; then
+  if ! timeout 6m "$PYTHON" scripts/refresh_z3_cache.py --max-age-minutes 10 >> "$LOG_FILE" 2>&1; then
     echo "[$(date -Is)] z3 cache guard failed; continuing with live resolver fallback" >> "$LOG_FILE"
   fi
 else
-  if ! "$PYTHON" scripts/refresh_z3_cache.py --max-age-minutes 45 >> "$LOG_FILE" 2>&1; then
+  if ! "$PYTHON" scripts/refresh_z3_cache.py --max-age-minutes 10 >> "$LOG_FILE" 2>&1; then
     echo "[$(date -Is)] z3 cache guard failed; continuing with live resolver fallback" >> "$LOG_FILE"
   fi
 fi
