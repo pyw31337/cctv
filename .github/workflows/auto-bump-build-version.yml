@@ -61,6 +61,13 @@ jobs:
             sed -i.bak "s/APP_BUILD_VERSION = '[^']*';/APP_BUILD_VERSION = '${VERSION}';/" js/app.js
             rm -f js/app.js.bak
           fi
+          # The app loads World Tour lazily using this runtime value. Keep it
+          # in lockstep with the shell cache version, otherwise a newly
+          # deployed shell can request a stale module URL.
+          if [ -f js/runtime-config.js ] && grep -q "const buildVersion = '" js/runtime-config.js; then
+            sed -i.bak "s/const buildVersion = '[^']*';/const buildVersion = '${VERSION}';/" js/runtime-config.js
+            rm -f js/runtime-config.js.bak
+          fi
           # Keep the HTML icon links and PWA manifest icon links in lockstep.
           for f in index.html site.webmanifest sw.js; do
             [ -f "$f" ] || continue
@@ -82,4 +89,4 @@ jobs:
             echo "No version token changes needed; skipping commit."
             exit 0
           fi
-          scripts/commit_and_push_changes.sh "chore: bump build version to ${VERSION} [skip ci]" js/app.js index.html site.webmanifest sw.js
+          scripts/commit_and_push_changes.sh "chore: bump build version to ${VERSION} [skip ci]" js/app.js js/runtime-config.js index.html site.webmanifest sw.js
