@@ -7171,7 +7171,7 @@ function initMapControls() {
 
     if (statusBtn) {
         statusBtn.addEventListener('click', () => {
-            window.open('https://pyw31337.github.io/cctv/admin', '_blank');
+            window.open('https://pyw31337.github.io/cctv/quality.html', '_blank');
         });
     }
 }
