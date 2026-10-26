@@ -47,7 +47,8 @@ body {
 
 #header {
     position: fixed;
-    bottom: 0;
+    /* Leave a small breathing room above browser toolbars that overlay the viewport. */
+    bottom: max(12px, env(safe-area-inset-bottom));
     left: 0;
     right: 0;
     background: transparent;
@@ -1367,8 +1368,7 @@ select {
 /* === Search Results (Connected Panel) === */
 .search-results {
     position: fixed;
-    bottom: 90px;
-    /* Above the header */
+    bottom: calc(84px + max(12px, env(safe-area-inset-bottom)));
     left: 16px;
     right: 16px;
     transform: none;
@@ -1376,7 +1376,7 @@ select {
     max-width: 600px;
     margin: 0 auto;
     /* Match search-box max-width */
-    max-height: 50vh;
+    max-height: var(--search-results-max-height, min(50dvh, 560px));
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
@@ -1385,13 +1385,18 @@ select {
     opacity: 0;
     visibility: hidden;
     transition: opacity var(--transition), visibility var(--transition);
-    z-index: 1001;
-    /* Above dim overlay */
+    /* The dim overlay lives in #overlays (2100); results must sit above it. */
+    z-index: 2201;
 }
 
 .search-results.active {
     opacity: 1;
     visibility: visible;
+}
+
+/* Keep the typed query usable while its dimmed result panel is open. */
+body.search-input-active #header {
+    z-index: 2202;
 }
 
 .search-sort-panel {
@@ -3992,8 +3997,8 @@ body.world-tour-active #pwa-install-prompt {
     .search-results {
         left: 8px;
         right: 8px;
-        bottom: 74px;
-        max-height: calc(100dvh - 102px);
+        bottom: calc(78px + max(12px, env(safe-area-inset-bottom)));
+        max-height: var(--search-results-max-height, calc(100dvh - 112px));
         overflow: hidden;
         border-radius: 18px;
     }

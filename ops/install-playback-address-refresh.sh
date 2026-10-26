@@ -15,6 +15,16 @@ bash "$ROOT/ops/refresh-playback-addresses.sh"
 cp "$PLIST_SOURCE" "$PLIST_TARGET"
 
 uid="$(id -u)"
+# Retire the pre-isolation jobs. They use the developer checkout, can trigger
+# expensive rebases, and must not revive automatically at the next login.
+mkdir -p "$OPS_HOME/disabled-launchagents"
+for legacy_label in com.pyw31337.cctv.z3-cache-refresh com.pyw31337.cctv.z3-cache-monitor; do
+  launchctl bootout "gui/$uid/$legacy_label" >/dev/null 2>&1 || true
+  legacy_plist="$HOME/Library/LaunchAgents/$legacy_label.plist"
+  if [[ -f "$legacy_plist" ]]; then
+    mv "$legacy_plist" "$OPS_HOME/disabled-launchagents/"
+  fi
+done
 launchctl bootout "gui/$uid/$LABEL" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$uid" "$PLIST_TARGET"
 launchctl kickstart -k "gui/$uid/$LABEL"

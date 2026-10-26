@@ -3,6 +3,11 @@
 # worktree. This must never depend on a developer checkout being mergeable.
 set -euo pipefail
 
+# This is a background maintenance task. Do not contend with the user's work
+# even when an upstream request is slow or a Git host is busy.
+ulimit -t 120 2>/dev/null || true
+renice -n 15 -p "$$" >/dev/null 2>&1 || true
+
 OPS_HOME="${CCTV_OPS_HOME:-$HOME/.cctv-ops}"
 REPO_DIR="$OPS_HOME/repository"
 CACHE_DIR="$OPS_HOME/current"

@@ -1078,7 +1078,10 @@ function setupEventListeners() {
 
     // Search Input
     const searchInput = $('#search-input');
-    searchInput.addEventListener('focus', showSearchHistory);
+    searchInput.addEventListener('focus', () => {
+        document.body.classList.add('search-input-active');
+        showSearchHistory();
+    });
     searchInput.addEventListener('input', debounce(handleSearchInput, 300));
     searchInput.addEventListener('keydown', (e) => {
         // Prevent double-submission during IME composition (CJK)
@@ -1475,23 +1478,6 @@ function showSearchHistory() {
         html += cappedWorld.map(cam => renderWorldTourFavoriteSearchItem(cam)).join('');
     } else {
         html += '<div class="search-section-empty">아직 즐겨찾기한 항목이 없습니다 — 검색 결과의 별 아이콘을 눌러 추가하세요.</div>';
-    }
-
-    // Recently Viewed CCTVs Section
-    let recentCctvs = [];
-    try {
-        recentCctvs = JSON.parse(localStorage.getItem(RECENT_CCTVS_STORAGE_KEY) || '[]');
-    } catch (_) {}
-    
-    html += `<div class="search-section-title">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:2px;vertical-align:middle;"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
-        <span>최근 본 CCTV</span>
-        ${recentCctvs.length > 0 ? `<span class="search-section-count">${recentCctvs.length}</span>` : ''}
-    </div>`;
-    if (recentCctvs.length > 0) {
-        html += recentCctvs.map(cctv => renderRecentCctvSearchItem(cctv)).join('');
-    } else {
-        html += '<div class="search-section-empty">최근에 시청한 CCTV 기록이 없습니다</div>';
     }
 
     // History Section (always show) — 별(즐겨찾기 토글) + X(목록에서 제거) 둘 다 노출.
@@ -8698,6 +8684,10 @@ function setupMobileKeyboardHandling() {
             if (searchResults) {
                 // Keep search results above where the header is
                 searchResults.style.bottom = `${liftAmount + 90}px`;
+                // A keyboard-open panel must not occupy the whole remaining
+                // screen. Preserve room for the query and the first results.
+                const maxHeight = Math.max(190, Math.min(320, viewport.height - 210));
+                searchResults.style.setProperty('--search-results-max-height', `${maxHeight}px`);
             }
         } else {
             resetLayout();
@@ -8706,7 +8696,10 @@ function setupMobileKeyboardHandling() {
 
     function resetLayout() {
         header.style.removeProperty('bottom');
-        if (searchResults) searchResults.style.removeProperty('bottom');
+        if (searchResults) {
+            searchResults.style.removeProperty('bottom');
+            searchResults.style.removeProperty('--search-results-max-height');
+        }
     }
 
     viewport.addEventListener('resize', updateLayout);
@@ -8715,7 +8708,12 @@ function setupMobileKeyboardHandling() {
     searchInput.addEventListener('focus', updateLayout);
     searchInput.addEventListener('blur', () => {
         // Delay slightly to handle immediate focus changes or clicks
-        setTimeout(resetLayout, 100);
+        setTimeout(() => {
+            if (document.activeElement !== searchInput) {
+                document.body.classList.remove('search-input-active');
+                resetLayout();
+            }
+        }, 100);
     });
 }
 
