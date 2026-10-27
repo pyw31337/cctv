@@ -586,6 +586,8 @@ const $$ = (sel) => document.querySelectorAll(sel);
 document.addEventListener('DOMContentLoaded', async () => {
     console.log("Let's View initializing...");
 
+    initAuthSystem();
+
     // Detect mobile browser and mark body — used for CSS perf rules
     if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
         document.body.classList.add('is-mobile');
@@ -1061,6 +1063,7 @@ function setupAppMenu() {
             if (action === 'weather') openWeatherFromMenu();
             if (action === 'world') openWorldTourFromMenu();
             if (action === 'location') handleCurrentLocation();
+            if (action === 'password') openPasswordChangeModal();
         });
     });
 }
@@ -7108,7 +7111,6 @@ function initMapControls() {
     const zoomOutBtn = document.getElementById('map-control-zoom-out');
     const locationBtn = document.getElementById('map-control-location');
     const weatherBtn = document.getElementById('map-control-weather');
-    const statusBtn = document.getElementById('map-control-status');
 
     if (closeBtn) {
         closeBtn.addEventListener('click', () => {
@@ -7166,12 +7168,6 @@ function initMapControls() {
                     openMapWeatherPanel(lat, lng, '선택한 지도 중심');
                 }
             });
-        });
-    }
-
-    if (statusBtn) {
-        statusBtn.addEventListener('click', () => {
-            window.open('https://pyw31337.github.io/cctv/admin', '_blank');
         });
     }
 }
@@ -10013,3 +10009,258 @@ function initHighwayTrafficUi() {
         if (event.target.id === 'highway-layer') closeHighwayPanel();
     });
 }
+
+// === Password Authentication & Password Change Management ===
+const CCTV_AUTH_STORAGE_KEY = 'cctv_app_password';
+const CCTV_AUTH_SESSION_KEY = 'cctv_auth_passed';
+const CCTV_DEFAULT_PASSWORD = '0602';
+
+function getStoredAppPassword() {
+    try {
+        const saved = localStorage.getItem(CCTV_AUTH_STORAGE_KEY);
+        if (saved && typeof saved === 'string' && saved.trim() !== '') {
+            return saved.trim();
+        }
+    } catch (_) {}
+    return CCTV_DEFAULT_PASSWORD;
+}
+
+function setStoredAppPassword(newPassword) {
+    try {
+        localStorage.setItem(CCTV_AUTH_STORAGE_KEY, newPassword.trim());
+        return true;
+    } catch (err) {
+        console.error('Failed to save password to localStorage', err);
+        return false;
+    }
+}
+
+function isSessionAuthenticated() {
+    try {
+        return sessionStorage.getItem(CCTV_AUTH_SESSION_KEY) === 'true';
+    } catch (_) {
+        return false;
+    }
+}
+
+function markSessionAuthenticated() {
+    try {
+        sessionStorage.setItem(CCTV_AUTH_SESSION_KEY, 'true');
+    } catch (_) {}
+}
+
+function clearSessionAuthentication() {
+    try {
+        sessionStorage.removeItem(CCTV_AUTH_SESSION_KEY);
+    } catch (_) {}
+}
+
+let authSystemInitialized = false;
+
+function openPasswordChangeModal() {
+    const changeLayer = document.getElementById('pwd-change-layer');
+    const curPwdInput = document.getElementById('current-pwd');
+    const newPwdInput = document.getElementById('new-pwd');
+    const confirmPwdInput = document.getElementById('confirm-pwd');
+    const changeMsg = document.getElementById('pwd-change-msg');
+
+    if (changeLayer) {
+        if (curPwdInput) curPwdInput.value = '';
+        if (newPwdInput) newPwdInput.value = '';
+        if (confirmPwdInput) confirmPwdInput.value = '';
+        if (changeMsg) {
+            changeMsg.textContent = '';
+            changeMsg.className = 'auth-msg';
+        }
+        changeLayer.classList.add('active');
+        setTimeout(() => {
+            if (curPwdInput) curPwdInput.focus();
+        }, 60);
+    }
+}
+
+function closePasswordChangeModal() {
+    const changeLayer = document.getElementById('pwd-change-layer');
+    if (changeLayer) {
+        changeLayer.classList.remove('active');
+    }
+}
+
+function initAuthSystem() {
+    if (typeof document === 'undefined') return;
+    if (authSystemInitialized) return;
+    const lockOverlay = document.getElementById('auth-lock-overlay');
+    if (!lockOverlay) return; // Wait until DOM is available
+
+    authSystemInitialized = true;
+
+    const lockForm = document.getElementById('auth-lock-form');
+    const pwdInput = document.getElementById('auth-pwd-input');
+    const errorMsg = document.getElementById('auth-error-msg');
+
+    const changeLayer = document.getElementById('pwd-change-layer');
+    const changeCloseBtn = document.getElementById('pwd-change-close');
+    const changeForm = document.getElementById('pwd-change-form');
+    const curPwdInput = document.getElementById('current-pwd');
+    const newPwdInput = document.getElementById('new-pwd');
+    const confirmPwdInput = document.getElementById('confirm-pwd');
+    const changeMsg = document.getElementById('pwd-change-msg');
+    const lockNowBtn = document.getElementById('pwd-lock-now-btn');
+
+    // 1. Initial Access Check
+    if (isSessionAuthenticated()) {
+        lockOverlay.classList.add('hidden');
+        lockOverlay.style.display = 'none';
+    } else {
+        lockOverlay.classList.remove('hidden');
+        lockOverlay.style.display = 'flex';
+        setTimeout(() => {
+            if (pwdInput) {
+                pwdInput.focus();
+            }
+        }, 60);
+    }
+
+    // 2. Lock Screen Submit Handler
+    if (lockForm) {
+        lockForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const entered = pwdInput ? pwdInput.value.trim() : '';
+            const correct = getStoredAppPassword();
+
+            if (entered === correct) {
+                markSessionAuthenticated();
+                if (errorMsg) {
+                    errorMsg.textContent = '';
+                }
+                lockOverlay.classList.add('hidden');
+                setTimeout(() => {
+                    lockOverlay.style.display = 'none';
+                }, 300);
+            } else {
+                if (errorMsg) {
+                    errorMsg.textContent = '비밀번호가 올바르지 않습니다.';
+                }
+                if (pwdInput) {
+                    pwdInput.classList.remove('error-shake');
+                    void pwdInput.offsetWidth;
+                    pwdInput.classList.add('error-shake');
+                    pwdInput.value = '';
+                    pwdInput.focus();
+                }
+            }
+        });
+    }
+
+    // 3. Password Change Modal Handlers
+    if (changeCloseBtn) {
+        changeCloseBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            closePasswordChangeModal();
+        });
+    }
+
+    if (changeLayer) {
+        changeLayer.addEventListener('click', (e) => {
+            if (e.target === changeLayer) {
+                closePasswordChangeModal();
+            }
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (changeLayer && changeLayer.classList.contains('active')) {
+                closePasswordChangeModal();
+            }
+        }
+    });
+
+    if (changeForm) {
+        changeForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const curVal = curPwdInput ? curPwdInput.value.trim() : '';
+            const newVal = newPwdInput ? newPwdInput.value.trim() : '';
+            const confirmVal = confirmPwdInput ? confirmPwdInput.value.trim() : '';
+            const correctCurrent = getStoredAppPassword();
+
+            if (curVal !== correctCurrent) {
+                if (changeMsg) {
+                    changeMsg.textContent = '현재 비밀번호가 일치하지 않습니다.';
+                    changeMsg.className = 'auth-msg error';
+                }
+                if (curPwdInput) {
+                    curPwdInput.classList.remove('error-shake');
+                    void curPwdInput.offsetWidth;
+                    curPwdInput.classList.add('error-shake');
+                    curPwdInput.focus();
+                }
+                return;
+            }
+
+            if (!newVal) {
+                if (changeMsg) {
+                    changeMsg.textContent = '새 비밀번호를 입력해주세요.';
+                    changeMsg.className = 'auth-msg error';
+                }
+                if (newPwdInput) {
+                    newPwdInput.focus();
+                }
+                return;
+            }
+
+            if (newVal !== confirmVal) {
+                if (changeMsg) {
+                    changeMsg.textContent = '새 비밀번호가 일치하지 않습니다.';
+                    changeMsg.className = 'auth-msg error';
+                }
+                if (confirmPwdInput) {
+                    confirmPwdInput.classList.remove('error-shake');
+                    void confirmPwdInput.offsetWidth;
+                    confirmPwdInput.classList.add('error-shake');
+                    confirmPwdInput.focus();
+                }
+                return;
+            }
+
+            // Save new password
+            setStoredAppPassword(newVal);
+
+            if (changeMsg) {
+                changeMsg.textContent = '비밀번호가 성공적으로 변경되었습니다.';
+                changeMsg.className = 'auth-msg success';
+            }
+
+            setTimeout(() => {
+                closePasswordChangeModal();
+            }, 1200);
+        });
+    }
+
+    // 4. Lock Screen Now (화면 잠금)
+    if (lockNowBtn) {
+        lockNowBtn.addEventListener('click', () => {
+            clearSessionAuthentication();
+            closePasswordChangeModal();
+            if (lockOverlay) {
+                if (pwdInput) pwdInput.value = '';
+                if (errorMsg) errorMsg.textContent = '';
+                lockOverlay.style.display = 'flex';
+                void lockOverlay.offsetWidth;
+                lockOverlay.classList.remove('hidden');
+                setTimeout(() => {
+                    if (pwdInput) pwdInput.focus();
+                }, 60);
+            }
+        });
+    }
+}
+
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAuthSystem);
+    } else {
+        initAuthSystem();
+    }
+}
+
