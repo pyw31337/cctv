@@ -576,6 +576,51 @@ const YOUTUBE_MARKER_SRC = 'https://img.icons8.com/color/48/youtube-play.png';
 const markerImageCache = new Map();
 let playbackHealthPersistTimer = null;
 let qualityTelemetryFlushTimer = null;
+let youtubePlayerApiPromise = null;
+
+function loadYouTubePlayerApi() {
+    if (window.YT?.Player) return Promise.resolve(window.YT);
+    if (youtubePlayerApiPromise) return youtubePlayerApiPromise;
+    youtubePlayerApiPromise = new Promise((resolve, reject) => {
+        const previousReady = window.onYouTubeIframeAPIReady;
+        const script = document.createElement('script');
+        const timeout = setTimeout(() => reject(new Error('youtube_api_timeout')), 10000);
+        window.onYouTubeIframeAPIReady = () => {
+            clearTimeout(timeout);
+            if (typeof previousReady === 'function') previousReady();
+            resolve(window.YT);
+        };
+        script.src = 'https://www.youtube.com/iframe_api';
+        script.async = true;
+        script.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error('youtube_api_load_failed'));
+        };
+        document.head.appendChild(script);
+    });
+    return youtubePlayerApiPromise;
+}
+
+function attachYouTubePlaybackError(iframe, cctv, onError) {
+    const videoId = iframe?.dataset?.youtubeVideoId;
+    if (!iframe || !videoId || typeof onError !== 'function') return;
+    loadYouTubePlayerApi().then(YT => {
+        if (!iframe.isConnected || !YT?.Player) return;
+        new YT.Player(iframe, {
+            events: {
+                onError: event => {
+                    const code = Number(event?.data);
+                    if (![2, 5, 100, 101, 150, 153].includes(code)) return;
+                    console.warn(`[YouTube] playback error ${code} for ${cctv?.name || videoId}`);
+                    onError(iframe.parentElement);
+                }
+            }
+        });
+    }).catch(() => {
+        // API loading failure is not evidence that the provider stream failed.
+        // The existing watchdog and iframe UI remain responsible for fallback.
+    });
+}
 
 
 // === DOM References (Cached) ===
@@ -5686,10 +5731,12 @@ function createVideoElement(cctv, sourceIndex = 0) {
             });
             iframe.src = `https://www.youtube.com/embed/${videoId}?${embedParams}`;
             iframe.className = 'youtube-iframe';
+            iframe.dataset.youtubeVideoId = videoId;
             iframe.style.cssText = 'width:100%;height:100%;object-fit:cover;object-position:center center;border:none;display:block;';
             iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
             iframe.referrerPolicy = 'strict-origin-when-cross-origin';
             iframe.allowFullscreen = true;
+            attachYouTubePlaybackError(iframe, cctv, triggerFailover);
             return iframe;
         }
     }
@@ -7803,7 +7850,16 @@ function getWorldTourEmbedUrl(cam) {
     if (cam.playUrl) return getWorldTourPlayableStreamUrl(cam.playUrl);
     if (cam.embedUrl && !isWorldTourEmbedBlocked(cam, cam.embedUrl)) return getWorldTourPlayableStreamUrl(cam.embedUrl);
     if (!cam.videoId) return null;
-    return `https://www.youtube.com/embed/${cam.videoId}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0`;
+    const params = new URLSearchParams({
+        autoplay: '1',
+        mute: '1',
+        playsinline: '1',
+        controls: '1',
+        rel: '0',
+        enablejsapi: '1',
+        origin: window.location.origin
+    });
+    return `https://www.youtube.com/embed/${encodeURIComponent(cam.videoId)}?${params}`;
 }
 
 function getWorldTourPlayableStreamUrl(url) {
@@ -7878,6 +7934,11 @@ function canPlayWorldTourInApp(cam) {
     if (directStatus === 'source_site_only' && !cam?.embedUrl && !cam?.videoId) return false;
     if (['unavailable', 'embed_disabled', 'source-only'].includes(playbackStatus)) return false;
     if (cam?.embedUrl && isWorldTourEmbedBlocked(cam, cam.embedUrl)) return false;
+    // A YouTube video ID is already an embeddable playback candidate. The
+    // server-side page check can be rate-limited (HTTP 429), so `unchecked`
+    // must not hide a valid video. Actual player errors are handled by the
+    // YouTube IFrame API after the user-facing iframe is loaded.
+    if (cam?.videoId && !cam?.embedUrl && !cam?.playUrl) return true;
     return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
 }
 

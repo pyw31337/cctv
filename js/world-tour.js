@@ -45,6 +45,7 @@ export function createWorldTourApi(ctx) {
     let worldTourMapLibraryPromise = null;
     let worldTourLeafletMap = null;
     let worldTourLeafletMarkers = [];
+    let youtubeApiPromise = null;
     const WORLD_TOUR_RAIL_LIMIT = 120;
     const WORLD_TOUR_LIST_RENDER_LIMIT = 200;
     const WORLD_TOUR_MAP_MARKER_LIMIT = 600;
@@ -637,6 +638,7 @@ function renderWorldTourVideoHero(selected) {
             <div class="world-tour-video world-tour-iframe-container">
                 <iframe
                     src="${escapeWorldTourHtml(embedUrl)}"
+                    data-world-tour-youtube="${selected?.videoId ? escapeWorldTourHtml(selected.videoId) : ''}"
                     title="${escapeWorldTourHtml(selected.title)}"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowfullscreen
@@ -989,6 +991,12 @@ async function _probeWorldTourStreamLiveInternal(cam, timeoutMs = null) {
 
     if (!streamUrl) return false;
 
+    // A cross-origin fetch of a YouTube iframe with `no-cors` only proves that
+    // the host answered. It cannot tell us whether the video is private,
+    // deleted, region restricted, or embed-disabled. The real player check is
+    // performed by the IFrame API after the iframe is mounted.
+    if (cam.videoId || /(?:youtube\.com|youtu\.be)/i.test(streamUrl)) return true;
+
     // Special case: scrape dynamic corolive stream URLs
     if (streamUrl.includes('corolive.nz')) {
         try {
@@ -1132,9 +1140,15 @@ function initWorldTourVideoPlayback() {
             loading?.classList.add('hidden');
         });
 
-        // Run background liveness probe on the iframe's underlying stream
+        const videoId = iframe.dataset.worldTourYoutube;
+        if (videoId) {
+            attachWorldTourYouTubePlayer(iframe, videoId);
+        }
+
+        // Direct streams can be probed from the browser. YouTube is handled by
+        // the player API above; a no-cors fetch is not a playback test.
         const selected = state.worldTourCams?.find(c => c.id === state.selectedWorldTourId);
-        if (selected) {
+        if (selected && !videoId) {
             probeWorldTourStreamLive(selected, 3000).then(ok => {
                 // Only modify DOM if user hasn't switched to another camera in the meantime
                 if (!ok && state.selectedWorldTourId === selected.id) {
@@ -1245,6 +1259,66 @@ function initWorldTourVideoPlayback() {
 
     video.src = streamUrl;
     video.addEventListener('loadedmetadata', playSafely, { once: true });
+}
+
+function loadWorldTourYouTubeApi() {
+    if (window.YT?.Player) return Promise.resolve(window.YT);
+    if (youtubeApiPromise) return youtubeApiPromise;
+    youtubeApiPromise = new Promise((resolve, reject) => {
+        const previousReady = window.onYouTubeIframeAPIReady;
+        const script = document.createElement('script');
+        const timeout = setTimeout(() => reject(new Error('youtube_api_timeout')), 10000);
+        window.onYouTubeIframeAPIReady = () => {
+            clearTimeout(timeout);
+            if (typeof previousReady === 'function') previousReady();
+            resolve(window.YT);
+        };
+        script.src = 'https://www.youtube.com/iframe_api';
+        script.async = true;
+        script.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error('youtube_api_load_failed'));
+        };
+        document.head.appendChild(script);
+    });
+    return youtubeApiPromise;
+}
+
+function showWorldTourYouTubeError(iframe, videoId, errorCode) {
+    const selected = state.worldTourCams?.find(cam => cam.id === state.selectedWorldTourId);
+    if (!selected || selected.videoId !== videoId || !iframe.isConnected) return;
+    const parent = iframe.parentElement;
+    if (!parent || parent.classList.contains('world-tour-outage-hero')) return;
+    const reason = {
+        2: '영상 주소가 올바르지 않습니다.',
+        5: '브라우저에서 HTML5 재생을 지원하지 않습니다.',
+        100: '영상이 삭제되었거나 비공개입니다.',
+        101: '제공자가 외부 사이트 재생을 허용하지 않았습니다.',
+        150: '제공자가 외부 사이트 재생을 허용하지 않았습니다.',
+        153: 'YouTube가 이 환경의 재생 요청을 거부했습니다.'
+    }[Number(errorCode)] || 'YouTube 플레이어에서 재생할 수 없습니다.';
+    parent.innerHTML = `
+        <div class="world-tour-outage-content">
+            <div class="world-tour-outage-title">⚠️ YouTube 재생 불가</div>
+            <div class="world-tour-outage-text">${escapeWorldTourHtml(reason)}<br>주변의 다른 영상을 바로 추천합니다.</div>
+            ${selected.sourceUrl ? `<a class="world-tour-action-btn" href="${escapeWorldTourHtml(selected.sourceUrl)}" target="_blank" rel="noopener">YouTube에서 보기</a>` : ''}
+        </div>`;
+    parent.classList.add('world-tour-outage-hero');
+    showOutageAlternativeSuggestions(parent, selected);
+}
+
+function attachWorldTourYouTubePlayer(iframe, videoId) {
+    loadWorldTourYouTubeApi().then(YT => {
+        if (!iframe.isConnected || !YT?.Player) return;
+        new YT.Player(iframe, {
+            events: {
+                onError: event => showWorldTourYouTubeError(iframe, videoId, event.data)
+            }
+        });
+    }).catch(() => {
+        // API load failure is not proof that the video is unavailable. Keep
+        // the iframe visible and let YouTube's own player surface the error.
+    });
 }
 
 

@@ -11,6 +11,7 @@ import signal
 import ssl
 import shutil
 import subprocess
+import threading
 import time
 import unicodedata
 import urllib.request
@@ -35,6 +36,10 @@ NOMINATIM_HEADERS = {
     'User-Agent': 'pyw31337-cctv-world-tour/1.0 (https://pyw31337.github.io/cctv/)'
 }
 UNVERIFIED_SSL_CONTEXT = ssl._create_unverified_context()
+YOUTUBE_CHECK_GATE = threading.Semaphore(2)
+YOUTUBE_CHECK_RATE_LOCK = threading.Lock()
+YOUTUBE_CHECK_LAST_AT = 0.0
+YOUTUBE_CHECK_MIN_INTERVAL = 0.25
 REGION_BY_COUNTRY = {
     'United States': 'North America', 'Canada': 'North America', 'Mexico': 'North America',
     'Panama': 'North America', 'Greenland': 'North America', 'Jamaica': 'North America', 'Curaçao': 'North America',
@@ -1392,10 +1397,27 @@ def youtube_playability(video_id):
     if not video_id:
         return {'status': 'NO_VIDEO_ID', 'reason': 'missing videoId'}
     url = f'https://www.youtube.com/watch?v={video_id}'
-    try:
-        page = fetch_text(url, timeout=12, cache=False)
-    except Exception as error:
-        return {'status': 'CHECK_ERROR', 'reason': f'{type(error).__name__}: {error}'}
+    # YouTube responds with 429 when a rotating audit fans out too many page
+    # requests. Rate-limit only this provider and retry 429s; other collectors
+    # remain parallel and a rate-limit observation never becomes a playback
+    # failure.
+    global YOUTUBE_CHECK_LAST_AT
+    with YOUTUBE_CHECK_GATE:
+        for attempt in range(3):
+            with YOUTUBE_CHECK_RATE_LOCK:
+                wait = YOUTUBE_CHECK_MIN_INTERVAL - (time.monotonic() - YOUTUBE_CHECK_LAST_AT)
+                if wait > 0:
+                    time.sleep(wait)
+                YOUTUBE_CHECK_LAST_AT = time.monotonic()
+            try:
+                page = fetch_text(url, timeout=12, cache=False)
+                break
+            except HTTPError as error:
+                if error.code != 429 or attempt >= 2:
+                    return {'status': 'CHECK_ERROR', 'reason': f'HTTPError: HTTP Error {error.code}: Too Many Requests' if error.code == 429 else f'HTTPError: HTTP Error {error.code}'}
+                time.sleep(1.5 * (attempt + 1))
+            except Exception as error:
+                return {'status': 'CHECK_ERROR', 'reason': f'{type(error).__name__}: {error}'}
     player = extract_json_object_after_marker(page, 'ytInitialPlayerResponse = ')
     if not player:
         return {'status': 'CHECK_ERROR', 'reason': 'missing ytInitialPlayerResponse'}
@@ -4881,6 +4903,16 @@ def validate_youtube_item(item):
         item['directPlaybackStatus'] = item.get('directPlaybackStatus') or 'trusted_provider_embed'
         item['sourceOnly'] = False
         item['stabilityScore'] = max(70, int(float(item.get('priority') or 60)))
+        return item
+    if status == 'CHECK_ERROR':
+        # A 429, timeout, or parser failure is an observation failure, not a
+        # provider playback failure. Keep the YouTube candidate visible and
+        # let the browser IFrame API perform the actual embed check.
+        item['playbackStatus'] = 'unchecked'
+        item['directPlaybackStatus'] = 'youtube_embed_unchecked'
+        item['sourceOnly'] = False
+        item.pop('sourceOnlyReason', None)
+        item['stabilityScore'] = min(65, int(float(item.get('priority') or 60)))
         return item
     item['playbackStatus'] = 'unchecked'
     item['stabilityScore'] = min(65, int(float(item.get('priority') or 60)))
