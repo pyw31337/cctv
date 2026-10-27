@@ -48,7 +48,7 @@ export function createWorldTourApi(ctx) {
     let youtubeApiPromise = null;
     const WORLD_TOUR_RAIL_LIMIT = 120;
     const WORLD_TOUR_LIST_RENDER_LIMIT = 200;
-    const WORLD_TOUR_MAP_MARKER_LIMIT = 600;
+    const WORLD_TOUR_MAP_MARKER_LIMIT = 2500;
 
 function getWorldTourRailCams(cams, selectedId) {
     if (cams.length <= WORLD_TOUR_RAIL_LIMIT) return cams;
@@ -1029,7 +1029,10 @@ async function _probeWorldTourStreamLiveInternal(cam, timeoutMs = null) {
                 return response.ok;
             } catch (_) {
                 clearTimeout(timeoutId);
-                return true;
+                // A failed probe must not be promoted as a recovery option.
+                // The normal iframe can still be loaded by the user, but the
+                // outage picker should only offer positively verified streams.
+                return false;
             }
         } else if (streamUrl.includes('.m3u8') || streamUrl.includes('.mp4')) {
             // Use oracle proxy for reliable client-side probing without CORS blocks
@@ -1670,11 +1673,10 @@ async function renderWorldTourCams(selectedId = state.selectedWorldTourId, optio
         let selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
         const selectedFromAll = cams.find(cam => cam.id === selectedId);
         if (!selectedFromVisible && selectedFromAll) {
-            // If the user picked an item from the right-side list/search that
-            // is outside the current bottom rail filter, move the rail to the
-            // selected camera's region so the active button remains visible.
-            state.worldTourRegion = selectedFromAll.region || 'All';
-            state.worldTourListCountry = selectedFromAll.country || 'All';
+            state.worldTourListCountry = 'All';
+            if (state.worldTourRegion !== 'All' && state.worldTourRegion !== WORLD_TOUR_FAVORITE_REGION) {
+                state.worldTourRegion = selectedFromAll.region || 'All';
+            }
             visibleCams = getWorldTourVisibleCams(cams);
             selectedFromVisible = visibleCams.find(cam => cam.id === selectedId);
         }

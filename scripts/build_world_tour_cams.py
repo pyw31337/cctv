@@ -176,6 +176,7 @@ YOUTUBE_UNPLAYABLE_REASON = re.compile(
 # current playability response before being marked verified.
 SOURCE_VIDEO_ID_FALLBACKS = {
     'spacecam-iss-earth-views': 'FuuC4dpSQ1M',
+    'tabi-mount-fuji-tabi': 'xTQizkxWApo',
 }
 YOUTUBE_SEARCH_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_LIMIT', '420'))
 YOUTUBE_SEARCH_PER_QUERY_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_PER_QUERY_LIMIT', '48'))
@@ -2551,6 +2552,8 @@ def collect_camscape(limit=WORLD_TOUR_CAMSCAPE_LIMIT):
             continue
         lat, lng = raw.get('lat'), raw.get('lng')
         country = country_hint_from_title(title) or country_from_coordinates(lat, lng)
+        if any(k in title.lower() for k in ('busan', 'seoul', 'haeundae', 'incheon', 'jeju')):
+            country = 'South Korea'
         if region_for_country(country) == 'Other':
             continue
         city = city_hint(title, country)
