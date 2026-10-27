@@ -7881,7 +7881,6 @@ function canPlayWorldTourInApp(cam) {
     if (directStatus === 'source_site_only' && !cam?.embedUrl && !cam?.videoId) return false;
     if (['unavailable', 'embed_disabled', 'source-only'].includes(playbackStatus)) return false;
     if (cam?.embedUrl && isWorldTourEmbedBlocked(cam, cam.embedUrl)) return false;
-    if (cam?.videoId && !cam?.embedUrl && !cam?.playUrl && playbackStatus !== 'verified') return false;
     return Boolean(cam?.videoId || cam?.embedUrl || cam?.playUrl);
 }
 
