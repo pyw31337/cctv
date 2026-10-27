@@ -252,7 +252,56 @@ def probe_direct_stream(url: str) -> tuple[bool, str]:
         if '#EXTM3U' in text:
             return True, 'hls_manifest_ok'
         return False, 'not_hls_manifest'
-    return True, 'direct_url_present'
+
+    # A URL being present is not evidence that a stream is playable. Providers
+    # commonly leave expired MP4 URLs in their feeds and return 404/410 or an
+    # HTML error page. Probe a small byte range so the catalog only promotes a
+    # URL that actually responds as video.
+    try:
+        request = urllib.request.Request(
+            value,
+            headers={
+                **world.HEADERS,
+                'Accept': 'video/*,application/octet-stream,*/*',
+                'Range': 'bytes=0-4095',
+            },
+        )
+        try:
+            try:
+                response = urllib.request.urlopen(request, timeout=12)
+            except urllib.error.URLError as error:
+                if 'CERTIFICATE_VERIFY_FAILED' not in str(error):
+                    raise
+                response = urllib.request.urlopen(
+                    request,
+                    timeout=12,
+                    context=world.UNVERIFIED_SSL_CONTEXT,
+                )
+            with response:
+                status = int(response.getcode() or 0)
+                content_type = (response.headers.get('Content-Type') or '').lower()
+                body = response.read(4096)
+        except urllib.error.HTTPError as error:
+            return False, f'http_status_{error.code}'
+
+        if not 200 <= status < 300:
+            return False, f'http_status_{status}'
+        if not body:
+            return False, 'empty_video_response'
+
+        path = value.lower().split('?', 1)[0]
+        video_type = content_type.startswith('video/') or content_type in {
+            'application/octet-stream',
+            'binary/octet-stream',
+        }
+        mp4_signature = body[:16].find(b'ftyp') >= 0
+        if path.endswith('.mp4') and not video_type and not mp4_signature:
+            return False, f'invalid_video_content_type:{content_type or "missing"}'
+        return True, f'video_probe_ok_{status}'
+    except urllib.error.URLError as error:
+        return False, f'url_error:{error.reason}'
+    except Exception as error:
+        return False, f'{type(error).__name__}: {error}'
 
 
 def probe_embed_url(url: str) -> tuple[bool, str]:

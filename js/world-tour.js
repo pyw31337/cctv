@@ -626,6 +626,8 @@ function renderWorldTourVideoHero(selected) {
                     class="world-tour-direct-video"
                     data-world-tour-stream="${escapeWorldTourHtml(embedUrl)}"
                     data-world-tour-title="${escapeWorldTourHtml(selected.title)}"
+                    poster="${escapeWorldTourHtml(selected.thumbnailUrl || selected.snapshotUrl || '')}"
+                    preload="metadata"
                     autoplay muted playsinline controls
                 ></video>
                 <div class="world-tour-video-loading">
@@ -1018,11 +1020,26 @@ async function _probeWorldTourStreamLiveInternal(cam, timeoutMs = null) {
     const timeoutId = setTimeout(() => controller.abort(), finalTimeout);
 
     try {
-        if (streamUrl.includes('.m3u8') || streamUrl.includes('.mp4')) {
+        if (cam.videoId) {
+            try {
+                const oembedTarget = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${cam.videoId}&format=json`;
+                const proxied = `https://158.179.194.163.sslip.io/proxy?url=${encodeURIComponent(oembedTarget)}`;
+                const response = await fetch(proxied, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                return response.ok;
+            } catch (_) {
+                clearTimeout(timeoutId);
+                return true;
+            }
+        } else if (streamUrl.includes('.m3u8') || streamUrl.includes('.mp4')) {
             // Use oracle proxy for reliable client-side probing without CORS blocks
             const proxiedStream = proxyWithOracle(streamUrl);
             const response = await fetch(proxiedStream, {
                 method: 'GET',
+                headers: {
+                    'Accept': 'video/*,application/vnd.apple.mpegurl,application/octet-stream,*/*',
+                    'Range': 'bytes=0-4095'
+                },
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
@@ -1060,9 +1077,6 @@ async function showOutageAlternativeSuggestions(container, selectedCam) {
         !c.sourceOnly &&
         !c.sourceOnlyReason
     );
-    if (!candidates.length) {
-        candidates = cams.filter(c => c.id !== selectedCam.id && canPlayWorldTourInApp(c));
-    }
     if (!candidates.length) return;
 
     // Fetch nearest 6 candidates to probe in parallel for maximum speed
@@ -1077,10 +1091,9 @@ async function showOutageAlternativeSuggestions(container, selectedCam) {
     const probeResults = await Promise.all(probePromises);
     let verifiedNearby = probeResults.filter(r => r.ok).map(r => r.cam).slice(0, 3);
 
-    // Fallback to closest if none of them passed the fast probe
-    if (!verifiedNearby.length) {
-        verifiedNearby = nearestCandidates.slice(0, 3);
-    }
+    // Never present an unprobed URL as a recovery option. A shorter, empty
+    // suggestion list is safer than sending the user to another dead stream.
+    if (!verifiedNearby.length) return;
 
     const suggestionsBox = document.createElement('div');
     suggestionsBox.className = 'world-tour-alternative-suggestions';
@@ -1132,7 +1145,41 @@ async function showOutageAlternativeSuggestions(container, selectedCam) {
     wrapper.appendChild(suggestionsBox);
 }
 
+let _youtubeMessageListenerAttached = false;
+function attachYouTubePlayerMessageListener() {
+    if (_youtubeMessageListenerAttached || typeof window === 'undefined') return;
+    _youtubeMessageListenerAttached = true;
+
+    window.addEventListener('message', event => {
+        if (!event.origin || (!event.origin.includes('youtube.com') && !event.origin.includes('youtube-nocookie.com'))) return;
+        try {
+            const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+            const isError = data?.event === 'onError' || (data?.info && typeof data.info === 'number' && [2, 5, 100, 101, 150].includes(data.info));
+            if (isError) {
+                const iframe = document.querySelector('.world-tour-iframe-container iframe');
+                const selected = state.worldTourCams?.find(c => c.id === state.selectedWorldTourId);
+                if (iframe && selected) {
+                    console.warn(`[WorldTour] YouTube player reported onError ${data?.info} for ${selected.title}`);
+                    const parent = iframe.parentElement;
+                    if (parent && !parent.classList.contains('world-tour-outage-hero')) {
+                        parent.innerHTML = `
+                            <div class="world-tour-outage-content">
+                                <div class="world-tour-outage-title">⚠️ 원본 영상 재생 불가</div>
+                                <div class="world-tour-outage-text">해당 유튜브 라이브 영상이 비공개 처리되었거나 일시적으로 송출이 중단되었습니다.<br>아래 추천 카메라 또는 원본 사이트에서 확인하실 수 있습니다.</div>
+                                <a class="world-tour-action-btn" href="${escapeWorldTourHtml(selected.sourceUrl || '#')}" target="_blank" rel="noopener">원본 사이트 확인</a>
+                            </div>
+                        `;
+                        parent.classList.add('world-tour-outage-hero');
+                        showOutageAlternativeSuggestions(parent, selected);
+                    }
+                }
+            }
+        } catch (_) {}
+    });
+}
+
 function initWorldTourVideoPlayback() {
+    attachYouTubePlayerMessageListener();
     const iframe = document.querySelector('.world-tour-iframe-container iframe');
     if (iframe) {
         const loading = iframe.parentElement.querySelector('.world-tour-video-loading');

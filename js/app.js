@@ -272,7 +272,21 @@ const SCENIC_CONTEXT_PATTERN = /(해변|해안|항구|포구|전망|공원|오�
 const BLOCKED_YOUTUBE_VIDEO_IDS = new Set([
     'bKcdTWp6akg', // [YouTube] 대전 엑스포 한빛광장: owner-side private video.
     '5uZa3-RMFos', // Sydney Harbour: owner disabled playback on external embeds.
-    'DSgn-lTHJzM' // 서울역 광장: YouTube player reports that the live stream recording is unavailable.
+    'DSgn-lTHJzM', // 서울역 광장: YouTube player reports that the live stream recording is unavailable.
+    '6YP6EYc0vhc', // 후지산 (구버전 비공개 스트림)
+    '8H3nRCFVR6Y', // 도쿄 라이브 (비공개 스트림)
+    'hboDcda_M7s', // Houston Hobby Airport (401)
+    'YkKGantlWH0', // Eiffel Tower Paris (401)
+    'F5hPeFy1Ks4', // Milwaukee Mitchell Airport (401)
+    'h2FVG5sDNQ4', // Tallinn Airport (401)
+    'AD4-Z-ONsIc', // Mt Everest Panorama (401)
+    'U3UNqjaB_zI', // Isle of Wight Ferry (401)
+    'A6R81wOlQqs', // Malaga Airport (401)
+    'MIqyo1e1Uug', // Barra do Garças Traffic (403)
+    'o0-jcnbgJaE', // Circus Maximus (401)
+    'SFoS6nBL138', // Peggy's Cove Lighthouse (401)
+    'MUWjOucOeUc', // Montenegro Panoramic (404)
+    'zmv6NPLg91U'  // Eiffel Tower (401)
 ]);
 
 // === Source metadata (label + accent color for dot/badge) ===
@@ -7828,22 +7842,36 @@ function searchWorldTourCamsByQuery(query, limit = 8) {
         .slice(0, limit);
 }
 
+let worldTourCamsLoadPromise = null;
+
 async function loadWorldTourCams() {
     if (Array.isArray(state.worldTourCams)) return state.worldTourCams;
 
-    const response = await fetch(WORLD_TOUR_DATA_URL, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`World tour data failed: ${response.status}`);
-    const payload = await response.json();
-    state.worldTourCams = (payload.items || [])
-        .filter(item => item && (item.videoId || item.embedUrl || item.playUrl || item.sourceUrl))
-        .filter(item => !(item.snapshotUrl && !item.videoId && !item.embedUrl && !item.playUrl))
-        .filter(item => !isWorldTourRejectedOriginalOnlyCam(item))
-        .sort((a, b) => (
-            Number(b.qualityScore || b.stabilityScore || b.priority || 0)
-            - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
-        ) || String(a.title).localeCompare(String(b.title)));
-    pruneWorldTourFavorites(state.worldTourCams);
-    return state.worldTourCams;
+    // Multiple panels can request the same catalog during startup. Share one
+    // request and let the build-versioned URL provide cache invalidation.
+    if (!worldTourCamsLoadPromise) {
+        worldTourCamsLoadPromise = (async () => {
+            const response = await fetch(WORLD_TOUR_DATA_URL, { cache: 'force-cache' });
+            if (!response.ok) throw new Error(`World tour data failed: ${response.status}`);
+            const payload = await response.json();
+            state.worldTourCams = (payload.items || [])
+                .filter(item => item && (item.videoId || item.embedUrl || item.playUrl || item.sourceUrl))
+                .filter(item => !(item.snapshotUrl && !item.videoId && !item.embedUrl && !item.playUrl))
+                .filter(item => !isWorldTourRejectedOriginalOnlyCam(item))
+                .sort((a, b) => (
+                    Number(b.qualityScore || b.stabilityScore || b.priority || 0)
+                    - Number(a.qualityScore || a.stabilityScore || a.priority || 0)
+                ) || String(a.title).localeCompare(String(b.title)));
+            pruneWorldTourFavorites(state.worldTourCams);
+            return state.worldTourCams;
+        })();
+    }
+
+    try {
+        return await worldTourCamsLoadPromise;
+    } finally {
+        worldTourCamsLoadPromise = null;
+    }
 }
 
 function getWorldTourEmbedUrl(cam) {
