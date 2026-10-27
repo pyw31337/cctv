@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import json
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,95 @@ def review_interval_hours(tier: str, score_value: int, confidence: int) -> int:
     if tier == "watch" or score_value < 75: return 24
     return 72
 
+
+def issue_group(metrics: dict[str, Any], tier: str, quality: int) -> tuple[str, str, str]:
+    """Return a stable operational group, issue label, and operator action."""
+    source = str(metrics.get("source") or "UNKNOWN").strip() or "UNKNOWN"
+    region = str(metrics.get("region") or "UNKNOWN").strip() or "UNKNOWN"
+    samples = max(0, int(number(metrics.get("samples") or metrics.get("total"))))
+    failure = clamp(number(metrics.get("failure_rate"), 0), 0, 1)
+    success = clamp(number(metrics.get("success_rate"), 1 if samples else 0), 0, 1)
+    slow = clamp(number(metrics.get("slow_rate"), 0), 0, 1)
+    fallback = clamp(number(metrics.get("fallback_rate"), 0), 0, 1)
+    first_frame = max(0, number(metrics.get("avg_first_frame_ms")))
+    pixels = max(0, number(metrics.get("avg_width"))) * max(0, number(metrics.get("avg_height")))
+
+    # Do not call a camera broken from one or two observations. Keep it in a
+    # fast evidence-collection group until the direct probe has enough samples.
+    if samples < 5:
+        issue, action = "insufficient_evidence", "collect_more_evidence"
+    elif tier == "repair" or failure >= .45 or success < .45:
+        issue, action = "connection_failure", "reprobe_and_inspect_provider"
+    elif fallback >= .35:
+        issue, action = "fallback_heavy", "repair_primary_stream_and_mapping"
+    elif slow >= .4 or first_frame > 10000:
+        issue, action = "slow_startup", "check_token_proxy_and_origin_latency"
+    elif pixels and pixels < 640 * 360:
+        issue, action = "low_resolution", "prefer_higher_quality_variant"
+    elif tier == "watch":
+        issue, action = "stale_or_degraded", "increase_check_frequency"
+    else:
+        issue, action = "healthy", "maintain_cadence"
+
+    return f"{source}:{region}:{issue}", issue, action
+
+
+def build_group_rollups(cameras: dict[str, Any], now: datetime) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    groups: dict[str, dict[str, Any]] = defaultdict(lambda: {
+        "camera_ids": [], "scores": [], "confidences": [], "samples": 0,
+        "success": 0.0, "failure": 0.0, "slow": 0.0, "fallback": 0.0,
+        "source": "UNKNOWN", "region": "UNKNOWN", "issue": "unknown",
+        "recommended_action": "maintain_cadence",
+    })
+    for camera_id, metrics in cameras.items():
+        if not isinstance(metrics, dict):
+            continue
+        quality, confidence, tier, _ = score(metrics, now)
+        group_key, issue, action = issue_group(metrics, tier, quality)
+        group = groups[group_key]
+        group["camera_ids"].append(str(camera_id))
+        group["scores"].append(quality)
+        group["confidences"].append(confidence)
+        group["samples"] += max(0, int(number(metrics.get("samples") or metrics.get("total"))))
+        group["success"] += number(metrics.get("success_rate"), 0)
+        group["failure"] += number(metrics.get("failure_rate"), 0)
+        group["slow"] += number(metrics.get("slow_rate"), 0)
+        group["fallback"] += number(metrics.get("fallback_rate"), 0)
+        group["source"] = str(metrics.get("source") or "UNKNOWN")
+        group["region"] = str(metrics.get("region") or "UNKNOWN")
+        group["issue"] = issue
+        group["recommended_action"] = action
+
+    output: dict[str, Any] = {}
+    queue: list[dict[str, Any]] = []
+    for key, group in sorted(groups.items()):
+        count = max(1, len(group["camera_ids"]))
+        average_score = round(sum(group["scores"]) / count)
+        average_confidence = round(sum(group["confidences"]) / count)
+        issue = group["issue"]
+        tier = "repair" if issue in {"connection_failure", "fallback_heavy"} else "watch" if issue != "healthy" else "preferred"
+        interval = 6 if tier == "repair" else 24 if tier == "watch" else 72
+        item = {
+            "source": group["source"],
+            "region": group["region"],
+            "issue": issue,
+            "camera_count": count,
+            "camera_ids": group["camera_ids"][:200],
+            "score": average_score,
+            "confidence": average_confidence,
+            "tier": tier,
+            "review_interval_hours": interval,
+            "recommended_action": group["recommended_action"],
+            "avg_failure_rate": round(group["failure"] / count, 4),
+            "avg_slow_rate": round(group["slow"] / count, 4),
+            "avg_fallback_rate": round(group["fallback"] / count, 4),
+            "samples": group["samples"],
+        }
+        output[key] = item
+        if tier == "repair":
+            queue.append({"id": f"group:{key}", "name": key, "source": group["source"], "score": average_score, "action": group["recommended_action"], "review_interval_hours": interval, "camera_count": count})
+    return output, queue
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--summary", default=str(ROOT / "data" / "quality_summary.json"))
@@ -68,7 +158,8 @@ def main() -> int:
         if not isinstance(metrics, dict): continue
         quality, confidence, tier, action = score(metrics, now)
         interval = review_interval_hours(tier, quality, confidence)
-        camera_policy[str(camera_id)] = {"score": quality, "confidence": confidence, "tier": tier, "review_interval_hours": interval}
+        group_key, issue, action = issue_group(metrics, tier, quality)
+        camera_policy[str(camera_id)] = {"score": quality, "confidence": confidence, "tier": tier, "issue": issue, "group": group_key, "review_interval_hours": interval}
         if action: queue.append({"id": str(camera_id), "name": str(metrics.get("camera_name") or camera_id), "source": str(metrics.get("source") or "UNKNOWN"), "score": quality, "action": action, "review_interval_hours": interval, "updated_at": metrics.get("updated_at")})
     for source, metrics in sources.items():
         if not isinstance(metrics, dict): continue
@@ -76,11 +167,27 @@ def main() -> int:
         interval = review_interval_hours(tier, quality, confidence)
         source_policy[str(source)] = {"score": quality, "confidence": confidence, "tier": tier, "review_interval_hours": interval}
         if action and tier == "repair": queue.append({"id": f"source:{source}", "name": str(source), "source": str(source), "score": quality, "action": action, "review_interval_hours": interval, "updated_at": metrics.get("updated_at")})
+    groups, group_queue = build_group_rollups(cameras, now)
+    queue.extend(group_queue)
     queue.sort(key=lambda item: (item["score"], item["source"], item["id"]))
+    # A large camera queue must not hide the group-level repair signal. Keep
+    # every repair group visible, then fill the remaining budget with the
+    # lowest-scoring camera/source entries.
+    group_ids = {item["id"] for item in group_queue}
+    ordered_groups = sorted(group_queue, key=lambda item: (item["score"], item["source"], item["id"]))
+    ordered_individuals = [item for item in queue if item["id"] not in group_ids]
+    queue_for_output = (ordered_groups + ordered_individuals)[:1000]
     stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    atomic_write_json(Path(args.output), {"schema": "cctv-quality-policy-v1", "generated_at": stamp, "policy": "Telemetry adjusts ranking only. Locked mappings require independent verification before promotion.", "cameras": camera_policy, "sources": source_policy}, sort_keys=True)
-    atomic_write_json(Path(args.queue), {"schema": "cctv-quality-repair-queue-v1", "generated_at": stamp, "items": queue[:1000]}, sort_keys=True)
-    print(json.dumps({"cameras": len(camera_policy), "sources": len(source_policy), "repair_items": len(queue[:1000])}, ensure_ascii=False))
+    policy = {"schema": "cctv-quality-policy-v2", "generated_at": stamp, "policy": "Telemetry adjusts ranking only. Locked mappings require independent verification before promotion.", "cameras": camera_policy, "sources": source_policy, "groups": groups}
+    atomic_write_json(Path(args.output), policy, sort_keys=True)
+    atomic_write_json(Path(args.queue), {"schema": "cctv-quality-repair-queue-v2", "generated_at": stamp, "items": queue_for_output}, sort_keys=True)
+
+    history_path = ROOT / "data" / "quality_group_history.json"
+    history = load(history_path, [])
+    if not isinstance(history, list): history = []
+    history.append({"generated_at": stamp, "groups": {key: {k: value for k, value in item.items() if k not in {"camera_ids"}} for key, item in groups.items()}, "repair_group_count": len(group_queue)})
+    atomic_write_json(history_path, history[-180:], sort_keys=True)
+    print(json.dumps({"cameras": len(camera_policy), "sources": len(source_policy), "groups": len(groups), "repair_items": len(queue_for_output), "repair_groups": len(group_queue)}, ensure_ascii=False))
     return 0
 
 if __name__ == "__main__": raise SystemExit(main())

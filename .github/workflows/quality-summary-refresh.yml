@@ -94,8 +94,8 @@ jobs:
           set -euo pipefail
           # Quality telemetry owns its summary and policy only. Do not let an
           # hourly job replace newer resolver/canary/sentinel evidence.
-          if ! git diff --quiet -- "$OUTPUT_PATH" data/quality_policy.json data/quality_repair_queue.json; then
-            scripts/commit_and_push_changes.sh "chore(data): refresh quality policy [skip ci]" "$OUTPUT_PATH" data/quality_policy.json data/quality_repair_queue.json
+          if ! git diff --quiet -- "$OUTPUT_PATH" data/quality_policy.json data/quality_repair_queue.json data/quality_group_history.json; then
+            scripts/commit_and_push_changes.sh "chore(data): refresh quality policy [skip ci]" "$OUTPUT_PATH" data/quality_policy.json data/quality_repair_queue.json data/quality_group_history.json
           else
             echo "No change in $OUTPUT_PATH — skipping commit."
           fi
