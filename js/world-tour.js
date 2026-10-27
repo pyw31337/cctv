@@ -1838,7 +1838,8 @@ async function initWorldTourMap(selected, visibleCams) {
         worldTourLeafletMap = L.map(mapEl, {
             worldCopyJump: true,
             zoomControl: false,
-            attributionControl: true
+            attributionControl: true,
+            preferCanvas: true
         });
 
         L.control.zoom({ position: 'topright' }).addTo(worldTourLeafletMap);
@@ -1872,7 +1873,7 @@ async function initWorldTourMap(selected, visibleCams) {
         });
 
         const mappableCams = visibleCams
-            .filter(cam => Number.isFinite(Number(cam.lat)) && Number.isFinite(Number(cam.lng)));
+            .filter(cam => canPlayWorldTourInApp(cam) && Number.isFinite(Number(cam.lat)) && Number.isFinite(Number(cam.lng)));
         const bounds = L.latLngBounds(mappableCams.map(cam => [Number(cam.lat), Number(cam.lng)]));
         if (state.worldTourRegion === 'All') {
             const mobileWorldZoom = window.innerWidth <= 600 ? 1 : 2;
@@ -1886,6 +1887,7 @@ async function initWorldTourMap(selected, visibleCams) {
         }
 
         visibleCams.forEach(cam => {
+            if (!canPlayWorldTourInApp(cam)) return;
             const lat = Number(cam.lat);
             const lng = Number(cam.lng);
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
