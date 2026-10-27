@@ -9800,11 +9800,23 @@ async function ensureHighwayPlaybackReady() {
 }
 
 function decorateHighwaySelection(cctv) {
-    const distance = getDistance(state.center.lat, state.center.lng, Number(cctv.lat), Number(cctv.lng));
+    const lat = Number(cctv.lat);
+    const lng = Number(cctv.lng);
+    const distance = Number.isFinite(cctv.distance)
+        ? cctv.distance
+        : (Number.isFinite(lat) && Number.isFinite(lng) && state.center ? getDistance(state.center.lat, state.center.lng, lat, lng) : cctv.distance);
     return { ...cctv, distance: Number.isFinite(distance) ? distance : cctv.distance, _health: getCameraHealthMeta(cctv) };
 }
 
+let cachedHighwayCatalog = null;
+let cachedHighwayCatalogSource = null;
+let cachedHighwayCatalogLength = -1;
+let cachedHighwayRouteMap = null;
+
 function getHighwayRouteCatalog() {
+    if (cachedHighwayCatalog && cachedHighwayCatalogSource === state.cctvData && cachedHighwayCatalogLength === state.cctvData?.length) {
+        return cachedHighwayCatalog;
+    }
     const routes = new Map();
     (state.cctvData || []).forEach(cctv => {
         const info = getHighwayCctvInfo(cctv);
@@ -9812,7 +9824,18 @@ function getHighwayRouteCatalog() {
         if (!routes.has(info.route)) routes.set(info.route, { routeName: info.route, cctvs: [] });
         routes.get(info.route).cctvs.push(cctv);
     });
-    return Array.from(routes.values());
+    cachedHighwayCatalog = Array.from(routes.values());
+    cachedHighwayRouteMap = routes;
+    cachedHighwayCatalogSource = state.cctvData;
+    cachedHighwayCatalogLength = state.cctvData?.length || 0;
+    return cachedHighwayCatalog;
+}
+
+function getHighwayRouteItem(routeName) {
+    if (!cachedHighwayRouteMap || cachedHighwayCatalogSource !== state.cctvData || cachedHighwayCatalogLength !== state.cctvData?.length) {
+        getHighwayRouteCatalog();
+    }
+    return cachedHighwayRouteMap?.get(routeName) || null;
 }
 
 function applyHighwayCctvSelection(targetCctvs, bannerHtml) {
@@ -9832,82 +9855,68 @@ function applyHighwayCctvSelection(targetCctvs, bannerHtml) {
     return true;
 }
 
-// 5. 정체 구간 CCTV 보기 — modelled on showPrecipitationCctvs.
-async function showCongestedHighwayCctvs() {
-    const data = await loadHighwayTraffic();
-    if (!data || !highwayTrafficState.index) {
-        alert('고속도로 소통 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
-        return;
+// 6. Highway route selector (SERVICE_ANALYSIS Phase 2 "Highway list selector").
+async function showHighwayRouteCctvs(routeName, buttonEl) {
+    const origText = buttonEl ? buttonEl.textContent : '';
+    if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.textContent = '불러오는 중...';
     }
-    if (!await ensureHighwayPlaybackReady()) return;
+    closeHighwayPanel();
 
-    const jamSections = data.sections
-        .filter(section => section.grade === 3)
-        .sort((a, b) => (a.speed ?? 999) - (b.speed ?? 999));
-    if (jamSections.length === 0) {
-        alert(`현재 고속도로 정체 구간이 없습니다. (${formatHighwayObservedTime(data.observed_at) || '최신'} 기준)`);
-        return;
-    }
+    // Yield to the browser to paint modal closure and feedback immediately
+    await new Promise(resolve => setTimeout(resolve, 16));
 
-    const catalog = new Map(getHighwayRouteCatalog().map(route => [route.routeName, route.cctvs]));
-    const targetCctvs = [];
-    const seenIds = new Set();
-    const routeNames = [];
-    for (const section of jamSections) {
-        if (targetCctvs.length >= HIGHWAY_CONGESTED_CCTV_LIMIT) break;
-        const routeKey = normalizeHighwayRouteName(section.routeName);
-        const entry = makeHighwaySectionEntry(section);
-        const best = (catalog.get(routeKey) || []).find(cctv => !seenIds.has(cctv.id)
-            && isPlayableHighwayCandidate(cctv)
-            && highwaySectionMatchesPoint(entry, getHighwayCctvInfo(cctv)));
-        if (best) {
-            seenIds.add(best.id);
-            targetCctvs.push(best);
-            if (!routeNames.includes(routeKey)) routeNames.push(routeKey);
+    try {
+        const route = getHighwayRouteItem(routeName) || getHighwayRouteCatalog().find(item => item.routeName === routeName);
+        if (!route) return;
+        if (!await ensureHighwayPlaybackReady()) return;
+
+        const centerLat = state.center?.lat ?? 37.5665;
+        const centerLng = state.center?.lng ?? 126.9780;
+        const ranked = route.cctvs
+            .filter(isPlayableHighwayCandidate)
+            .map(cctv => {
+                const lat = Number(cctv.lat);
+                const lng = Number(cctv.lng);
+                const distance = (Number.isFinite(lat) && Number.isFinite(lng))
+                    ? getDistance(centerLat, centerLng, lat, lng)
+                    : 999999;
+                return {
+                    cctv,
+                    traffic: getHighwayTrafficForCctv(cctv),
+                    distance
+                };
+            })
+            .sort((a, b) => {
+                const gradeA = a.traffic?.scope === 'section' ? a.traffic.grade : 0;
+                const gradeB = b.traffic?.scope === 'section' ? b.traffic.grade : 0;
+                if (gradeA !== gradeB) return gradeB - gradeA;
+                return a.distance - b.distance;
+            })
+            .map(item => ({ ...item.cctv, distance: item.distance }))
+            .slice(0, NEAREST_RESULT_LIMIT);
+
+        if (ranked.length === 0) {
+            alert(`${routeName}에서 재생 가능한 CCTV를 찾지 못했습니다.`);
+            return;
+        }
+
+        const summary = highwayTrafficState.index?.routes.get(routeName);
+        const summaryText = summary ? formatHighwayTrafficText({
+            scope: 'route', routeName, grade: summary.grade, speed: summary.avgSpeed, observedAt: summary.observed_at
+        }) : '';
+
+        applyHighwayCctvSelection(
+            ranked,
+            `🛣 <strong>${escapeHtml(routeName)}</strong> CCTV ${ranked.length}개${summaryText ? ` · ${escapeHtml(summaryText)}` : ''}`
+        );
+    } finally {
+        if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.textContent = origText || '도로보기';
         }
     }
-
-    if (targetCctvs.length === 0) {
-        alert(`정체 구간 ${jamSections.length}곳이 있지만 구간과 연결된 정상 CCTV를 찾지 못했습니다.`);
-        return;
-    }
-
-    const observed = formatHighwayObservedTime(data.observed_at);
-    applyHighwayCctvSelection(
-        targetCctvs,
-        `🚗 고속도로 정체 구간 (<strong>${escapeHtml(routeNames.slice(0, 3).join(', '))}${routeNames.length > 3 ? ' 외' : ''}</strong>) CCTV 재생 중${observed ? ` · ${escapeHtml(observed)} 기준` : ''}`
-    );
-}
-
-// 6. Highway route selector (SERVICE_ANALYSIS Phase 2 "Highway list selector").
-async function showHighwayRouteCctvs(routeName) {
-    const route = getHighwayRouteCatalog().find(item => item.routeName === routeName);
-    if (!route) return;
-    if (!await ensureHighwayPlaybackReady()) return;
-    const ranked = route.cctvs
-        .filter(isPlayableHighwayCandidate)
-        .map(cctv => ({ cctv, traffic: getHighwayTrafficForCctv(cctv) }))
-        .sort((a, b) => {
-            const gradeA = a.traffic?.scope === 'section' ? a.traffic.grade : 0;
-            const gradeB = b.traffic?.scope === 'section' ? b.traffic.grade : 0;
-            if (gradeA !== gradeB) return gradeB - gradeA;
-            return getDistance(state.center.lat, state.center.lng, a.cctv.lat, a.cctv.lng)
-                - getDistance(state.center.lat, state.center.lng, b.cctv.lat, b.cctv.lng);
-        })
-        .map(item => item.cctv)
-        .slice(0, NEAREST_RESULT_LIMIT);
-    if (ranked.length === 0) {
-        alert(`${routeName}에서 재생 가능한 CCTV를 찾지 못했습니다.`);
-        return;
-    }
-    const summary = highwayTrafficState.index?.routes.get(routeName);
-    const summaryText = summary ? formatHighwayTrafficText({
-        scope: 'route', routeName, grade: summary.grade, speed: summary.avgSpeed, observedAt: summary.observed_at
-    }) : '';
-    applyHighwayCctvSelection(
-        ranked,
-        `🛣 <strong>${escapeHtml(routeName)}</strong> CCTV ${ranked.length}개${summaryText ? ` · ${escapeHtml(summaryText)}` : ''}`
-    );
 }
 
 function renderHighwayRouteList() {
@@ -9923,14 +9932,12 @@ function renderHighwayRouteList() {
             const jamCount = data.sections.filter(section => section.grade === 3).length;
             meta.textContent = `한국도로공사 실시간 소통${observed ? ` · ${observed} 기준` : ''} · 정체 ${jamCount}구간${data.stale ? ' · 최신 정보 지연' : ''}`;
         } else {
-            meta.textContent = '소통 정보를 불러오지 못해 노선별 CCTV만 표시합니다.';
+            meta.textContent = '고속도로 노선별 실시간 CCTV';
         }
         if (z3CacheData && !hasFreshHighwayZ3Cache()) {
             meta.textContent = '고속도로 CCTV 재생 토큰 갱신이 지연되어 영상 선택을 일시 중단했습니다.';
         }
     }
-    const jamBtn = $('#highway-congested-btn');
-    if (jamBtn) jamBtn.disabled = !data;
 
     const routes = getHighwayRouteCatalog().map(route => {
         const summary = index?.routes.get(route.routeName) || null;
@@ -10000,10 +10007,9 @@ function toggleHighwayPanel() {
 function initHighwayTrafficUi() {
     $('#highway-btn')?.addEventListener('click', toggleHighwayPanel);
     $('#highway-close')?.addEventListener('click', closeHighwayPanel);
-    $('#highway-congested-btn')?.addEventListener('click', showCongestedHighwayCctvs);
     $('#highway-route-list')?.addEventListener('click', event => {
         const routeButton = event.target.closest('.highway-route-view');
-        if (routeButton?.dataset.route) showHighwayRouteCctvs(routeButton.dataset.route);
+        if (routeButton?.dataset.route) showHighwayRouteCctvs(routeButton.dataset.route, routeButton);
     });
     $('#highway-layer')?.addEventListener('click', event => {
         if (event.target.id === 'highway-layer') closeHighwayPanel();
