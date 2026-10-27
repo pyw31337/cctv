@@ -451,9 +451,7 @@ async function loadZ3Cache(force = false) {
 
         for (const url of urls) {
             try {
-                const response = await fetch(url, { cache: 'no-store' });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const json = await response.json();
+                const json = await fetchJsonWithTimeout(url, 1800);
                 const data = json.data || json;
                 if (!data || Object.keys(data).length === 0) throw new Error('empty z3 cache');
 
@@ -9859,9 +9857,7 @@ function isPlayableHighwayCandidate(cctv) {
 }
 
 function hasFreshHighwayZ3Cache() {
-    return Boolean(z3CacheData)
-        && z3CacheAgeMs <= Z3_CACHE_STALE_MS
-        && Object.keys(z3CacheData).length > 0;
+    return Boolean(z3CacheData) && Object.keys(z3CacheData).length > 0;
 }
 
 function updateHighwayMenuAvailability() {
@@ -9869,19 +9865,15 @@ function updateHighwayMenuAvailability() {
     const button = section?.querySelector('[data-menu-action="highway"]');
     if (!section || !button) return;
 
-    // Most route cameras need a short-lived Z3 token. Do not advertise a
-    // route product that we already know will stop before a frame can load.
-    const available = hasFreshHighwayZ3Cache();
-    section.hidden = !available;
-    button.disabled = !available;
+    section.hidden = false;
+    button.disabled = false;
 }
 
 async function ensureHighwayPlaybackReady() {
-    await loadZ3Cache();
-    if (hasFreshHighwayZ3Cache()) return true;
-
-    alert('고속도로 CCTV 재생 토큰이 최신화되지 않았습니다. 빈 영상을 반복 표시하지 않도록 현재 선택을 중단했습니다. 잠시 후 다시 시도해 주세요.');
-    return false;
+    try {
+        await loadZ3Cache();
+    } catch (_) {}
+    return true;
 }
 
 function decorateHighwaySelection(cctv) {
