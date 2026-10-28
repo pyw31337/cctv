@@ -1,0 +1,53 @@
+name: Daily Quality Maintenance
+
+on:
+  schedule:
+    - cron: '15 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cctv-repo-writes
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt -r server/requirements.txt
+
+      - name: Run daily quality maintenance
+        run: python scripts/run_daily_quality_maintenance.py
+
+      - name: Write operator summary
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          report = json.load(open('data/daily_quality_report.json', encoding='utf-8'))
+          print('## Daily Quality Maintenance')
+          print(f"- Status: `{report['status']}`")
+          print(f"- Recovery mode: `{report.get('recovery_mode', 'UNKNOWN')}`")
+          print(f"- Failed checks: {', '.join(report['failed_checks']) or 'none'}")
+          print(f"- Next action: {report['next_action']}")
+          PY
+
+      - name: Commit daily report
+        run: |
+          if git diff --quiet -- data/daily_quality_report.json; then
+            echo "No daily report change"
+          else
+            scripts/commit_and_push_changes.sh "chore(data): record daily quality maintenance [skip ci]" data/daily_quality_report.json
+          fi
