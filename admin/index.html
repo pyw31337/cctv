@@ -214,6 +214,12 @@
         <div class="wide-table"><table><thead><tr><th>영상</th><th>점수</th><th>조치</th><th>최근 점검</th></tr></thead><tbody id="repair-rows"></tbody></table></div>
     </section>
 
+    <section class="card">
+        <div class="section-heading"><h2>문제 그룹</h2><span class="info-wrap"><button type="button" class="info-toggle" aria-label="문제 그룹 기준">i</button><span class="info-bubble">같은 공급처·지역·문제 유형을 묶어 점검 주기를 차등 적용합니다. 그룹 분류는 매핑을 자동 변경하지 않습니다.</span></span></div>
+        <p class="status-summary">그룹 단위로 원인을 추적하고 다음 점검 주기를 관리합니다.</p>
+        <div class="wide-table"><table><thead><tr><th>그룹</th><th>대상</th><th>점수</th><th>등급</th><th>주기</th><th>권장 조치</th></tr></thead><tbody id="group-rows"></tbody></table></div>
+    </section>
+
     <details class="advanced-details"><summary>상세 운영 데이터</summary>
     <section class="card">
         <h2>주요 지역 표본 점검</h2>
@@ -496,6 +502,7 @@ function render(summary, opsData = {}) {
     renderInventory(opsData.inventory || [], summary);
     renderWorldTourQuality(opsData.worldTour);
     renderRepairQueue(opsData.repairQueue, opsData.qualityPolicy);
+    renderIssueGroups(opsData.qualityPolicy);
 
     $('camera-rows').innerHTML = problemCameras
         .sort((a,b) => a.successRate - b.successRate || b.failure - a.failure || b.avgFirstFrameMs - a.avgFirstFrameMs)
@@ -517,11 +524,35 @@ function render(summary, opsData = {}) {
 function repairActionLabel(action) {
     return {
         probe_stream: '재생 재검증',
+        reprobe_and_inspect_provider: '공급처 재검증',
+        check_token_proxy_and_origin_latency: '토큰·지연 점검',
+        repair_primary_stream_and_mapping: '기본 경로 점검',
+        collect_more_evidence: '추가 표본 수집',
+        increase_check_frequency: '점검 주기 단축',
         renew_url: 'URL 갱신',
         refresh_evidence: '근거 갱신',
         measure_startup: '로딩 측정',
         inspect_mapping: '매핑 점검'
     }[action] || '품질 점검';
+}
+function issueGroupLabel(issue) {
+    return {
+        connection_failure: '연결 실패', fallback_heavy: '대체 경로 과다', slow_startup: '로딩 지연',
+        low_resolution: '저화질', stale_or_degraded: '상태 저하', insufficient_evidence: '표본 부족', healthy: '정상'
+    }[issue] || issue || '미분류';
+}
+function renderIssueGroups(qualityPolicy) {
+    const groups = Object.entries(qualityPolicy?.groups || {})
+        .map(([id, item]) => ({ id, ...item }))
+        .sort((a, b) => ({ repair: 0, watch: 1, preferred: 2 }[a.tier] ?? 3) - ({ repair: 0, watch: 1, preferred: 2 }[b.tier] ?? 3) || Number(a.score) - Number(b.score));
+    $('group-rows').innerHTML = groups.slice(0, 60).map(item => `<tr>
+        <td>${esc(item.source || '-')} · ${esc(item.region || '-')}<div class="mini">${esc(issueGroupLabel(item.issue))}</div></td>
+        <td class="mono">${Number(item.camera_count || 0).toLocaleString('ko-KR')}</td>
+        <td><span class="pill ${repairTone(Number(item.score))}">${Number.isFinite(Number(item.score)) ? `${Math.round(Number(item.score))}점` : '-'}</span></td>
+        <td><span class="pill ${item.tier === 'repair' ? 'bad' : item.tier === 'watch' ? 'warn' : 'ok'}">${esc(item.tier || '-')}</span></td>
+        <td class="mono">${esc(item.review_interval_hours || '-')}시간</td>
+        <td>${esc(repairActionLabel(item.recommended_action))}${infoButton(item.recommended_action)}</td>
+    </tr>`).join('') || '<tr><td colspan="6">품질 그룹 데이터가 아직 없습니다.</td></tr>';
 }
 function repairTone(score) {
     if (score <= 30) return 'bad';
