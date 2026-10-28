@@ -58,6 +58,7 @@ jobs:
           python scripts/renew_cctv_urls.py
           code=$?
           set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -ne 0 ]; then
             echo "::warning::Auto-renew failed with exit $code. Keeping existing catalog and recording workflow status."
             cp /tmp/cctv_data.before.json cctv_data.json
@@ -67,15 +68,16 @@ jobs:
       - name: Record adaptive UTIC renewal result
         if: always() && steps.plan.outputs.due_utic_renew == 'true'
         run: |
-          if [[ "${{ steps.renew.outcome }}" == "success" ]]; then
+          if [[ "${{ steps.renew.outputs.exit_code }}" == "0" ]]; then
             python scripts/adaptive_collection.py record --task utic_renew --result success
           else
             python scripts/adaptive_collection.py record --task utic_renew --result failure
+          fi
 
       - name: Record adaptive KBS renewal result
         if: always() && steps.plan.outputs.due_kbs_renew == 'true'
         run: |
-          if [[ "${{ steps.renew.outcome }}" == "success" ]]; then
+          if [[ "${{ steps.renew.outputs.exit_code }}" == "0" ]]; then
             python scripts/adaptive_collection.py record --task kbs_renew --result success
           else
             python scripts/adaptive_collection.py record --task kbs_renew --result failure
