@@ -38,6 +38,9 @@ jobs:
       - name: Validate static data hygiene
         run: python scripts/validate_static_data.py
 
+      - name: Validate GitHub workflow YAML and shell blocks
+        run: python scripts/validate_workflows.py
+
       - name: Compile Python
         run: python -m compileall -q -x '(^|/)(node_modules|\\.git|venv)/' .
 
