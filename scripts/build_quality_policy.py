@@ -144,6 +144,48 @@ def build_group_rollups(cameras: dict[str, Any], now: datetime) -> tuple[dict[st
             queue.append({"id": f"group:{key}", "name": key, "source": group["source"], "score": average_score, "action": group["recommended_action"], "review_interval_hours": interval, "camera_count": count})
     return output, queue
 
+
+def build_operations_log_entry(groups: dict[str, Any], previous: dict[str, Any] | None, stamp: str) -> dict[str, Any]:
+    """Create a compact, append-only record for operations review."""
+    tier_counts = defaultdict(int)
+    issue_counts = defaultdict(int)
+    for item in groups.values():
+        tier_counts[str(item.get("tier") or "unknown")] += 1
+        issue_counts[str(item.get("issue") or "unknown")] += 1
+    previous_groups = (previous or {}).get("group_snapshot") or (previous or {}).get("groups") or {}
+    current_keys, previous_keys = set(groups), set(previous_groups)
+    changed = []
+    for key in sorted(current_keys | previous_keys):
+        before = previous_groups.get(key) or {}
+        after = groups.get(key) or {}
+        if before.get("tier") != after.get("tier") or before.get("issue") != after.get("issue"):
+            changed.append({"group": key, "from": before.get("tier") or "new", "to": after.get("tier") or "resolved"})
+    recommendations = []
+    if issue_counts.get("connection_failure"):
+        recommendations.append("공급처별 직접 재검증과 토큰/원본 응답을 우선 확인")
+    if issue_counts.get("slow_startup"):
+        recommendations.append("첫 화면 지연 그룹의 프록시·DNS·세그먼트 지연을 비교 측정")
+    if issue_counts.get("insufficient_evidence"):
+        recommendations.append("표본 부족 그룹은 삭제하지 말고 브라우저 재생 표본을 추가 수집")
+    if issue_counts.get("fallback_heavy"):
+        recommendations.append("대체 경로가 많은 그룹은 기본 stream과 정규 매핑을 별도로 검증")
+    return {
+        "generated_at": stamp,
+        "group_count": len(groups),
+        "tier_counts": dict(sorted(tier_counts.items())),
+        "issue_counts": dict(sorted(issue_counts.items())),
+        "repair_groups": [
+            {"group": key, "score": item.get("score"), "camera_count": item.get("camera_count"), "action": item.get("recommended_action")}
+            for key, item in sorted(groups.items(), key=lambda pair: (pair[1].get("tier") != "repair", pair[1].get("score", 100)))
+            if item.get("tier") == "repair"
+        ][:30],
+        "changed_groups": changed[:100],
+        "new_groups": sorted(current_keys - previous_keys)[:100],
+        "resolved_groups": sorted(previous_keys - current_keys)[:100],
+        "research_recommendations": recommendations,
+        "group_snapshot": {key: {"tier": item.get("tier"), "issue": item.get("issue"), "score": item.get("score")} for key, item in groups.items()},
+    }
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--summary", default=str(ROOT / "data" / "quality_summary.json"))
@@ -187,7 +229,13 @@ def main() -> int:
     if not isinstance(history, list): history = []
     history.append({"generated_at": stamp, "groups": {key: {k: value for k, value in item.items() if k not in {"camera_ids"}} for key, item in groups.items()}, "repair_group_count": len(group_queue)})
     atomic_write_json(history_path, history[-180:], sort_keys=True)
-    print(json.dumps({"cameras": len(camera_policy), "sources": len(source_policy), "groups": len(groups), "repair_items": len(queue_for_output), "repair_groups": len(group_queue)}, ensure_ascii=False))
+    log_path = ROOT / "data" / "quality_operations_log.json"
+    operation_log = load(log_path, [])
+    if not isinstance(operation_log, list): operation_log = []
+    previous_log = operation_log[-1] if operation_log else None
+    operation_log.append(build_operations_log_entry(groups, previous_log, stamp))
+    atomic_write_json(log_path, operation_log[-720:], sort_keys=True)
+    print(json.dumps({"cameras": len(camera_policy), "sources": len(source_policy), "groups": len(groups), "repair_items": len(queue_for_output), "repair_groups": len(group_queue), "log_entries": len(operation_log[-720:])}, ensure_ascii=False))
     return 0
 
 if __name__ == "__main__": raise SystemExit(main())
