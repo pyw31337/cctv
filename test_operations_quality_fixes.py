@@ -1,5 +1,6 @@
 import unittest
 import json
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,7 +8,7 @@ from scripts.build_quality_summary_fallback import row_from_check_registry
 from scripts.canary_probe import SimpleResponse, resolve_probe_url, select_candidates, summarize_region, verify_hls_segment
 from scripts.ingest_gits import merge_gits_catalog
 from scripts.adaptive_collection import TASKS, browser_grid_signal, effective_interval, source_quality_signal
-from scripts.renew_cctv_urls import kbs_renewal_candidates, kbs_token_expires_soon
+from scripts.renew_cctv_urls import kbs_renewal_candidates, kbs_token_expires_soon, quality_repair_candidates
 from cctv_runtime import NAMYANGJU_GOLDEN_STREAMS
 
 
@@ -150,6 +151,22 @@ class HlsSegmentProbeTests(unittest.TestCase):
 
 
 class AdaptiveQualityTests(unittest.TestCase):
+    def test_quality_reprobe_actions_reach_safe_utic_url_refresh(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", encoding="utf-8") as handle:
+            json.dump({"items": [
+                {"id": "UTIC_BAD", "action": "reprobe_and_inspect_provider"},
+                {"id": "UTIC_SLOW", "action": "check_token_proxy_and_origin_latency"},
+                {"id": "group:UTIC:서울:connection_failure", "action": "reprobe_and_inspect_provider"},
+                {"id": "UTIC_OLD", "action": "maintain_cadence"},
+            ]}, handle)
+            handle.flush()
+            data = {
+                "UTIC_BAD": {"id": "UTIC_BAD", "source": "UTIC"},
+                "UTIC_SLOW": {"id": "UTIC_SLOW", "source": "UTIC"},
+                "UTIC_OLD": {"id": "UTIC_OLD", "source": "UTIC"},
+            }
+            self.assertEqual(quality_repair_candidates(data, handle.name), ["UTIC_BAD", "UTIC_SLOW"])
+
     def test_kbs_tokens_are_scheduled_before_they_expire(self):
         self.assertIn("kbs_renew", TASKS)
         self.assertTrue(kbs_token_expires_soon("https://example.test/live.m3u8?wowzatokenendtime=100", now=100))

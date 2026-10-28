@@ -26,6 +26,13 @@ FAILED_STREAMS_FILE = "failed_streams.json"
 RENEWAL_REPORT_FILE = "renewal_report.json"
 QUALITY_REPAIR_QUEUE_FILE = os.getenv("QUALITY_REPAIR_QUEUE_FILE", "data/quality_repair_queue.json")
 QUALITY_REPAIR_LIMIT = max(0, int(os.getenv("QUALITY_REPAIR_LIMIT", "80")))
+# Only actions that are safe for this worker: refresh a provider URL and
+# re-check it. Mapping promotion and source changes stay outside this path.
+QUALITY_URL_REFRESH_ACTIONS = {
+    "probe_stream",
+    "reprobe_and_inspect_provider",
+    "check_token_proxy_and_origin_latency",
+}
 API_URL = "https://www.utic.go.kr/map/getCctvInfoById.do"
 KEY = first_env("UTIC_API_KEY", "UTIC_KEY")
 KBS_RENEW_WITHIN_SECONDS = int(os.getenv("KBS_RENEW_WITHIN_SECONDS", str(8 * 60 * 60)))
@@ -143,7 +150,7 @@ def quality_repair_candidates(data_map, path=QUALITY_REPAIR_QUEUE_FILE, limit=QU
         return []
     selected = []
     for item in items:
-        if not isinstance(item, dict) or item.get("action") != "probe_stream":
+        if not isinstance(item, dict) or item.get("action") not in QUALITY_URL_REFRESH_ACTIONS:
             continue
         camera_id = str(item.get("id") or "")
         camera = data_map.get(camera_id)
