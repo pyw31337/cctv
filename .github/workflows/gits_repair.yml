@@ -17,8 +17,8 @@ env:
   CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
 
 concurrency:
-  group: cctv-repo-writes
-  cancel-in-progress: false
+  group: cctv-gits-ingest
+  cancel-in-progress: true
 
 jobs:
   ingest:
@@ -46,7 +46,7 @@ jobs:
         if: steps.plan.outputs.due_gits_ingest == 'true'
         continue-on-error: true
         run: |
-          python scripts/ingest_gits.py
+          timeout --signal=TERM --kill-after=60s 40m python scripts/ingest_gits.py
 
       - name: Record adaptive collection result
         if: always() && steps.plan.outputs.due_gits_ingest == 'true'
