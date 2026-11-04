@@ -25,7 +25,10 @@ permissions:
 
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  # Do not cancel a Pages deployment after GitHub has handed it to the Pages
+  # service. The server-side deployment can remain in progress and reject the
+  # next artifact even after the Actions run is canceled.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -100,7 +103,7 @@ jobs:
           path: '_site'
 
   deploy:
-    timeout-minutes: 25
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -111,4 +114,4 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v5
         with:
-          timeout: 1200000
+          timeout: 600000
