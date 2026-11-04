@@ -13,13 +13,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: cctv-repo-writes
-  cancel-in-progress: false
+  # A scheduled refresh is replaceable work. Never let an old, slow provider
+  # request block the next scheduled refresh or create a cancellation queue.
+  group: cctv-domestic-refresh
+  cancel-in-progress: true
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 240 # Allow up to 4 hours for stealth sync
+    timeout-minutes: 75
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,7 +54,7 @@ jobs:
           # recorded as key_problem events in data/workflow_status.json.
           ITS_API_KEY: ${{ secrets.ITS_API_KEY }}
           UTIC_API_KEY: ${{ secrets.UTIC_API_KEY }}
-        run: python collect_cctv_data.py --force --duration 3.0
+        run: timeout --signal=TERM --kill-after=90s 60m python collect_cctv_data.py --force --duration 3.0
 
       - name: Validate CCTV data
         id: validate

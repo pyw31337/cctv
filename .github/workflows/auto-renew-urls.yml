@@ -13,8 +13,10 @@ env:
   CCTV_COMMIT_PUSH_SOFT_FAIL: '1'
 
 concurrency:
-  group: cctv-repo-writes
-  cancel-in-progress: false
+  # Renewal is idempotent and should be replaced by a newer run if a provider
+  # stalls, rather than starving later maintenance jobs.
+  group: cctv-url-renewal
+  cancel-in-progress: true
 
 jobs:
   renew-urls:

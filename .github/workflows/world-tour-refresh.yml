@@ -14,9 +14,9 @@ permissions:
   contents: write
 
 concurrency:
-  # This also writes the shared catalog report, so serialize all repo writers.
-  group: cctv-repo-writes
-  cancel-in-progress: false
+  # A refresh is replaceable work and must not hold a repository-wide queue.
+  group: cctv-world-refresh
+  cancel-in-progress: true
 
 jobs:
   refresh-world-tour:
