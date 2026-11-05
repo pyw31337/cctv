@@ -53,6 +53,9 @@ npm run browser:canary
 - `ITS_API_KEY`: ITS OpenAPI 키. 없으면 공개 데모 키 `test`로 동작하고, `data/workflow_status.json`에 `key_problem` 경고를 남깁니다 (운영에서는 개인 키 사용 권장)
 - `UTIC_API_KEY` or `UTIC_KEY`: UTIC/OpenData key. 없으면 UTIC 갱신을 건너뛰고 기존 UTIC 데이터를 재사용하며 `key_problem` 오류를 남깁니다
 - `EX_API_KEY` (또는 `EXDATA_API_KEY`): 한국도로공사 공공데이터포털(data.ex.co.kr) 키. 프록시 서버의 `/highway-traffic`(실시간 고속도로 소통)이 사용하며, 없으면 데모 키 `test`로 동작합니다
+- `WINDY_WEBCAMS_API_KEY` (또는 `WINDY_API_KEY`): Windy Webcams API 키. 설정된 경우 World Tour 갱신에서 최대 60개까지 보조 수집합니다. Windy의 이미지 URL은 짧은 만료 시간을 가지므로 직접 재생 검증을 통과하지 않은 항목은 source-only로 낮춰 표시하며, 이 키가 없어도 기존 수집·재생에는 영향이 없습니다.
+- `OPENWEBCAMDB_API_KEY`: OpenWebcamDB API 키. 약관과 서비스 내 출처·저작권 표시를 먼저 확인한 뒤에만 등록하세요. 기본 한도는 0이며, 현재 자동 활성화하지 않습니다. 경쟁 디렉터리/집계 서비스 제한이 있는 경우 키를 넣지 마세요.
+- `YOUTUBE_DATA_API_KEY`: 선택 사항입니다. 현재 YouTube 수집은 yt-dlp 기반 라이브 검색을 사용하며, 이 키가 없어도 동작합니다. YouTube Data API는 검색/메타데이터 용도이고 직접 HLS 주소를 제공하지 않으므로, 키가 있다고 해서 재생 성공률이 자동으로 올라가지는 않습니다.
 - `HIGHWAY_TRAFFIC_TTL_SECONDS`: `/highway-traffic` 메모리 캐시 유지 시간(기본 180초, 120~300초 범위). upstream 실패 시 마지막 정상 스냅샷을 `stale: true`로 응답합니다
 - `HIGHWAY_TRAFFIC_RETRY_SECONDS`: `/highway-traffic` 갱신 실패 후 재시도 최소 간격(기본 60초)
 - `HIGHWAY_TRAFFIC_ROUTE`: `auto`(기본) | `direct` | `oracle` | `worker` | `relay`. data.ex.co.kr은 해외 서버(Fly 도쿄 등)에서 직접 접속이 안 되므로, `auto`는 직접 호출 → 국내 Oracle 프록시(`CCTV_PUBLIC_PROXY_BASE` + `/proxy?url=`) → Cloudflare Worker(`CCTV_WORKER_PROXY_BASE` + `/proxy?url=`) 순으로 시도하고, 성공한 경로를 다음 갱신에 우선 사용합니다. 인증키 오류는 경로를 바꿔 재시도하지 않습니다. Worker 경유는 응답이 20초 이상 걸릴 수 있어 읽기 타임아웃을 `HIGHWAY_TRAFFIC_RELAY_TIMEOUT_SECONDS`(기본 45초)로 따로 두며, 갱신 중에는 다른 요청이 기다리지 않고 기존 스냅샷(없으면 503 `warming_up`)을 받습니다. 화면에서는 관측 시각이 90분 넘게 지난 스냅샷은 배지를 숨깁니다.

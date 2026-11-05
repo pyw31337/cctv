@@ -180,6 +180,7 @@ SOURCE_VIDEO_ID_FALLBACKS = {
 }
 YOUTUBE_SEARCH_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_LIMIT', '420'))
 YOUTUBE_SEARCH_PER_QUERY_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_SEARCH_PER_QUERY_LIMIT', '48'))
+YOUTUBE_DATA_API_LIMIT = int(os.getenv('WORLD_TOUR_YOUTUBE_DATA_API_LIMIT', '0'))
 WORLD_TOUR_EARTHCAM_LIMIT = int(os.getenv('WORLD_TOUR_EARTHCAM_LIMIT', '90'))
 WORLD_TOUR_WORLDCAM_LIMIT = int(os.getenv('WORLD_TOUR_WORLDCAM_LIMIT', '130'))
 WORLD_TOUR_BALTIC_LIMIT = int(os.getenv('WORLD_TOUR_BALTIC_LIMIT', '70'))
@@ -4780,6 +4781,72 @@ def collect_youtube_search(limit=YOUTUBE_SEARCH_LIMIT):
     return items
 
 
+def collect_youtube_data_api(limit=YOUTUBE_DATA_API_LIMIT):
+    """Use the official YouTube API only as an optional discovery fallback.
+
+    The API supplies metadata and live IDs, not a bypass around YouTube embed
+    policy. Every returned item still goes through the normal playability audit.
+    Keeping the default limit at zero prevents an unexpected quota spend.
+    """
+    api_key = os.getenv('YOUTUBE_DATA_API_KEY', '').strip()
+    if not api_key or limit <= 0:
+        return []
+    per_query = max(1, min(25, limit))
+    cache = load_geocode_cache()
+    found = {}
+    for query in youtube_search_queries():
+        search_url = (
+            'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&eventType=live'
+            f'&maxResults={per_query}&q={quote(query)}&key={quote(api_key)}'
+        )
+        try:
+            payload = fetch_json_with_headers(search_url, timeout=18)
+        except Exception:
+            continue
+        for result in payload.get('items', []) if isinstance(payload, dict) else []:
+            video_id = ((result.get('id') or {}).get('videoId') if isinstance(result, dict) else '')
+            snippet = result.get('snippet') if isinstance(result, dict) else {}
+            title = (snippet or {}).get('title') or ''
+            if not video_id or not title or YOUTUBE_SEARCH_NEGATIVE.search(title):
+                continue
+            if not (POSITIVE_TITLE.search(title) or youtube_location_hint(title)):
+                continue
+            location = infer_youtube_location(title, cache)
+            if not location:
+                continue
+            thumbs = (snippet or {}).get('thumbnails') or {}
+            thumb = ''
+            for key in ('maxres', 'high', 'medium', 'default'):
+                if isinstance(thumbs.get(key), dict) and thumbs[key].get('url'):
+                    thumb = thumbs[key]['url']
+                    break
+            found[video_id] = {
+                'id': f'youtube-api-{slugify(video_id)}',
+                'title': location.get('title') or clean_youtube_search_title(title),
+                'subtitle': clean_youtube_search_title(title)[:110],
+                'city': location['city'],
+                'country': location['country'],
+                'region': location['region'],
+                'lat': location['lat'],
+                'lng': location['lng'],
+                'videoId': video_id,
+                'channel': (snippet or {}).get('channelTitle') or 'YouTube',
+                'sourceUrl': f'https://www.youtube.com/watch?v={video_id}',
+                'thumbnailUrl': thumb,
+                'tags': ['tourism', 'youtube-api', 'livecam'],
+                'priority': 67,
+                'status': 'is_live',
+                'sourceType': 'youtube-api',
+                'discoveredBy': query,
+            }
+            if len(found) >= limit:
+                break
+        if len(found) >= limit:
+            break
+    save_geocode_cache(cache)
+    return list(found.values())
+
+
 def extract_iframe_embed(text):
     for embed_url in extract_iframe_embeds(text):
         if is_valid_embed_url(embed_url):
@@ -5064,6 +5131,7 @@ def main():
         ('africam', collect_africam_seeds),
         ('thematic_seeds', collect_thematic_seeds),
         ('webcamtaxi', collect_webcamtaxi_seeds),
+        ('youtube_api', collect_youtube_data_api),
         ('youtube_search', collect_youtube_search),
     ]
     additions = []
@@ -5128,6 +5196,7 @@ def main():
             'youtubeSearchQueries': youtube_search_queries(),
             'youtubeSearchLimit': YOUTUBE_SEARCH_LIMIT,
             'youtubeSearchPerQueryLimit': YOUTUBE_SEARCH_PER_QUERY_LIMIT,
+            'youtubeDataApiLimit': YOUTUBE_DATA_API_LIMIT,
             'earthCamLimit': WORLD_TOUR_EARTHCAM_LIMIT,
             'worldCamLimit': WORLD_TOUR_WORLDCAM_LIMIT,
             'balticLimit': WORLD_TOUR_BALTIC_LIMIT,
@@ -5170,6 +5239,26 @@ def main():
             'qualityPolicy': 'verified playback, source trust, positive tourist context, and coordinate availability are scored before ranking.',
             'sourcePolicy': 'Only public official/source-site or embeddable tourist webcams are retained; snapshot-only feeds, raw exposed IP camera scanners, and private RTSP feeds are excluded.',
             'snapshotPolicy': 'Static or periodically refreshed image-only feeds are removed from the user-facing global CCTV list.',
+            'capabilityGates': {
+                'windy': {
+                    'enabled': bool(os.getenv('WINDY_WEBCAMS_API_KEY') or os.getenv('WINDY_API_KEY')) and WORLD_TOUR_WINDY_LIMIT > 0,
+                    'limit': WORLD_TOUR_WINDY_LIMIT,
+                    'requiresSecret': 'WINDY_WEBCAMS_API_KEY',
+                    'playbackNote': 'Windy metadata and preview images are not direct-video proof; only independently verified embed/play URLs are ranked as in-app playable.',
+                },
+                'openwebcamdb': {
+                    'enabled': bool(os.getenv('OPENWEBCAMDB_API_KEY')) and WORLD_TOUR_OPENWEBCAMDB_LIMIT > 0,
+                    'limit': WORLD_TOUR_OPENWEBCAMDB_LIMIT,
+                    'requiresSecret': 'OPENWEBCAMDB_API_KEY',
+                    'playbackNote': 'Disabled by default until terms, attribution, and non-competing-directory permission are confirmed.',
+                },
+                'youtube': {
+                    'enabled': bool(YTDLP_BIN),
+                    'apiKeyOptional': 'YOUTUBE_DATA_API_KEY',
+                    'apiLimit': YOUTUBE_DATA_API_LIMIT,
+                    'playbackNote': 'YouTube live IDs are checked for embeddability and current live status; a Data API key does not bypass owner embed restrictions.',
+                },
+            },
             'openWebcamDbStatus': 'API-key gated via OPENWEBCAMDB_API_KEY; default disabled until terms and attribution are configured.',
             'insecamStatus': 'Excluded: unsecured private surveillance camera directory, not suitable for this curated public tourist dataset.',
             'generationNote': 'Some source counts can include retained items from previous verified runs when a collector is disabled, API-key gated, or rate-limited during the latest run.',

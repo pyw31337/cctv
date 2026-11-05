@@ -45,6 +45,15 @@ jobs:
           WORLD_TOUR_YOUTUBE_SEARCH_LIMIT: '420'
           WORLD_TOUR_WEBCAMERA24_LIMIT: '190'
           WORLD_TOUR_WEBCAMSMEXICO_LIMIT: '80'
+          # Windy is optional and only runs when the repository secret exists.
+          # Keep the free-tier request bounded; its image URLs are short-lived
+          # and are never treated as proof of direct in-app video playback.
+          WINDY_WEBCAMS_API_KEY: ${{ secrets.WINDY_WEBCAMS_API_KEY }}
+          WORLD_TOUR_WINDY_LIMIT: '60'
+          # Official API discovery is optional; keep quota bounded and let the
+          # existing yt-dlp path continue to work when this secret is absent.
+          YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
+          WORLD_TOUR_YOUTUBE_DATA_API_LIMIT: '80'
           # LiveBeaches sitemap traversal is frequently slow/rate-limited; keep
           # retained historical entries but do not let it block daily health.
           WORLD_TOUR_LIVEBEACHES_LIMIT: '0'
