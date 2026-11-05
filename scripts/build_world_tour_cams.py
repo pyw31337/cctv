@@ -4788,7 +4788,7 @@ def collect_youtube_data_api(limit=YOUTUBE_DATA_API_LIMIT):
     policy. Every returned item still goes through the normal playability audit.
     Keeping the default limit at zero prevents an unexpected quota spend.
     """
-    api_key = os.getenv('YOUTUBE_DATA_API_KEY', '').strip()
+    api_key = (os.getenv('YOUTUBE_DATA_API_KEY') or os.getenv('YOUTUBE_API_KEY') or '').strip()
     if not api_key or limit <= 0:
         return []
     per_query = max(1, min(25, limit))
