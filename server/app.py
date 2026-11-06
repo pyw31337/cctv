@@ -142,6 +142,46 @@ def url_host_matches(target_url, *domains):
     return any(host_matches(hostname, domain) for domain in domains)
 
 
+# Upstream TLS: verify certificates by default (every upstream call used to
+# pass verify=False). Some Korean public-sector streams serve incomplete chains
+# or certificates for a bare IP, so a host that fails verification falls back
+# to verify=False for the rest of this process, logged once. Anyone able to
+# make verification fail could also trigger that fallback, so hosts listed in
+# TLS_STRICT_HOSTS (e.g. utic.go.kr, whose requests carry the API key) never
+# fall back. (Restored from c69abf2, plus the strict list.)
+TLS_STRICT_HOSTS = tuple(
+    host.strip().lower() for host in (os.environ.get('TLS_STRICT_HOSTS') or '').split(',') if host.strip()
+)
+_tls_fallback_hosts = set()
+_tls_fallback_lock = threading.Lock()
+
+
+def verified_request(method, url, session=None, **kwargs):
+    """requests.<method> (or session.<method>) with certificate verification
+    and a per-host insecure fallback for hosts with broken certificates."""
+    kwargs.pop('verify', None)
+    send = getattr(session or requests, method.lower())
+    hostname = (urlparse(url).hostname or '').lower()
+    with _tls_fallback_lock:
+        insecure = hostname in _tls_fallback_hosts
+    if insecure:
+        return send(url, verify=False, **kwargs)
+    try:
+        return send(url, verify=True, **kwargs)
+    except requests.exceptions.SSLError as exc:
+        if any(host_matches(hostname, strict) for strict in TLS_STRICT_HOSTS):
+            logger.error("TLS verification failed for strict host %s; not falling back: %s",
+                         hostname, redact_text_for_log(exc))
+            raise
+        with _tls_fallback_lock:
+            first_failure = hostname not in _tls_fallback_hosts
+            _tls_fallback_hosts.add(hostname)
+        if first_failure:
+            logger.warning("TLS verification failed for %s; using verify=False for this host: %s",
+                           hostname, redact_text_for_log(exc))
+        return send(url, verify=False, **kwargs)
+
+
 def build_proxy_headers(target_url):
     """Per-provider headers, chosen by the real hostname rather than a substring
     so a crafted URL cannot receive the key-bearing UTIC Referer."""
@@ -327,7 +367,6 @@ Z3_LOCAL_CACHE_FILE = os.environ.get('Z3_LOCAL_CACHE_FILE', os.path.join(ROOT_DI
 
 JEJU_STREAM_CACHE_TTL_SECONDS = 120
 jeju_session = requests.Session()
-jeju_session.verify = False
 jeju_lock = threading.Lock()
 jeju_stream_cache = {}
 
@@ -462,10 +501,9 @@ def _refresh_z3_from_its():
     Caller must hold _z3_cache['lock']. Returns True if successful."""
     try:
         s = requests.Session()
-        s.verify = False
         logger.info("Z3: Attempting direct its.go.kr refresh...")
 
-        r = s.get('https://its.go.kr/', timeout=15,
+        r = verified_request('GET', 'https://its.go.kr/', session=s, timeout=15,
                   headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
         xsrf = s.cookies.get('XSRF-TOKEN', '')
         if not xsrf:
@@ -479,7 +517,7 @@ def _refresh_z3_from_its():
             'X-XSRF-TOKEN': xsrf,
             'Accept': 'application/json',
         }
-        r2 = s.post('https://its.go.kr/map/getMarkers',
+        r2 = verified_request('POST', 'https://its.go.kr/map/getMarkers', session=s,
                     data=json.dumps({'body': {'data': {'type': 'CCTV'}}}),
                     headers=headers, timeout=120)
 
@@ -622,10 +660,10 @@ def get_z3_app_url(cctvip):
 
 
 def fetch_z3_hls_url(app_url):
-    return requests.get(
+    return verified_request(
+        'GET',
         app_url + '!hls',
         timeout=10,
-        verify=False,
         headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
             'Referer': 'https://its.go.kr/'
@@ -1203,10 +1241,10 @@ def fetch_upstream(url, headers, attempts=3, max_redirects=5):
         resp = None
         for attempt in range(1, attempts + 1):
             try:
-                resp = requests.get(
+                resp = verified_request(
+                    'GET',
                     current_url,
                     timeout=(5, 20),
-                    verify=False,
                     headers=hop_headers,
                     allow_redirects=False,
                     stream=True,
@@ -1485,7 +1523,7 @@ def proxy_daejeon():
         real_url = f"https://tportal.daejeon.go.kr:37084/{media_path}/media/{stream_id}/{stream_id}_{timestamp}.000.mp4"
         last_url = real_url
         try:
-            resp = requests.get(real_url, headers=probe_headers, timeout=(1.0, 1.5), verify=False, stream=True)
+            resp = verified_request('GET', real_url, headers=probe_headers, timeout=(1.0, 1.5), stream=True)
             if resp.status_code in (200, 206):
                 logger.info(f"Proxying Daejeon {cctv_id} offset={offset}m -> {real_url}")
                 return flask.redirect(real_url)
@@ -1796,8 +1834,10 @@ def proxy_jeju():
     try:
         if not jeju_session.cookies:
             try:
-                jeju_session.get(
+                verified_request(
+                    'GET',
                     "https://www.jejuits.go.kr/jido/mainView.do",
+                    session=jeju_session,
                     headers=headers,
                     timeout=(2, 4),
                 )
@@ -1814,7 +1854,7 @@ def proxy_jeju():
                 "maplevel": "14",
             }
             logger.info(f"Jeju: Resolving UUID for {short_id}...")
-            resp = jeju_session.post(info_url, data=payload, headers=headers, timeout=(2, 4))
+            resp = verified_request('POST', info_url, session=jeju_session, data=payload, headers=headers, timeout=(2, 4))
             if resp.status_code == 200:
                 data = resp.json()
                 if 'stremid' in data:
@@ -1830,7 +1870,7 @@ def proxy_jeju():
         payload = {"DEVICE_ID": target_id}
 
         logger.info(f"Jeju: Fetching token for {target_id}...")
-        resp = jeju_session.post(target_api, data=payload, headers=headers, timeout=(3, 12))
+        resp = verified_request('POST', target_api, session=jeju_session, data=payload, headers=headers, timeout=(3, 12))
         if resp.status_code != 200:
             return f"Jeju API Error: {resp.status_code}", 502
 
@@ -1929,7 +1969,7 @@ def proxy_utic():
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": "https://www.utic.go.kr/guide/cctvOpenData.do"
         }
-        resp = requests.get(jsp_url, headers=headers, timeout=10, verify=False)
+        resp = verified_request('GET', jsp_url, headers=headers, timeout=10)
         if resp.status_code != 200:
             return f"UTIC JSP Error: {resp.status_code}", 502
 
@@ -2019,7 +2059,7 @@ def proxy_kb():
     }
 
     try:
-        resp = requests.get(utic_api_url, headers=headers, timeout=10, verify=False)
+        resp = verified_request('GET', utic_api_url, headers=headers, timeout=10)
         if resp.status_code != 200:
             return f"UTIC KB API error: {resp.status_code}", 502
 
@@ -2089,7 +2129,7 @@ def proxy_gits():
             hls_token_url = match_hls.group(1)
             if hls_token_url.startswith("//"):
                 hls_token_url = "https:" + hls_token_url
-            hls_resp = requests.get(hls_token_url, headers=gits_headers, timeout=10, verify=False)
+            hls_resp = verified_request('GET', hls_token_url, headers=gits_headers, timeout=10)
             if hls_resp.status_code == 200:
                 m3u8_url = hls_resp.text.strip()
                 if m3u8_url.startswith("http"):

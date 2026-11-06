@@ -247,6 +247,65 @@ class ServerResilienceTests(unittest.TestCase):
         self.assertEqual(client.get('/proxy', headers={'X-Forwarded-For': '1.1.1.1'}, environ_base=direct).status_code, 400)
         self.assertEqual(client.get('/proxy', headers={'X-Forwarded-For': '2.2.2.2'}, environ_base=direct).status_code, 429)
 
+    def _fake_tls_get(self, broken_hosts, calls):
+        def fake_get(url, verify=True, **_kwargs):
+            calls.append((url.split('/')[2], verify))
+            if verify and url.split('/')[2] in broken_hosts:
+                raise requests.exceptions.SSLError('certificate verify failed')
+            return 'ok'
+        return fake_get
+
+    def test_tls_is_verified_by_default(self):
+        self.addCleanup(server_app._tls_fallback_hosts.clear)
+        calls = []
+        with patch.object(server_app.requests, 'get', side_effect=self._fake_tls_get(set(), calls)):
+            self.assertEqual(server_app.verified_request('GET', 'https://good.example/a'), 'ok')
+        self.assertEqual(calls, [('good.example', True)])
+
+    def test_broken_tls_host_falls_back_once_and_is_remembered(self):
+        self.addCleanup(server_app._tls_fallback_hosts.clear)
+        calls = []
+        with patch.object(server_app.requests, 'get', side_effect=self._fake_tls_get({'broken.example'}, calls)):
+            server_app.verified_request('GET', 'https://broken.example/a')
+            server_app.verified_request('GET', 'https://broken.example/b')
+            server_app.verified_request('GET', 'https://good.example/c')
+        self.assertEqual(calls, [
+            ('broken.example', True), ('broken.example', False),
+            ('broken.example', False),
+            ('good.example', True),
+        ])
+
+    def test_strict_tls_host_never_falls_back(self):
+        self.addCleanup(server_app._tls_fallback_hosts.clear)
+        calls = []
+        with patch.object(server_app, 'TLS_STRICT_HOSTS', ('utic.go.kr',)), \
+                patch.object(server_app.requests, 'get', side_effect=self._fake_tls_get({'www.utic.go.kr'}, calls)):
+            with self.assertRaises(requests.exceptions.SSLError):
+                server_app.verified_request('GET', 'https://www.utic.go.kr/jsp?key=SECRET')
+        self.assertEqual(calls, [('www.utic.go.kr', True)])
+        self.assertNotIn('www.utic.go.kr', server_app._tls_fallback_hosts)
+
+    def test_tls_fallback_works_through_a_session(self):
+        self.addCleanup(server_app._tls_fallback_hosts.clear)
+        calls = []
+
+        class Session:
+            post = staticmethod(self._fake_tls_get({'www.jejuits.go.kr'}, calls))
+
+        self.assertEqual(server_app.verified_request('POST', 'https://www.jejuits.go.kr/x', session=Session()), 'ok')
+        self.assertEqual(calls, [('www.jejuits.go.kr', True), ('www.jejuits.go.kr', False)])
+
+    def test_upstream_calls_do_not_disable_tls_verification_directly(self):
+        source = Path(server_app.__file__).read_text(encoding='utf-8')
+        start = source.index('def verified_request(')
+        end = source.index('\ndef ', start + 1)
+        outside = [
+            line for line in (source[:start] + source[end:]).splitlines()
+            if not line.strip().startswith('#')
+        ]
+        offenders = [line.strip() for line in outside if 'verify=False' in line or '.verify = False' in line]
+        self.assertEqual(offenders, [])
+
     def test_kill_stream_removes_terminated_process_and_files(self):
         class TerminatedProcess:
             def poll(self):
