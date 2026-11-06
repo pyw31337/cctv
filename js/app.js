@@ -4363,6 +4363,117 @@ function openIssueReporter(cctv) {
     window.open(issueUrl, '_blank', 'noopener');
 }
 
+// === Selection stability (hysteresis) ===
+// Health and quality data refresh every few minutes and each sample is noisy,
+// so score-based ranking alone reshuffled the 4-up grid on every visit to the
+// same place. Once a place has shown a top-4, keep showing it on later visits
+// (30 days, refreshed on each visit) and replace a camera only after it has
+// looked broken continuously for 10 minutes. (Restored from e8d3a5f.)
+const STICKY_SELECTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const STICKY_SELECTION_PIN_COUNT = 4;
+const STICKY_SELECTION_STORAGE_KEY = 'stickyCamSelections_v3';
+const STICKY_SELECTION_MAX_ENTRIES_PER_KIND = 60;
+const STICKY_SELECTION_BROKEN_GRACE_MS = 10 * 60 * 1000;
+const STICKY_LOCATION_GRID = 3000; // ~35m cells, used when there is no search keyword
+const STICKY_KEYWORD_RADIUS_KM = 0.5;
+
+function readStickySelectionStore() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(STICKY_SELECTION_STORAGE_KEY) || 'null');
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function writeStickySelectionStore(store) {
+    try {
+        // Trim searched places and map positions separately, so panning around
+        // the map cannot evict the cameras remembered for a searched place.
+        const entries = Object.entries(store);
+        const kept = ['kw:', 'geo:'].flatMap(prefix => entries
+            .filter(([key]) => key.startsWith(prefix))
+            .sort((a, b) => (b[1]?.ts || 0) - (a[1]?.ts || 0))
+            .slice(0, STICKY_SELECTION_MAX_ENTRIES_PER_KIND));
+        localStorage.setItem(STICKY_SELECTION_STORAGE_KEY, JSON.stringify(Object.fromEntries(kept)));
+    } catch (_) { /* storage may be unavailable (private mode, quota) */ }
+}
+
+function getStickyLocationKey(lat, lng, store) {
+    const mode = state.sortMode || 'nearest';
+    // The searched place name identifies "the same place" better than
+    // coordinates, which drift slightly between geocodes of the same name.
+    // (Not getCurrentSearchContextKeyword: it also folds in the search box
+    // text, so clearing the box would change the key.)
+    const keyword = String(state.keyword || '').replace(/\s+/g, '').toLowerCase();
+    if (keyword) {
+        const key = `kw:${keyword}:${mode}`;
+        const entry = store[key];
+        // ...but only near where it was searched: dragging the map away while
+        // the old keyword is still set must not overwrite that place's picks.
+        if (!entry || !Number.isFinite(Number(entry.lat)) || !Number.isFinite(Number(entry.lng))
+            || getDistance(lat, lng, entry.lat, entry.lng) <= STICKY_KEYWORD_RADIUS_KM) {
+            return key;
+        }
+    }
+    const latCell = Math.round(Number(lat) * STICKY_LOCATION_GRID);
+    const lngCell = Math.round(Number(lng) * STICKY_LOCATION_GRID);
+    return `geo:${latCell}:${lngCell}:${mode}`;
+}
+
+function applySelectionHysteresis(ordered, lat, lng) {
+    const store = readStickySelectionStore();
+    const locationKey = getStickyLocationKey(lat, lng, store);
+    const stored = store[locationKey];
+    const entry = stored && (Date.now() - Number(stored.ts || 0) <= STICKY_SELECTION_TTL_MS) ? stored : null;
+    const brokenSince = { ...(entry?.brokenSince || {}) };
+
+    let result = ordered;
+    if (Array.isArray(entry?.ids) && entry.ids.length > 0) {
+        const byId = new Map(ordered.map(cctv => [cctv.id, cctv]));
+        const pinned = [];
+        const now = Date.now();
+        for (const id of entry.ids) {
+            const cctv = byId.get(id);
+            if (!cctv) continue; // no longer in today's candidate pool
+            if (shouldIsolateProblemCamera(cctv)) {
+                brokenSince[id] = brokenSince[id] || now;
+                // One noisy health sample doesn't evict a settled pick.
+                if (now - brokenSince[id] >= STICKY_SELECTION_BROKEN_GRACE_MS) continue;
+            } else {
+                delete brokenSince[id];
+            }
+            pinned.push(cctv);
+            if (pinned.length >= STICKY_SELECTION_PIN_COUNT) break;
+        }
+        if (pinned.length > 0) {
+            const pinnedIds = new Set(pinned.map(cctv => cctv.id));
+            result = [...pinned, ...ordered.filter(cctv => !pinnedIds.has(cctv.id))];
+        }
+    }
+    return { ordered: result, store, locationKey, entry, brokenSince };
+}
+
+// Remember what was actually shown (after de-duplication), not the raw ranking.
+function rememberSelection(selection, shown, lat, lng) {
+    const topIds = shown.slice(0, STICKY_SELECTION_PIN_COUNT).map(cctv => cctv.id).filter(Boolean);
+    if (topIds.length === 0) return;
+    const topIdSet = new Set(topIds);
+    const brokenSince = Object.fromEntries(
+        Object.entries(selection.brokenSince).filter(([id]) => topIdSet.has(id))
+    );
+    // Keep the first anchor so small pans cannot walk a searched place away.
+    const anchor = selection.entry && Number.isFinite(Number(selection.entry.lat)) ? selection.entry : { lat, lng };
+    selection.store[selection.locationKey] = {
+        ids: topIds,
+        ts: Date.now(),
+        brokenSince,
+        lat: Number(anchor.lat),
+        lng: Number(anchor.lng)
+    };
+    writeStickySelectionStore(selection.store);
+}
+
 // === CCTV Logic ===
 function updateNearestCctvs() {
     const { lat, lng } = state.center;
@@ -4384,9 +4495,11 @@ function updateNearestCctvs() {
 
     const canaryAware = applyCoreCanarySuccessPriority(ordered, lat, lng);
     const localAware = applyLocalPlacePriority(canaryAware, lat, lng);
+    const selection = applySelectionHysteresis(localAware, lat, lng);
 
-    const sceneAware = dedupeSceneCandidates(localAware, GEO_CANDIDATE_TARGET);
+    const sceneAware = dedupeSceneCandidates(selection.ordered, GEO_CANDIDATE_TARGET);
     state.nearestCctvs = dedupePlaybackCandidates(sceneAware, NEAREST_RESULT_LIMIT);
+    rememberSelection(selection, state.nearestCctvs, lat, lng);
 }
 
 function getCurrentSearchContextKeyword() {
