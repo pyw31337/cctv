@@ -4,12 +4,18 @@ set -euo pipefail
 ROOT="${CCTV_ROOT:-/home/ubuntu/cctv}"
 LOCK_FILE="${CCTV_QUALITY_LOCK:-/tmp/cctv_quality_cron.lock}"
 LOG_FILE="${CCTV_QUALITY_LOG:-$ROOT/sentinel.log}"
+LOG_MAX_BYTES="${CCTV_QUALITY_LOG_MAX_BYTES:-52428800}"
 
 mkdir -p "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
   echo "[$(date -Is)] previous quality cron still running; skip" >> "$LOG_FILE"
   exit 0
+fi
+
+# This log grew past 600 MB on the server; keep one rotated copy instead.
+if [ -f "$LOG_FILE" ] && [ "$(wc -c < "$LOG_FILE")" -gt "$LOG_MAX_BYTES" ]; then
+  mv -f "$LOG_FILE" "$LOG_FILE.1"
 fi
 
 cd "$ROOT"

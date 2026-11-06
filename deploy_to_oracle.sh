@@ -1,44 +1,62 @@
 #!/bin/bash
+# Deploy this checkout to the Oracle proxy host with rsync and restart gunicorn.
+#
+#   CCTV_ORACLE_KEY=~/.ssh/cctv_oracle ./deploy_to_oracle.sh <오라클_서버_IP>
+#
+# ~/cctv on the server is also the Flask static root, so nothing secret may be
+# copied there: an earlier version of this script uploaded the SSH private key
+# itself (oracle_key), which then became publicly downloadable.
+set -euo pipefail
 
-# Check if IP is provided
-if [ -z "$1" ]; then
-    echo "사용법: ./deploy_to_oracle.sh <오라클_서버_IP>"
+if [ -z "${1:-}" ]; then
+    echo "사용법: CCTV_ORACLE_KEY=<개인키 경로> ./deploy_to_oracle.sh <오라클_서버_IP>"
     exit 1
 fi
 
 ORACLE_IP=$1
-KEY_FILE="oracle_key"
-REPO_URL="https://github.com/pyw31337/cctv.git" # Replace with actual repo URL if known, or assume public/private logic.
-# Since I don't know the exact git repo URL from context, I'll try to find it or ask user. 
-# Wait, the user already uses git. I can check .git/config.
-# For now, I will assume the folder might be empty and try to clone.
-# Actually, the user's local path is .../cctv. I should check `git remote -v`.
-
-# Let's verify remote first in a separate step? No, let's just use what we know.
-# If I can't clone, I'll `rsync` the code up. PROBABLY BETTER TO RSYNC given I have local code.
-# Yes, `rsync` is robust and doesn't require git credentials on the server.
-
+KEY_FILE="${CCTV_ORACLE_KEY:-oracle_key}"
+if [ ! -f "$KEY_FILE" ]; then
+    echo "SSH 개인키를 찾을 수 없습니다: $KEY_FILE (CCTV_ORACLE_KEY로 경로를 지정하세요)"
+    exit 1
+fi
 chmod 600 "$KEY_FILE"
+
+# accept-new trusts a server on first contact but refuses a changed host key,
+# instead of silently accepting any key as StrictHostKeyChecking=no did.
+SSH_OPTS=(-i "$KEY_FILE" -o StrictHostKeyChecking=accept-new)
 
 echo "=== 오라클 서버 ($ORACLE_IP) 배포 시작 (RSYNC 모드) ==="
 
-# 1. Create directory
-ssh -o StrictHostKeyChecking=no -i "$KEY_FILE" ubuntu@"$ORACLE_IP" "mkdir -p ~/cctv"
+# 1. Create the directory and remove secrets earlier deploys left in the web root
+ssh "${SSH_OPTS[@]}" ubuntu@"$ORACLE_IP" \
+    "mkdir -p ~/cctv && rm -f ~/cctv/oracle_key ~/cctv/oracle_key.pub"
 
-# 2. Sync files (exclude venv, .git, __pycache__)
+# 2. Sync files, never the key, env files, logs or local scratch output
 echo "1. 파일 전송 중..."
-rsync -avz -e "ssh -i $KEY_FILE -o StrictHostKeyChecking=no" \
+rsync -avz -e "ssh ${SSH_OPTS[*]}" \
     --exclude 'venv' \
+    --exclude '.venv' \
     --exclude '.git' \
     --exclude '__pycache__' \
     --exclude '.DS_Store' \
+    --exclude 'node_modules' \
+    --exclude 'oracle_key*' \
+    --exclude '.env' \
+    --exclude '.env.*' \
+    --exclude '*.log' \
+    --exclude '*.log.*' \
+    --exclude 'logs/' \
+    --exclude 'server.pid' \
+    --exclude 'debug_html/' \
+    --exclude 'artifacts_backup/' \
+    --exclude '*.bak' \
     ./ ubuntu@"$ORACLE_IP":~/cctv/
 
 # 3. Setup and Run
 echo "2. 서버 설정 및 재시작 중..."
-ssh -o StrictHostKeyChecking=no -i "$KEY_FILE" ubuntu@"$ORACLE_IP" << EOF
+ssh "${SSH_OPTS[@]}" ubuntu@"$ORACLE_IP" << EOF
     cd cctv
-    
+
     # Install Python/Pip if missing
     if ! command -v python3 &> /dev/null; then
         echo "Installing Python..."
@@ -47,7 +65,7 @@ ssh -o StrictHostKeyChecking=no -i "$KEY_FILE" ubuntu@"$ORACLE_IP" << EOF
         # If python3 exists, ensure venv is installed
         sudo apt install -y python3-venv
     fi
-    
+
     # Check for ffmpeg (needed for HLS)
     if ! command -v ffmpeg &> /dev/null; then
          echo "Installing FFmpeg..."
@@ -62,10 +80,10 @@ ssh -o StrictHostKeyChecking=no -i "$KEY_FILE" ubuntu@"$ORACLE_IP" << EOF
     else
         echo "Reusing existing venv..."
     fi
-    
+
     echo "Activating venv..."
     source venv/bin/activate || { echo "Activation failed"; exit 1; }
-    
+
     # Install dependencies. The production service is managed by systemd/gunicorn,
     # so keep these packages in the deploy path as well as the fallback Flask path.
     if [ -f "server/requirements.txt" ]; then
@@ -73,10 +91,10 @@ ssh -o StrictHostKeyChecking=no -i "$KEY_FILE" ubuntu@"$ORACLE_IP" << EOF
     else
         pip install flask requests flask-cors gunicorn gevent
     fi
-    
+
     # Update IP in json
     sed -i "s/YOUR_ORACLE_SERVER_IP/$ORACLE_IP/g" cctv_data.json
-    
+
     # Restart production service first. Fall back to the simple Flask process only
     # on older hosts that do not have the systemd unit installed yet.
     if systemctl list-unit-files | grep -q '^cctv.service'; then
@@ -86,6 +104,12 @@ ssh -o StrictHostKeyChecking=no -i "$KEY_FILE" ubuntu@"$ORACLE_IP" << EOF
         pkill -f "python3 server/app.py" || true
         nohup python3 server/app.py > server.log 2>&1 &
     fi
-    
-    echo "=== 배포 완료! ==="
+
+    sleep 3
+    if curl -fsS --max-time 10 http://127.0.0.1:8080/health; then
+        echo
+        echo "=== 배포 완료! (/health 정상) ==="
+    else
+        echo "!!! /health 응답 없음: sudo journalctl -u cctv -n 50 으로 로그를 확인하세요"
+    fi
 EOF
