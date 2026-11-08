@@ -1,0 +1,65 @@
+name: Actions Failure Auto-Remediation
+
+on:
+  schedule:
+    # 30 minutes after the busiest scheduled window; KST 04:30.
+    - cron: '30 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+
+concurrency:
+  group: cctv-actions-remediation
+  cancel-in-progress: true
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Classify and remediate recent failures
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/auto_remediate_actions.py
+
+      - name: Write operator summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          path = Path('data/automation_remediation.json')
+          print('## Actions 자동 장애관리')
+          if not path.exists():
+              print('관리 결과 파일이 없습니다.')
+              raise SystemExit(0)
+          data = json.loads(path.read_text())
+          print(f"- 최근 36시간 실패: `{data.get('failure_count', 0)}`")
+          print(f"- 재실행 요청: `{data.get('retry_budget_used', 0)}`")
+          print(f"- 반복 실패 워크플로우: `{len(data.get('repeated_workflows', []))}`")
+          for item in data.get('repeated_workflows', []):
+              print(f"  - `{item['workflow']}`: {item['failures']}회 / {item['categories']}")
+          PY
+
+      - name: Upload remediation report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: actions-remediation-report
+          path: data/automation_remediation.json
+
+      - name: Commit remediation report
+        if: always()
+        run: |
+          if git diff --quiet -- data/automation_remediation.json; then
+            echo 'No remediation report changes.'
+          else
+            scripts/commit_and_push_changes.sh "chore: record Actions auto-remediation [skip ci]" data/automation_remediation.json
+          fi

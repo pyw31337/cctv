@@ -26,6 +26,7 @@ flowchart LR
 - `scripts/`에는 감사, 복구, 검증, 보정용 운영 스크립트가 있습니다.
 - `scripts/adaptive_collection.py`는 소스별 변동률과 실패율을 학습해 수집 주기를 자동 조절합니다.
 - `scripts/browser_canary.mjs`는 실제 Chromium으로 앱 초기 재생을 점검하는 수동 스모크 테스트입니다.
+- `scripts/auto_remediate_actions.py`는 최근 GitHub Actions 실패를 공급처/브라우저/실행환경/설정 오류로 분류합니다. 일시 가능성이 높은 실패만 실행당 최대 6개·실행별 1회 재시도하고, 동일 워크플로우가 36시간 안에 3회 이상 실패하면 중복 없는 GitHub Issue로 승격합니다. 카메라 매핑·운영 데이터·프로덕션 코드는 자동으로 덮어쓰지 않습니다.
 
 ## 로컬 실행
 
