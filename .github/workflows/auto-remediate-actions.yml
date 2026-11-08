@@ -5,6 +5,19 @@ on:
     # 30 minutes after the busiest scheduled window; KST 04:30.
     - cron: '30 19 * * *'
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Verify Browser Playback
+      - Auto-Renew CCTV URLs
+      - Update CCTV Data
+      - World Tour CCTV Refresh
+      - World Tour Playability Audit
+      - Check All Camera Status
+      - Refresh Playback Addresses
+      - Quality Gate
+      - GITS Daily Ingest
+      - Daily UTIC Broken Audit
+    types: [completed]
 
 permissions:
   actions: write
