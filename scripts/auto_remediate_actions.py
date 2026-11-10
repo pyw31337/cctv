@@ -13,6 +13,7 @@ import datetime as dt
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
@@ -62,13 +63,26 @@ class GitHub:
                 **({"Content-Type": "application/json"} if data else {}),
             },
         )
-        try:
-            with urllib.request.urlopen(request, timeout=20) as response:
-                raw = response.read()
-                return json.loads(raw.decode()) if raw else {}
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode(errors="replace")[:500]
-            raise RuntimeError(f"GitHub API {method} {path}: HTTP {error.code}: {detail}") from error
+        # GitHub occasionally returns 502/503/504 while the API is healthy.
+        # Retry idempotent reads only; never repeat a POST that may already
+        # have triggered a rerun or created an issue.
+        attempts = 3 if method == "GET" else 1
+        for attempt in range(attempts):
+            try:
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    raw = response.read()
+                    return json.loads(raw.decode()) if raw else {}
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode(errors="replace")[:500]
+                if method == "GET" and error.code in {429, 500, 502, 503, 504} and attempt < attempts - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"GitHub API {method} {path}: HTTP {error.code}: {detail}") from error
+            except (urllib.error.URLError, TimeoutError) as error:
+                if method == "GET" and attempt < attempts - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"GitHub API {method} {path}: {error}") from error
 
     def list_runs(self):
         payload = self.request("GET", f"/actions/runs?per_page={MAX_RUNS}")
@@ -204,8 +218,19 @@ def main() -> int:
     try:
         report = run_controller(GitHub(token, repo, dry_run=args.dry_run), Path(args.output), execute=not args.dry_run)
     except Exception as error:
+        # The controller must not create a second incident when GitHub itself
+        # is temporarily unavailable. Leave a machine-readable report and let
+        # the next workflow_run/scheduled invocation try again.
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps({
+            "generated_at": now_utc().isoformat(),
+            "status": "controller_unavailable",
+            "error": str(error)[:500],
+            "policy": "retry_on_next_invocation",
+        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"auto-remediation failed: {error}", file=sys.stderr)
-        return 1
+        return 0 if os.getenv("GITHUB_ACTIONS") == "true" else 1
     print(json.dumps({
         "failures": report["failure_count"],
         "retries": report["retry_budget_used"],
