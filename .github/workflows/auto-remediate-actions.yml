@@ -30,6 +30,10 @@ concurrency:
 
 jobs:
   remediate:
+    # workflow_run fires for every completion. Only inspect actionable
+    # outcomes; successful upstream jobs must not create a queue of no-op
+    # remediation runs or cancel a manual investigation.
+    if: github.event_name != 'workflow_run' || contains(fromJSON('["failure", "cancelled", "timed_out", "action_required"]'), github.event.workflow_run.conclusion)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
