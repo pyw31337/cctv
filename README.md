@@ -36,9 +36,13 @@ flowchart LR
 4. 정적 파일은 로컬 웹서버로 서빙합니다.
 
 ```bash
-python collect_cctv_data.py
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python collect_cctv_data.py
 python server/app.py
 ```
+
+macOS Homebrew Python에서는 전역 패키지 설치가 제한될 수 있으므로 수집기는 프로젝트별 `.venv`에서 실행합니다. `.venv`는 저장소에 커밋하지 않으며, 새 Mac에서는 위의 가상환경 생성과 의존성 설치를 먼저 수행합니다.
 
 브라우저 스모크 테스트를 하려면:
 
