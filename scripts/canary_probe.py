@@ -534,7 +534,24 @@ def probe_camera_with_deadline(cam: dict, z3_cache: dict) -> dict:
     previous = signal.signal(signal.SIGALRM, timeout_handler)
     signal.setitimer(signal.ITIMER_REAL, CAMERA_PROBE_DEADLINE_SECONDS)
     try:
-        return probe_camera(cam, z3_cache)
+        result = probe_camera(cam, z3_cache)
+        if not result.get("ok"):
+            backups = cam.get("backup_urls") if isinstance(cam.get("backup_urls"), list) else []
+            for backup in backups[:3]:
+                backup_url = backup.get("url") if isinstance(backup, dict) else backup
+                if not isinstance(backup_url, str) or not backup_url.startswith(("http://", "https://")):
+                    continue
+                candidate = dict(cam)
+                candidate["url"] = backup_url
+                candidate["directUrl"] = backup_url
+                candidate["backup_urls"] = []
+                fallback_result = probe_camera(candidate, z3_cache)
+                if fallback_result.get("ok"):
+                    fallback_result["fallback_used"] = True
+                    fallback_result["fallback_source"] = result.get("source")
+                    fallback_result["primary_failure"] = result.get("category")
+                    return fallback_result
+        return result
     except TimeoutError:
         return {
             "id": cam.get("id"),
