@@ -57,6 +57,14 @@ npm run browser:canary
 
 - `ITS_API_KEY`: ITS OpenAPI 키. 없으면 공개 데모 키 `test`로 동작하고, `data/workflow_status.json`에 `key_problem` 경고를 남깁니다 (운영에서는 개인 키 사용 권장)
 - `UTIC_API_KEY` or `UTIC_KEY`: UTIC/OpenData key. 없으면 UTIC 갱신을 건너뛰고 기존 UTIC 데이터를 재사용하며 `key_problem` 오류를 남깁니다
+
+로컬 macOS 수집기는 평문 파일 대신 키체인 서비스 `cctv-UTIC_API_KEY`에서도 키를 읽습니다. 최초 1회만 다음처럼 숨김 입력으로 등록하세요(키 값은 채팅이나 Git에 입력하지 않습니다):
+
+```bash
+read -s UTIC_KEY && printf '\\n'
+security add-generic-password -U -s cctv-UTIC_API_KEY -w "$UTIC_KEY"
+unset UTIC_KEY
+```
 - `EX_API_KEY` (또는 `EXDATA_API_KEY`): 한국도로공사 공공데이터포털(data.ex.co.kr) 키. 프록시 서버의 `/highway-traffic`(실시간 고속도로 소통)이 사용하며, 없으면 데모 키 `test`로 동작합니다
 - `WINDY_WEBCAMS_API_KEY` (또는 `WINDY_API_KEY`): Windy Webcams API 키. 설정된 경우 World Tour 갱신에서 최대 60개까지 보조 수집합니다. Windy의 이미지 URL은 짧은 만료 시간을 가지므로 직접 재생 검증을 통과하지 않은 항목은 source-only로 낮춰 표시하며, 이 키가 없어도 기존 수집·재생에는 영향이 없습니다.
 - `OPENWEBCAMDB_API_KEY`: OpenWebcamDB API 키. 약관과 서비스 내 출처·저작권 표시를 먼저 확인한 뒤에만 등록하세요. 기본 한도는 0이며, 현재 자동 활성화하지 않습니다. 경쟁 디렉터리/집계 서비스 제한이 있는 경우 키를 넣지 마세요.

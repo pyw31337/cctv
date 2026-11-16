@@ -11,6 +11,8 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import unicodedata
 from pathlib import Path
@@ -65,6 +67,22 @@ def first_env(*names: str, default: Any = None) -> Any:
         value = value.strip()
         if value:
             return value
+    # Local macOS collectors may keep provider credentials in Keychain instead
+    # of a plaintext .env file. GitHub Actions/Linux never enters this path.
+    if sys.platform == "darwin" and any(name in {"UTIC_API_KEY", "UTIC_KEY"} for name in names):
+        try:
+            result = subprocess.run(
+                ["/usr/bin/security", "find-generic-password", "-s", "cctv-UTIC_API_KEY", "-w"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            key = result.stdout.strip()
+            if result.returncode == 0 and key:
+                return key
+        except (OSError, subprocess.SubprocessError):
+            pass
     return default
 
 
