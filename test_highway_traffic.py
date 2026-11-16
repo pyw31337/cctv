@@ -169,7 +169,7 @@ class ExdataTrafficTests(unittest.TestCase):
 class KeyResolutionTests(unittest.TestCase):
     def test_missing_env_falls_back_to_demo_key_with_warning(self):
         messages = []
-        with patch.dict(os.environ, {"ITS_API_KEY": ""}):
+        with patch.dict(os.environ, {"ITS_API_KEY": "", "CCTV_DISABLE_KEYCHAIN": "1"}):
             key, is_demo = ht.resolve_api_key("ITS_API_KEY", demo_key="test", label="ITS", log=messages.append)
         self.assertEqual((key, is_demo), ("test", True))
         self.assertTrue(messages and "demo key" in messages[0])
@@ -191,8 +191,11 @@ class CollectorTests(unittest.TestCase):
 
         self.collector = collect_cctv_data
         self.collector.SOURCE_ISSUES.clear()
+        self._keychain_patch = patch.dict(os.environ, {"CCTV_DISABLE_KEYCHAIN": "1"})
+        self._keychain_patch.start()
 
     def tearDown(self):
+        self._keychain_patch.stop()
         self.collector.SOURCE_ISSUES.clear()
 
     def test_fetch_its_parses_xml_with_demo_key(self):

@@ -56,6 +56,8 @@ NAMYANGJU_GOLDEN_STREAMS: dict[str, tuple[str, str]] = load_locked_stream_mappin
 KNOWN_CAMERA_ID_ALIASES: dict[str, str] = {
     # Historical typo: the verified UTIC record is L933067.
     "L933066": "L933067",
+    "L180077": "L180075",
+    "L180213": "L180206",
 }
 
 
@@ -67,6 +69,8 @@ def first_env(*names: str, default: Any = None) -> Any:
         value = value.strip()
         if value:
             return value
+    if os.environ.get("CCTV_DISABLE_KEYCHAIN") in {"1", "true", "yes", "on"}:
+        return default
     # Local macOS collectors may keep provider credentials in Keychain instead
     # of a plaintext .env file. GitHub Actions/Linux never enters this path.
     keychain_service = None
@@ -275,8 +279,13 @@ def apply_camera_id_aliases(items: list[dict[str, Any]]) -> int:
         if not canonical or canonical in ids:
             continue
         item["id"] = canonical
-        if item.get("canonical_id") == current:
-            item["canonical_id"] = canonical
+        source = str(item.get("source") or "").upper()
+        if item.get("canonical_id") in {current, f"{source}:{current}"}:
+            item["canonical_id"] = f"{source}:{canonical}" if source else canonical
+        if item.get("original_id") == current:
+            item["original_id"] = canonical
+        if item.get("source_id") == current:
+            item["source_id"] = canonical
         changed += 1
         ids.add(canonical)
     return changed
