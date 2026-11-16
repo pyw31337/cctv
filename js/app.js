@@ -2004,9 +2004,17 @@ function getGeoCellKey(lat, lng) {
     return `${latCell}:${lngCell}`;
 }
 
-function getNearbyCandidates(lat, lng, targetCount) {
+const _geoCandidatesCache = new Map();
+const GEO_CANDIDATES_CACHE_MAX = 60;
+
+function getNearbyCandidates(lat, lng, targetCount = GEO_CANDIDATE_TARGET) {
     if (!state.geoIndex || state.geoIndex.size === 0) {
-        return state.cctvData;
+        return state.cctvData || [];
+    }
+
+    const cacheKey = `${Math.round(lat * 100)}:${Math.round(lng * 100)}:${targetCount}`;
+    if (_geoCandidatesCache.has(cacheKey)) {
+        return _geoCandidatesCache.get(cacheKey);
     }
 
     const latCell = Math.floor(lat / GEO_CELL_SIZE);
@@ -2033,7 +2041,13 @@ function getNearbyCandidates(lat, lng, targetCount) {
         }
     }
 
-    return candidates.length >= targetCount ? candidates : state.cctvData;
+    const result = candidates.length > 0 ? candidates : (state.cctvData || []);
+    if (_geoCandidatesCache.size >= GEO_CANDIDATES_CACHE_MAX) {
+        const firstKey = _geoCandidatesCache.keys().next().value;
+        _geoCandidatesCache.delete(firstKey);
+    }
+    _geoCandidatesCache.set(cacheKey, result);
+    return result;
 }
 
 function getUrlParam(url, key) {
@@ -2208,12 +2222,18 @@ function getZ3CacheRiskMeta(cctv) {
     return null;
 }
 
+const LEGACY_ACTIVEX_UTIC_KINDS = new Set(['K', '1', 'H', 'J', 'C']);
+
 function isUnsupportedBrowserStream(cctv) {
-    const url = cctv ? (cctv.directUrl || cctv.url || '') : '';
-    const source = cctv ? (cctv.source || '') : '';
+    if (!cctv) return false;
+    const directUrl = String(cctv.directUrl || '');
+    if (directUrl.includes('.m3u8') || directUrl.includes('.mp4')) return false;
+
+    const url = cctv.url || '';
+    const source = cctv.source || '';
     const kind = getUrlParam(url, 'kind');
     if (isJejuUticProxyable(cctv)) return false;
-    return source === 'UTIC' && kind === 'K';
+    return source === 'UTIC' && LEGACY_ACTIVEX_UTIC_KINDS.has(kind);
 }
 
 function getGitsCameraId(cctv, url = cctv?.directUrl || cctv?.url || '') {
@@ -3714,6 +3734,7 @@ function updatePanelHealthUi(panel, cctv) {
     if (!panel || !cctv) return;
     renderSelectTrigger(panel, cctv);
     renderPanelHealthBadge(panel, cctv);
+    updatePanelPinUi(panel, Number(panel.dataset.slotIndex || 0), cctv);
     populateSelectOptions(panel, Number(panel.dataset.cctvIndex || panel.dataset.slotIndex || 0));
 }
 
@@ -4509,6 +4530,26 @@ function updateNearestCctvs() {
 
     const sceneAware = dedupeSceneCandidates(selection.ordered, GEO_CANDIDATE_TARGET);
     state.nearestCctvs = dedupePlaybackCandidates(sceneAware, NEAREST_RESULT_LIMIT);
+
+    // Apply user-pinned slots for this location if present
+    const locationKey = getPinnedLocationKey(lat, lng, state.keyword);
+    const allPins = getAllPinnedSlots()[locationKey];
+    if (allPins) {
+        Object.entries(allPins).forEach(([slotStr, pinnedId]) => {
+            const slotIdx = Number(slotStr);
+            if (Number.isInteger(slotIdx) && slotIdx >= 0 && slotIdx < NEAREST_RESULT_LIMIT) {
+                const pinnedCam = findCctvById(pinnedId);
+                if (pinnedCam) {
+                    const existingIdx = state.nearestCctvs.findIndex(c => c && c.id === pinnedId);
+                    if (existingIdx !== -1 && existingIdx !== slotIdx) {
+                        state.nearestCctvs[existingIdx] = state.nearestCctvs[slotIdx];
+                    }
+                    state.nearestCctvs[slotIdx] = decorateNearestCandidate(pinnedCam, lat, lng);
+                }
+            }
+        });
+    }
+
     rememberSelection(selection, state.nearestCctvs, lat, lng);
 }
 
@@ -4898,6 +4939,8 @@ function renderVideoGrid() {
             renderSelectTrigger(panel, cctv, `CCTV ${index + 1}`);
 
             renderPanelHealthBadge(panel, cctv);
+    updatePanelPinUi(panel, Number(panel.dataset.slotIndex || cctvIndex || 0), cctv);
+            updatePanelPinUi(panel, index, cctv);
 
             // Populate dropdown options (up to 20 nearby CCTVs)
             populateSelectOptions(panel, index);
@@ -5420,6 +5463,23 @@ function initPanelControls() {
             return;
         }
 
+        // Pin button click (lock/pin camera for this place and slot)
+        const pinBtn = e.target.closest('.panel-pin-btn');
+        if (pinBtn) {
+            e.stopPropagation();
+            const panel = pinBtn.closest('.video-panel');
+            const slotIndex = Number(panel?.dataset.slotIndex ?? -1);
+            const activeCctv = panel?._activeCctv
+                || (panel?.dataset.cctvId ? findCctvById(panel.dataset.cctvId) : null)
+                || state.nearestCctvs[slotIndex];
+            if (activeCctv && slotIndex >= 0) {
+                const isNowPinned = togglePinSlotCamera(slotIndex, activeCctv);
+                updatePanelPinUi(panel, slotIndex, activeCctv);
+                showShareFeedback(isNowPinned ? `📌 '${activeCctv.name}' 카메라가 이 장소에 고정되었습니다` : `📌 카메라 고정이 해제되었습니다`);
+            }
+            return;
+        }
+
         // Floating close button click (collapse expanded panel)
         const floatingClose = e.target.closest('.panel-floating-close');
         if (floatingClose) {
@@ -5494,6 +5554,7 @@ function attachStreamToPanel(panel, cctv, cctvIndex) {
     });
 
     renderPanelHealthBadge(panel, cctv);
+    updatePanelPinUi(panel, Number(panel.dataset.slotIndex || cctvIndex || 0), cctv);
 }
 
 function togglePanelExpand(panel) {
@@ -6480,6 +6541,28 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
         const panel = wrapper.closest('.video-panel');
         if (!state.autoRetryCounts) state.autoRetryCounts = {};
         const currentCount = state.autoRetryCounts[cctv.id] || 0;
+
+        // If this camera is pinned in this slot by user, do not auto-failover to an arbitrary camera
+        const slotIndex = Number(panel?.dataset.slotIndex ?? -1);
+        const pinnedId = slotIndex >= 0 ? getPinnedSlotCamera(slotIndex) : null;
+        if (pinnedId && pinnedId === cctv.id) {
+            console.log(`[Auto-Failover] Camera ${cctv.name} is pinned in slot ${slotIndex}; preserving user pin.`);
+            const errPh = createErrorPlaceholder({
+                message: '고정된 카메라 연결 불안정',
+                detail: '사용자가 고정한 카메라입니다. 잠시 후 다시 시도해 주세요.',
+                retryLabel: `다시 시도 (${Math.min(MANUAL_RETRY_PRIMARY_ATTEMPTS, currentCount + 1)}/${MANUAL_RETRY_PRIMARY_ATTEMPTS})`,
+                retryFn: currentCount < MANUAL_RETRY_PRIMARY_ATTEMPTS
+                    ? async () => {
+                        state.autoRetryCounts[cctv.id] = currentCount + 1;
+                        wrapper.dataset.autoRetryPrimaryCount = '0';
+                        handleStreamFailover(wrapper, cctv, 0);
+                    }
+                    : null,
+                cctv
+            });
+            wrapper.appendChild(errPh);
+            return;
+        }
         
         setPlaybackHealth(cctv, {
             status: 'PLAYBACK_ERROR',
@@ -8862,6 +8945,83 @@ function saveSearchHistory(item) {
     history.unshift(item);
     history = history.slice(0, 10);
     localStorage.setItem('cctv_search_history', JSON.stringify(history));
+}
+
+// === Local Storage (Pinned Cameras for Places) ===
+const PINNED_SLOTS_STORAGE_KEY = 'cctv_pinned_slots_v1';
+
+function getPinnedLocationKey(lat = state.center?.lat, lng = state.center?.lng, keyword = state.keyword) {
+    if (keyword && typeof keyword === 'string') {
+        const norm = keyword.trim().toLowerCase().replace(/\s+/g, '');
+        if (norm) return `kw:${norm}`;
+    }
+    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+        return `geo:${Number(lat).toFixed(3)},${Number(lng).toFixed(3)}`;
+    }
+    return 'default';
+}
+
+function getAllPinnedSlots() {
+    try {
+        return JSON.parse(localStorage.getItem(PINNED_SLOTS_STORAGE_KEY) || '{}');
+    } catch {
+        return {};
+    }
+}
+
+function getPinnedSlotCamera(slotIndex, locationKey = getPinnedLocationKey()) {
+    const all = getAllPinnedSlots();
+    return all[locationKey]?.[slotIndex] || null;
+}
+
+function togglePinSlotCamera(slotIndex, cctv) {
+    if (!cctv || !cctv.id) return false;
+    const locationKey = getPinnedLocationKey();
+    const all = getAllPinnedSlots();
+    if (!all[locationKey]) all[locationKey] = {};
+
+    const currentPinnedId = all[locationKey][slotIndex];
+    let isPinnedNow = false;
+    if (currentPinnedId === cctv.id) {
+        delete all[locationKey][slotIndex];
+        if (Object.keys(all[locationKey]).length === 0) delete all[locationKey];
+        isPinnedNow = false;
+    } else {
+        all[locationKey][slotIndex] = cctv.id;
+        isPinnedNow = true;
+    }
+    localStorage.setItem(PINNED_SLOTS_STORAGE_KEY, JSON.stringify(all));
+    return isPinnedNow;
+}
+
+function ensurePanelPinButton(panel) {
+    const controls = panel.querySelector('.panel-controls');
+    if (!controls) return null;
+    let pinBtn = controls.querySelector('.panel-pin-btn');
+    if (!pinBtn) {
+        pinBtn = document.createElement('button');
+        pinBtn.className = 'panel-pin-btn';
+        pinBtn.setAttribute('type', 'button');
+        pinBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 2v5l3 3v2h-6v8l-1 1-1-1v-8H5v-2l3-3V2z"/></svg>';
+        controls.appendChild(pinBtn);
+    }
+    return pinBtn;
+}
+
+function updatePanelPinUi(panel, slotIndex, cctv) {
+    if (!panel) return;
+    const pinBtn = ensurePanelPinButton(panel);
+    if (!pinBtn) return;
+    const isPinned = !!cctv && getPinnedSlotCamera(slotIndex) === cctv.id;
+    if (isPinned) {
+        pinBtn.classList.add('is-pinned');
+        pinBtn.title = `'${cctv.name}' 카메라 고정 해제`;
+        pinBtn.setAttribute('aria-pressed', 'true');
+    } else {
+        pinBtn.classList.remove('is-pinned');
+        pinBtn.title = cctv ? `'${cctv.name}' 카메라를 이 위치에 고정` : '카메라 고정';
+        pinBtn.setAttribute('aria-pressed', 'false');
+    }
 }
 
 // === Local Storage (Bookmarks) ===

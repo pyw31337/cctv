@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, quote
 
-from cctv_runtime import public_proxy_base, sanitize_utic_payload
+from cctv_runtime import public_proxy_base, sanitize_utic_payload, gits_proxy_base
 
 import urllib3
 
@@ -46,6 +46,7 @@ RUN_DEADLINE = None  # time.monotonic() deadline for the current run
 DAEJEON_MP4_OFFSETS = [2, 4, 6, 8, 10, 1]
 DAEJEON_REQUEST_TIMEOUT = (1.0, 1.5)
 ORACLE_BASE = public_proxy_base()
+GITS_BASE = gits_proxy_base()
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
 }
@@ -573,7 +574,7 @@ def check_gits_stream(cctv):
         set_probe_result(cctv, False, reason='missing_gits_id', category='data_error')
         return False
 
-    url = f'{ORACLE_BASE}/gits?cctvip={quote(str(stream_id))}'
+    url = f'{GITS_BASE}/gits?cctvip={quote(str(stream_id))}'
     try:
         resp = requests.get(
             url,

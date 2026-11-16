@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 DEFAULT_PUBLIC_PROXY_BASE = "https://158.179.194.163.sslip.io"
+DEFAULT_GITS_PROXY_BASE = "https://cctv-proxy-hoon-001.fly.dev"
 DEFAULT_WORKER_PROXY_BASE = "https://cctv-proxy.pyw213.workers.dev"
 DEFAULT_QUALITY_TELEMETRY_ENDPOINT = "https://cctv-quality.pyw31337.workers.dev/v1/events"
 DEFAULT_QUALITY_SUMMARY_URL = "https://cctv-quality.pyw31337.workers.dev/v1/summary"
@@ -138,6 +139,12 @@ def public_proxy_base() -> str:
     return _normalize_base(
         first_env("CCTV_PUBLIC_PROXY_BASE", "PUBLIC_PROXY_BASE_URL", default=DEFAULT_PUBLIC_PROXY_BASE)
     ) or DEFAULT_PUBLIC_PROXY_BASE
+
+
+def gits_proxy_base() -> str:
+    return _normalize_base(
+        first_env("CCTV_GITS_PROXY_BASE", "GITS_PROXY_BASE_URL", default=DEFAULT_GITS_PROXY_BASE)
+    ) or DEFAULT_GITS_PROXY_BASE
 
 
 def worker_proxy_base() -> str:

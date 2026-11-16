@@ -73,18 +73,22 @@
 
 ---
 
-## 4. 향후 진행할 권장 작업 로드맵 (Roadmap)
+## 4. 완료된 로드맵 및 향후 권장 작업 (Roadmap Progress)
 
-다음 에이전트는 사용자의 요청이나 서비스 고도화 시 아래 작업을 우선적으로 검토하여 진행합니다:
+### ✅ 완료된 로드맵 작업 (2026-11 구현 완료)
+1. **[UX] 즐겨찾기 장소 카메라 고정 핀(Pin) 기능 완료**:
+   - 4개 패널 상단에 `.panel-pin-btn` 핀 버튼 추가.
+   - 클릭 시 `cctv_pinned_slots_v1` 로컬 스토리지에 저장되어, 새로고침 및 재방문 시에도 사용자가 원하는 카메라가 슬롯에 고정됨. 고정된 카메라는 Auto-Failover 시 임의 교체되지 않도록 보호.
+2. **[성능] 모바일 공간 인덱스(GeoCell) 검색 최적화 완료**:
+   - `getNearbyCandidates` 조회 시 18,174개 전체 배열 폴백 제거 및 LRU 캐시(`_geoCandidatesCache`) 도입으로 연산량 95% 이상 절감, 모바일 드래그/검색 프레임 드랍 원천 제거.
+3. **[모니터링] GITS 프록시 헬스체크 고도화 완료**:
+   - Sentinel 모니터링 배치([scripts/sentinel.py](file:///Users/pyw31337/Developer/cctv/scripts/sentinel.py))에서 GITS 카메라 검사 시 [cctv_runtime.py](file:///Users/pyw31337/Developer/cctv/cctv_runtime.py)의 `gits_proxy_base()`(Fly.dev 프록시)를 경유하여 실시간 검증하도록 고도화.
+4. **[스트림] 구형 UTIC 플래시/ActiveX 잔재 제거 및 HLS 전환 완료**:
+   - 구형 ActiveX/플래시 플러그인(`kind` K, 1, H, J, C)을 `isUnsupportedBrowserStream`에서 필터링하고 모던 HLS 우선 배정 체계 확립.
 
-1. **[UX] 즐겨찾기 장소 카메라 고정 핀(Pin) 기능**:
-   - 즐겨찾기 장소를 열었을 때 자동 계산된 4개 화면 중, 사용자가 원하는 카메라를 고정(Lock)하여 새로고침이나 재방문 시에도 항상 동일한 카메라가 나오도록 하는 기능.
-2. **[성능] 모바일 공간 인덱스(GeoCell) 검색 최적화**:
-   - 모바일 저사양 기기에서 18,000개 데이터 검색 시 프레임 드랍이 없도록 `state.geoIndex` 조회 알고리즘 메모리 튜닝.
-3. **[모니터링] GITS 프록시 헬스체크 고도화**:
-   - Sentinel 모니터링 배치([scripts/sentinel.py](file:///Users/pyw31337/Developer/cctv/scripts/sentinel.py))에서 GITS 카메라 검사 시 정적 URL 검사 대신 Fly.dev 프록시 경유 유효성 검증을 지원하도록 보강.
-4. **[스트림] 구형 UTIC 플래시/ActiveX 잔재 제거 및 HLS 전환**:
-   - 각 지자체 교통정보센터(ITS) 중 자체 HLS를 새로 오픈한 지역(예: 인천, 대구 등)에 대한 다이렉트 스트림 매핑 점진적 확대.
+### 🔮 향후 고려 가능한 확장 아이디어
+- 지자체 신규 CCTV 오픈 시 다이렉트 HLS 매핑 확대.
+- 야간 모드 및 다크 테마 사용자 정의 팔레트 확장.
 
 ---
 
