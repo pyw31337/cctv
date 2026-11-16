@@ -28,6 +28,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 from urllib.parse import urlencode
 
+from cctv_runtime import first_env
+
 logger = logging.getLogger(__name__)
 
 EXDATA_TRAFFIC_URL = "https://data.ex.co.kr/openapi/odtraffic/trafficAmountByRealtime"
@@ -58,10 +60,9 @@ class KeyProblemError(UpstreamError):
 def resolve_api_key(*env_names: str, demo_key: str, label: str, log=None) -> tuple[str, bool]:
     """Return ``(key, is_demo)``; fall back to the public demo key with a warning."""
 
-    for name in env_names:
-        value = (os.environ.get(name) or "").strip()
-        if value:
-            return value, False
+    value = first_env(*env_names)
+    if value:
+        return value, False
     message = (
         f"[WARNING] {label}: {' / '.join(env_names)} is not set; "
         f"falling back to the public demo key '{demo_key}'. "
