@@ -69,10 +69,15 @@ def first_env(*names: str, default: Any = None) -> Any:
             return value
     # Local macOS collectors may keep provider credentials in Keychain instead
     # of a plaintext .env file. GitHub Actions/Linux never enters this path.
-    if sys.platform == "darwin" and any(name in {"UTIC_API_KEY", "UTIC_KEY"} for name in names):
+    keychain_service = None
+    if any(name in {"UTIC_API_KEY", "UTIC_KEY"} for name in names):
+        keychain_service = "cctv-UTIC_API_KEY"
+    elif "ITS_API_KEY" in names:
+        keychain_service = "cctv-ITS_API_KEY"
+    if sys.platform == "darwin" and keychain_service:
         try:
             result = subprocess.run(
-                ["/usr/bin/security", "find-generic-password", "-s", "cctv-UTIC_API_KEY", "-w"],
+                ["/usr/bin/security", "find-generic-password", "-s", keychain_service, "-w"],
                 check=False,
                 capture_output=True,
                 text=True,
