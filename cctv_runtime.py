@@ -341,6 +341,56 @@ def apply_namyangju_golden_mappings(items: list[dict[str, Any]]) -> int:
     return changed
 
 
+DEFAULT_OVERRIDES_FILE = Path(__file__).resolve().parent / "cctv_overrides.json"
+
+
+def apply_golden_overrides(
+    items: list[dict[str, Any]],
+    override_file: str | Path = DEFAULT_OVERRIDES_FILE,
+) -> int:
+    override_path = Path(override_file)
+    if not override_path.is_file():
+        return 0
+
+    try:
+        with open(override_path, "r", encoding="utf-8") as f:
+            overrides = json.load(f)
+        override_map = {item["id"]: item for item in overrides if isinstance(item, dict) and item.get("id")}
+
+        override_count = 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "").strip()
+            if item_id not in override_map:
+                continue
+            ovr = override_map[item_id]
+            for key in (
+                "url",
+                "directUrl",
+                "name",
+                "aspectRatio",
+                "status",
+                "lat",
+                "lng",
+                "address",
+                "canonical_id",
+                "original_id",
+                "source_id",
+                "stream_id",
+                "golden_stream_id",
+                "health_reason",
+                "health_checked_at",
+            ):
+                if key in ovr:
+                    item[key] = ovr[key]
+            override_count += 1
+        return override_count
+    except Exception as exc:
+        print(f"Warning: Failed to apply golden overrides: {exc}")
+        return 0
+
+
 def validate_namyangju_golden_mappings(
     items: list[dict[str, Any]], *, require_all: bool = False
 ) -> list[str]:

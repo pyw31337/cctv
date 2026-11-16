@@ -13,6 +13,7 @@ import os
 import sys
 from cctv_runtime import (
     NAMYANGJU_GOLDEN_STREAMS,
+    apply_camera_id_aliases,
     apply_namyangju_golden_mappings,
     atomic_write_json,
     first_env,
@@ -361,8 +362,10 @@ def main():
     
     # Save back to file
     if renewed_count > 0:
-        apply_namyangju_golden_mappings(list(data_map.values()))
-        mapping_errors = validate_namyangju_golden_mappings(list(data_map.values()))
+        items_list = list(data_map.values())
+        apply_camera_id_aliases(items_list)
+        apply_namyangju_golden_mappings(items_list)
+        mapping_errors = validate_namyangju_golden_mappings(items_list)
         if mapping_errors:
             raise RuntimeError("Golden stream mapping validation failed: " + "; ".join(mapping_errors))
         save_json(CCTV_DATA_FILE, list(data_map.values()))

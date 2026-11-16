@@ -20,6 +20,7 @@ import requests
 from cctv_runtime import (
     append_query_parameter,
     apply_camera_id_aliases,
+    apply_golden_overrides,
     apply_namyangju_golden_mappings,
     camera_identity,
     camera_source_id,
@@ -516,33 +517,7 @@ def rename_multiview_cameras(items: list[dict[str, Any]]) -> int:
     return renamed_count
 
 
-def apply_golden_overrides(
-    items: list[dict[str, Any]],
-    override_file: str = "cctv_overrides.json",
-) -> int:
-    if not os.path.exists(override_file):
-        return 0
-
-    print(f"Applying final authority from {override_file}...")
-    try:
-        with open(override_file, "r", encoding="utf-8") as f:
-            overrides = json.load(f)
-        override_map = {item["id"]: item for item in overrides if isinstance(item, dict) and item.get("id")}
-
-        override_count = 0
-        for item in items:
-            if item.get("id") not in override_map:
-                continue
-            ovr = override_map[item["id"]]
-            for key in ("url", "directUrl", "name", "aspectRatio", "status", "lat", "lng", "address", "canonical_id", "original_id", "source_id", "stream_id", "golden_stream_id", "health_reason", "health_checked_at"):
-                if key in ovr:
-                    item[key] = ovr[key]
-            override_count += 1
-        print(f"Safeguard: Applied {override_count} golden overrides.")
-        return override_count
-    except Exception as exc:
-        print(f"Warning: Failed to apply golden overrides: {exc}")
-        return 0
+# apply_golden_overrides is imported from cctv_runtime for shared hygiene
 
 
 def finalize_cctv_records(

@@ -18,6 +18,16 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from cctv_runtime import (
+    apply_camera_id_aliases,
+    apply_golden_overrides,
+    apply_namyangju_golden_mappings,
+)
+
 DESTRUCTIVE_STATUSES = {"disabled", "inactive", "broken", "deleted", "removed"}
 REVIEW_STATUS = "manual_check"
 DEFAULT_MIN_COUNT = 10_000
@@ -97,11 +107,30 @@ def main() -> int:
 
     path = Path(args.path)
     items = load_items(path)
+
+    auto_heal_changed = 0
+    if path.name in {"cctv_data.json", "cctv_data_new.json"}:
+        auto_heal_changed += apply_camera_id_aliases(items)
+        auto_heal_changed += apply_golden_overrides(items)
+        auto_heal_changed += apply_namyangju_golden_mappings(items)
+
+    status_changed = 0
     if args.fix_statuses:
-        changed = normalize_destructive_statuses(items)
-        if changed:
-            save_items(path, items)
-            print(f"[guard] converted {changed:,} destructive statuses to manual_check")
+        status_changed = normalize_destructive_statuses(items)
+
+    if auto_heal_changed or status_changed:
+        save_items(path, items)
+        if status_changed:
+            print(f"[guard] converted {status_changed:,} destructive statuses to manual_check")
+        if auto_heal_changed:
+            print(f"[guard] auto-healed {auto_heal_changed:,} aliases/overrides/golden mappings")
+        if path.name == "cctv_data.json":
+            try:
+                from scripts.split_cctv_data import main as run_split
+                run_split()
+                print("[guard] synchronized data/cctv_core.json and data/cctv_extended.json")
+            except Exception as exc:
+                print(f"[guard] note: split_cctv_data could not be run: {exc}", file=sys.stderr)
 
     status_counts = Counter(str(item.get("status") or "") for item in items)
     source_counts = Counter(str(item.get("source") or "UNKNOWN") for item in items)
