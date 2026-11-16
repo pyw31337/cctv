@@ -13,6 +13,7 @@ import argparse
 import json
 import math
 import os
+import signal
 import re
 import socket
 import ssl
@@ -59,6 +60,7 @@ ORACLE_BASE = public_proxy_base()
 WORKER_BASE = worker_proxy_base()
 Z3_MAX_TRUSTED_AGE_HOURS = 8
 DEFAULT_TIMEOUT = (2.5, 6.0)
+CAMERA_PROBE_DEADLINE_SECONDS = float(os.environ.get("CCTV_CANARY_CAMERA_DEADLINE_SECONDS", "20"))
 HLS_PLAYLIST_BYTES = 64 * 1024
 HLS_SEGMENT_SAMPLE_BYTES = 4 * 1024
 HLS_MAX_PLAYLIST_DEPTH = 3
@@ -524,6 +526,38 @@ def probe_camera(cam: dict, z3_cache: dict) -> dict:
     return result
 
 
+def probe_camera_with_deadline(cam: dict, z3_cache: dict) -> dict:
+    """Prevent one stalled regional upstream from blocking all canaries."""
+    def timeout_handler(_signum, _frame):
+        raise TimeoutError("camera canary deadline exceeded")
+
+    previous = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.setitimer(signal.ITIMER_REAL, CAMERA_PROBE_DEADLINE_SECONDS)
+    try:
+        return probe_camera(cam, z3_cache)
+    except TimeoutError:
+        return {
+            "id": cam.get("id"),
+            "name": cam.get("name"),
+            "source": source_of(cam),
+            "status": cam.get("status"),
+            "resolver": "deadline",
+            "ok": False,
+            "reason": "camera probe deadline exceeded",
+            "category": "timeout",
+            "issue_type": "upstream_outage",
+            "elapsed_ms": int(CAMERA_PROBE_DEADLINE_SECONDS * 1000),
+            "http_status": None,
+            "content_type": None,
+            "probe_url": None,
+            "meta": {},
+            "checked_at": utc_stamp(),
+        }
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def status_signal_sets(status: dict) -> tuple[set[str], set[str]]:
     passed_ids: set[str] = set()
     failed_ids: set[str] = set()
@@ -907,7 +941,7 @@ def run() -> tuple[dict, dict]:
         print(f"[canary] {region['label']} candidates={len(candidates)}")
         results = []
         for cam in candidates:
-            result = probe_camera(cam, z3_cache)
+            result = probe_camera_with_deadline(cam, z3_cache)
             result["distance_km"] = cam.get("_canary_distance_km")
             result["region_key"] = region["key"]
             result["region_label"] = region["label"]
