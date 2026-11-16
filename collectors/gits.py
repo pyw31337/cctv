@@ -42,9 +42,9 @@ class GitsCollector:
                         stream_url = future.result()
                         if stream_url:
                             cctv['url'] = stream_url
-                            full_data.append(cctv)
                     except Exception as exc:
                         print(f"[GITS] Error fetching stream for {cctv['id']}: {exc}")
+                    full_data.append(cctv)
                     
                     checked += 1
                     if checked % 100 == 0:

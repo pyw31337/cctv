@@ -3992,6 +3992,8 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
             hasStarted = true;
             stallStartedAt = null;
             lastProgressAt = Date.now();
+            const wrapper = video.closest('.video-content-wrapper') || video.parentElement;
+            if (wrapper) wrapper.dataset.autoRetryPrimaryCount = '0';
         }
     }
 
@@ -4053,7 +4055,8 @@ function armVideoPlaybackWatchdog(video, cctv, onUnhealthy, options = {}) {
                 lastCurrentTime = currentTime;
                 return;
             }
-            if ((!video.paused || video.ended) && Date.now() - lastProgressAt > Math.min(stallTimeoutMs, 3500)) {
+            const effectiveStallTimeout = Math.max(stallTimeoutMs || 9000, 8000);
+            if ((!video.paused || video.ended) && Date.now() - lastProgressAt > effectiveStallTimeout) {
                 if (!recoverStall('playback-stalled')) {
                     fail('playback-stalled');
                 }
@@ -4754,9 +4757,8 @@ function dedupeSceneCandidates(candidates, limit = NEAREST_RESULT_LIMIT) {
 function applyLocalPlacePriority(ordered, lat, lng) {
     // 1. Jei Hair (Guri Sutaek-dong) pinpoint core 4 cameras
     if (isJeiHairSearchContext(lat, lng)) {
-        // The legacy UTIC EE resolver for this block no longer resolves these
-        // camera IDs. Prefer their independently verified GITS counterparts.
-        const jeiHairPriorityIds = ['GITS_6741', 'GITS_7356', 'GITS_6740', 'GITS_9608', 'L901246', 'L900440', 'L901466', 'L902339'];
+        // Prioritize true nearest and verified active GITS cameras around Sutaek-dong (Guri)
+        const jeiHairPriorityIds = ['GITS_6739', 'GITS_9510', 'GITS_6740', 'GITS_9535', 'GITS_9608', 'GITS_7356', 'GITS_6741', 'KBS_9974'];
         const byId = new Map((ordered || []).map(cctv => [cctv.id, cctv]));
         const promoted = [];
         const seenNames = new Set();
@@ -4810,7 +4812,7 @@ function isJeiHairSearchContext(lat, lng) {
     const jeiKeyword = keyword.includes('제이헤어') || keyword.includes('수택동') || keyword.includes('수택');
     const nearJeiHair = Number.isFinite(lat)
         && Number.isFinite(lng)
-        && getDistance(lat, lng, 37.5943, 127.1296) <= 2.5;
+        && (getDistance(lat, lng, 37.5980, 127.1432) <= 3.5 || getDistance(lat, lng, 37.5943, 127.1296) <= 3.5);
     return nearJeiHair || jeiKeyword;
 }
 
@@ -6426,6 +6428,23 @@ function handleStreamFailover(wrapper, cctv, nextIndex) {
     const backupCount = Array.isArray(cctv.backup_urls) ? cctv.backup_urls.length : 0;
     const isRetryingPrimary = nextIndex === 0;
 
+    // Retry primary stream up to 2 times before abandoning camera to a different location
+    const maxPrimaryRetries = 2;
+    const autoRetries = Number(wrapper.dataset.autoRetryPrimaryCount || 0);
+    if (!isRetryingPrimary && nextIndex > backupCount && autoRetries < maxPrimaryRetries) {
+        wrapper.dataset.autoRetryPrimaryCount = String(autoRetries + 1);
+        cleanupVideo(wrapper);
+        showStreamLoadingIndicator(
+            wrapper,
+            '영상 재연결 시도 중',
+            `${cctv.name || 'CCTV'} 일시적 버퍼링으로 재연결합니다 (${autoRetries + 1}/${maxPrimaryRetries})...`
+        );
+        setTimeout(() => {
+            handleStreamFailover(wrapper, cctv, 0);
+        }, 500);
+        return;
+    }
+
     // Cleanup existing content
     cleanupVideo(wrapper);
 
@@ -6581,8 +6600,8 @@ const GridFailoverController = {
         const activeGridIds = this.getActiveGridCctvIds();
         const activeGridReservationKeys = this.getActiveGridReservationKeys();
 
-        const currentLat = Number(currentCctv.lat) || Number(state.center?.lat) || 37.5665;
-        const currentLng = Number(currentCctv.lng) || Number(state.center?.lng) || 126.9780;
+        const anchorLat = Number(state.center?.lat) || Number(currentCctv.lat) || 37.5665;
+        const anchorLng = Number(state.center?.lng) || Number(currentCctv.lng) || 126.9780;
 
         const isFailed = (id) => state.failedSessionCams.has(id);
         const isNotDuplicate = (item) => item?.id !== currentCctv.id
@@ -6595,7 +6614,7 @@ const GridFailoverController = {
             const itemLng = Number(item.lng);
             if (!Number.isFinite(itemLat) || !Number.isFinite(itemLng)) return false;
 
-            const distKm = getDistance(currentLat, currentLng, itemLat, itemLng);
+            const distKm = getDistance(anchorLat, anchorLng, itemLat, itemLng);
             return distKm <= this.MAX_GEODISTANCE_KM;
         };
 
@@ -6616,7 +6635,7 @@ const GridFailoverController = {
         if (Array.isArray(state.cctvData) && state.cctvData.length > 0) {
             const candidates = state.cctvData
                 .filter(item => item && !isFailed(item.id) && isNotDuplicate(item) && isGeofencedAndPlayable(item))
-                .map(item => ({ item, distKm: getDistance(currentLat, currentLng, Number(item.lat), Number(item.lng)) }))
+                .map(item => ({ item, distKm: getDistance(anchorLat, anchorLng, Number(item.lat), Number(item.lng)) }))
                 .sort((a, b) => a.distKm - b.distKm);
 
             if (candidates.length > 0) {

@@ -102,7 +102,7 @@ def test_geofence_failover(cameras):
 
 def test_jei_hair_pinpoint_priority(cameras):
     print("[TEST 4] Testing Jei Hair Pinpoint Priority (Original 4 Core Cameras)...")
-    priority_ids = ['L901246', 'GITS_6741', 'L900440', 'GITS_7356', 'L901466', 'GITS_6740', 'L902339', 'GITS_9608', 'KBS_9974']
+    priority_ids = ['GITS_6739', 'GITS_9510', 'GITS_6740', 'GITS_9535', 'GITS_9608', 'GITS_7356', 'GITS_6741', 'KBS_9974']
     by_id = {c['id']: c for c in cameras if c.get('id')}
     
     promoted = []
