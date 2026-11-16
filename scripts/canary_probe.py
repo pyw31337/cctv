@@ -703,6 +703,7 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
         dominant = None
 
     failed = [item for item in results if not item.get("ok")]
+    fallback_results = [item for item in results if item.get("fallback_used")]
     failed_resolvers = {str(item.get("resolver") or "UNKNOWN") for item in failed}
     failed_sources = {str(item.get("source") or "UNKNOWN") for item in failed}
     shared_incident = None
@@ -736,6 +737,8 @@ def summarize_region(region: dict, candidates: list[dict], results: list[dict]) 
         "checked": checked,
         "passed": passed,
         "failed": failures,
+        "fallback_used": len(fallback_results),
+        "fallback_rate": round(len(fallback_results) / checked, 3) if checked else 0,
         "min_ok": min_ok,
         "success_rate": round(passed / checked, 3) if checked else 0,
         "avg_ok_ms": avg_ok_ms,
