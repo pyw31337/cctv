@@ -768,11 +768,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadCctvData() {
     try {
         const cacheBucket = Math.floor(Date.now() / CCTV_DATA_BUCKET_MS);
-        const response = await fetch(`data/cctv_core.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
+        let response = await fetch(`data/cctv_core.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
+        if (!response.ok) {
+            console.warn(`[CCTV] data/cctv_core.json returned ${response.status}, attempting fallback to cctv_data.json`);
+            response = await fetch(`cctv_data.json?v=${APP_BUILD_VERSION}&t=${cacheBucket}`);
+        }
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         const rawData = await response.json();
+        if (!Array.isArray(rawData) || rawData.length === 0) {
+            throw new Error('Received empty or invalid CCTV dataset');
+        }
         // Source prefixes are catalog metadata, not useful location names. Keep the
         // raw source field for filtering/health while presenting a clean name.
         state.cctvData = rawData

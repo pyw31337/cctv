@@ -51,6 +51,9 @@ const STALE_WHILE_REVALIDATE_PATTERNS = [
     /\/data\/ops_status\.json/,
     /\/data\/cache_status\.json/,
     /\/data\/world_tour_health\.json/,
+    /\/data\/status\.json/,
+    /\/data\/z3_cache\.json/,
+    /\/data\/kma_precip_current\.json/,
     /\/cctv_data\.json/,
     /\/cctv_overrides\.json/
 ];
