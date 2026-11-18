@@ -222,8 +222,7 @@ async function main() {
   fs.writeFileSync(OUT, `${JSON.stringify(payload, null, 2)}\n`);
   // Upstream camera outages are service-impact telemetry, not a CI failure.
   // Fail only on structural identity violations; those can regress the catalog.
-  if (payload.summary.hard_failed > 0
-    || (payload.summary.failed > 0 && payload.summary.passed === 0)) process.exitCode = 1;
+  if (payload.summary.hard_failed > 0) process.exitCode = 1;
 }
 
 main().catch(error => {

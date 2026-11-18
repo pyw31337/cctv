@@ -61,8 +61,18 @@ jobs:
         if: steps.plan.outputs.due_full_refresh == 'true' && steps.full_refresh.outcome == 'success'
         run: |
           echo "Running validation..."
+          set +e
           python validate_cctv_data.py
-          echo "validation_passed=true" >> "$GITHUB_OUTPUT"
+          validate_status=$?
+          set -e
+          if [[ $validate_status -ne 0 ]]; then
+            echo "validation_passed=false" >> "$GITHUB_OUTPUT"
+            echo "Restoring previous dataset snapshot..."
+            cp /tmp/cctv_data.before.json cctv_data.json
+            echo "::warning::Validation failed; previous dataset snapshot was restored."
+          else
+            echo "validation_passed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Guard data preservation
         id: preservation

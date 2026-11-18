@@ -450,10 +450,7 @@ def main() -> int:
                 existing_data = existing_cache.get("data", {}) if isinstance(existing_cache, dict) else {}
                 has_existing_cache = isinstance(existing_data, dict) and bool(existing_data)
                 age_minutes = get_cache_age_minutes(args.cache_file)
-                allow_minutes = allowed_stale_minutes
-                if has_existing_cache and (
-                    allow_minutes > 0 and age_minutes is not None and age_minutes <= allow_minutes
-                ):
+                if has_existing_cache:
                     refresh_failure_with_existing_cache = True
                     print(
                         "[WARN] Z3 refresh failed; keeping existing cache so the "

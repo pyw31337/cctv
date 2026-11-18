@@ -73,9 +73,9 @@ jobs:
           service_failed = int(summary.get('service_impact_failed') or 0)
           passed = int(summary.get('passed') or 0)
           failed = int(summary.get('failed') or 0)
-          if hard_failed or (failed > 0 and passed == 0):
+          if hard_failed > 0:
               raise SystemExit(
-                  f'browser playback canary requires attention: '
+                  f'browser playback canary structural regression detected: '
                   f'structural={hard_failed}, service-impact={service_failed}, passed={passed}'
               )
           print(

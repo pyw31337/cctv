@@ -46,8 +46,24 @@ for attempt in 1 2 3 4 5; do
 
   echo "Push rejected; rebasing on latest origin/main before retry..."
   git fetch origin main
+
+  # Stash any uncommitted modifications or untracked files before rebase so git rebase doesn't abort with
+  # 'error: cannot rebase: You have unstaged changes.'
+  STASHED=0
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    git stash push --include-untracked -m "commit_and_push_autostash" || true
+    STASHED=1
+  fi
+
   if git rebase origin/main; then
+    if [ "$STASHED" -eq 1 ]; then
+      git stash pop || git stash drop || true
+    fi
     continue
+  fi
+
+  if [ "$STASHED" -eq 1 ]; then
+    git stash pop || git stash drop || true
   fi
 
   echo "Rebase conflict detected on generated data. Reapplying only requested files..." >&2
