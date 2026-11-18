@@ -13,6 +13,7 @@ REPO_DIR="$OPS_HOME/repository"
 CACHE_DIR="$OPS_HOME/current"
 LOG_FILE="${CCTV_OPS_LOG:-$OPS_HOME/refresh.log}"
 LOCK_DIR="${CCTV_OPS_LOCK:-$OPS_HOME/refresh.lock}"
+LOCK_PID_FILE="$LOCK_DIR/pid"
 # The local catalog is refreshed every 30 minutes. The public static fallback
 # is intentionally published less often because normal Z3 playback obtains a
 # new HLS session from the resolver per camera, and committing a 1 MB catalog
@@ -28,8 +29,14 @@ mkdir -p "$OPS_HOME" "$CACHE_DIR"
 exec >> "$LOG_FILE" 2>&1
 
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    log 'refresh already running; skipped'
-    exit 0
+    owner_pid="$(cat "$LOCK_PID_FILE" 2>/dev/null || true)"
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
+        log "refresh already running; skipped (pid=$owner_pid)"
+        exit 0
+    fi
+    log 'stale refresh lock detected; recovering'
+    rm -rf "$LOCK_DIR"
+    mkdir "$LOCK_DIR"
 fi
 cleanup() {
     if [[ -n "${WORK_DIR:-}" && -d "${WORK_DIR:-}" && -d "$REPO_DIR/.git" ]]; then
@@ -38,6 +45,7 @@ cleanup() {
     rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+echo "$$" > "$LOCK_PID_FILE"
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
     log 'initializing dedicated operations checkout'
