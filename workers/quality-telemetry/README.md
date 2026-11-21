@@ -22,7 +22,7 @@ npm run migrate:remote
 npm run deploy
 ```
 
-배포 후 앱의 `index.html`에 설정된 `https://cctv-quality.pyw31337.workers.dev` 주소가 실제 Worker 주소와 다르면 수정하세요.
+배포 후 앱의 `js/runtime-config.js`(`quality.telemetryEndpoint`·`quality.summaryUrl`)와 `.github/workflows/quality-summary-refresh.yml`(`SUMMARY_ENDPOINT`)에 실제 Worker 주소를 다시 넣으세요. 2026-11-22 확인 기준 이 Worker는 **배포되어 있지 않아**(Cloudflare 계정에 없음) 두 값이 모두 비어 있고, 품질 화면은 `data/quality_summary.json` 정적 스냅샷만 읽습니다.
 
 ## 엔드포인트
 
