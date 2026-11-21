@@ -22,8 +22,11 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 DEFAULT_PUBLIC_PROXY_BASE = "https://158.179.194.163.sslip.io"
 DEFAULT_GITS_PROXY_BASE = "https://cctv-proxy-hoon-001.fly.dev"
 DEFAULT_WORKER_PROXY_BASE = "https://cctv-proxy.pyw213.workers.dev"
-DEFAULT_QUALITY_TELEMETRY_ENDPOINT = "https://cctv-quality.pyw31337.workers.dev/v1/events"
-DEFAULT_QUALITY_SUMMARY_URL = "https://cctv-quality.pyw31337.workers.dev/v1/summary"
+# The cctv-quality telemetry Worker is not deployed (checked 2026-11-22), so the
+# default quality endpoints are empty: quality views read the static snapshots and
+# nothing posts telemetry. Set these (or the CCTV_QUALITY_* env vars) when it returns.
+DEFAULT_QUALITY_TELEMETRY_ENDPOINT = ""
+DEFAULT_QUALITY_SUMMARY_URL = ""
 STREAM_MAPPING_REGISTRY_FILE = Path(__file__).resolve().parent / "data" / "stream_mappings.json"
 
 # Verified Namyangju UTIC mapping. These IDs are deliberately keyed by the

@@ -3,9 +3,15 @@
     // must change with every frontend release so a service worker cannot hand
     // an older World Tour module back to a newly deployed page.
     const buildVersion = '20261116-f683a79c';
+    // The cctv-quality telemetry Worker (cctv-quality.pyw31337.workers.dev) is
+    // not deployed (confirmed 2026-11-22: no such Worker in the Cloudflare
+    // account). Until it is deployed again, telemetry stays off and the quality
+    // views read the static snapshots (data/quality_summary.json,
+    // data/quality_policy.json), so no page requests a host that cannot answer.
+    // Set these two back to the Worker URLs once it is deployed.
     const quality = Object.freeze({
-        telemetryEndpoint: 'https://cctv-quality.pyw31337.workers.dev/v1/events',
-        summaryUrl: 'https://cctv-quality.pyw31337.workers.dev/v1/summary',
+        telemetryEndpoint: '',
+        summaryUrl: '',
         healthStatusUrl: 'https://158.179.194.163.sslip.io/health-status',
         canaryStatusUrl: 'https://158.179.194.163.sslip.io/canary-status',
         publicProxyBase: 'https://158.179.194.163.sslip.io',

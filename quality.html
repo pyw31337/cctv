@@ -208,9 +208,9 @@
     </section>
     </details>
 </main>
-<script src="js/runtime-config.js?v=20260814-b69de665"></script>
+<script src="js/runtime-config.js?v=20261122-quality1"></script>
 <script>
-const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
+const SUMMARY_URL = window.CCTV_QUALITY_SUMMARY_URL || '';
 const FALLBACK_URL = 'data/quality_summary.json';
 const ORACLE_BASE = window.CCTV_QUALITY_CONFIG?.publicProxyBase || '';
 const CANARY_URLS = ['data/canary_status.json', ...(ORACLE_BASE ? [`${ORACLE_BASE}/canary-status`] : [])];
@@ -345,7 +345,7 @@ function weightedLoad(items) {
 }
 async function loadSummary() {
     let summary = null;
-    for (const url of [FALLBACK_URL, SUMMARY_URL]) {
+    for (const url of [FALLBACK_URL, SUMMARY_URL].filter(Boolean)) {
         try {
             const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
             if (!res.ok) throw new Error(res.status);

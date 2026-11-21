@@ -44,8 +44,10 @@ const PLAYBACK_HEALTH_OK_TTL_MS = 15 * 60 * 1000;
 const PLAYBACK_HEALTH_PROBLEM_TTL_MS = 45 * 60 * 1000;
 const PLAYBACK_HEALTH_MAX_ENTRIES = 160;
 const QUALITY_CONFIG = window.CCTV_QUALITY_CONFIG || RUNTIME_CONFIG.quality || {};
-const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || RUNTIME_CONFIG.qualityTelemetryEndpoint || 'https://cctv-quality.pyw31337.workers.dev/v1/events';
-const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || RUNTIME_CONFIG.qualitySummaryUrl || 'https://cctv-quality.pyw31337.workers.dev/v1/summary';
+// Empty means the telemetry Worker is not deployed (see js/runtime-config.js);
+// the quality summary then comes from the static snapshot only.
+const QUALITY_TELEMETRY_ENDPOINT = QUALITY_CONFIG.telemetryEndpoint || RUNTIME_CONFIG.qualityTelemetryEndpoint || '';
+const QUALITY_SUMMARY_URL = QUALITY_CONFIG.summaryUrl || RUNTIME_CONFIG.qualitySummaryUrl || '';
 const QUALITY_SUMMARY_FALLBACK_URL = RUNTIME_CONFIG.qualitySummaryFallbackUrl || 'data/quality_summary.json';
 const QUALITY_POLICY_FALLBACK_URL = RUNTIME_CONFIG.qualityPolicyFallbackUrl || 'data/quality_policy.json';
 const DEFAULT_PROXY_BASES = Array.isArray(RUNTIME_CONFIG.proxyBases) && RUNTIME_CONFIG.proxyBases.length > 0
