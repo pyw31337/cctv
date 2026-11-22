@@ -1,105 +1,107 @@
 {
   "auto_recovery": {
-    "last_audited_at": "2026-11-22T00:30:59Z",
+    "last_audited_at": "2026-11-22T02:08:16Z",
     "recent_recovered": 0,
     "recent_runs": 12
   },
   "cache": {
     "z3": {
-      "actual_cache_age_hours": 0.59,
-      "age_hours": 0.59,
+      "actual_cache_age_hours": 0.46,
+      "age_hours": 0.46,
       "entries": 11187,
-      "fetched": "2026-11-22T01:13:02Z",
+      "fetched": "2026-11-22T11:41:15Z",
       "missing_cctvips": 298,
       "missing_ratio": 0.0319,
       "severity": "ok",
       "status": "OK",
-      "status_file_age_hours": 0.24
+      "status_file_age_hours": 0.0
     }
   },
   "canary": {
     "degraded_regions": [],
     "impact_regions": [
+      "대전",
       "독도"
     ],
     "regions": {
       "daejeon": {
-        "avg_ok_ms": 504,
+        "avg_ok_ms": 445,
         "candidate_ids": [
-          "DAEJEON_CCTV05",
-          "DAEJEON_CCTV22",
+          "DAEJEON_CCTV40",
+          "DAEJEON_CCTV09",
+          "DAEJEON_CCTV15",
           "DAEJEON_CCTV01",
-          "DAEJEON_CCTV83",
-          "DAEJEON_CCTV61",
+          "DAEJEON_CCTV37",
+          "DAEJEON_CCTV12",
+          "DAEJEON_CCTV75",
           "DAEJEON_CCTV26",
           "DAEJEON_CCTV21",
-          "DAEJEON_CCTV86",
-          "E910199",
-          "E914680",
-          "E910159",
-          "E911026"
+          "DAEJEON_CCTV42",
+          "E910295",
+          "DAEJEON_CCTV76"
         ],
         "checked": 12,
         "dominant_failure": "network_error",
-        "failed": 8,
+        "failed": 11,
         "failed_ids": [
-          "DAEJEON_CCTV05",
-          "DAEJEON_CCTV22",
+          "DAEJEON_CCTV40",
+          "DAEJEON_CCTV09",
+          "DAEJEON_CCTV15",
           "DAEJEON_CCTV01",
-          "DAEJEON_CCTV83",
-          "DAEJEON_CCTV61",
+          "DAEJEON_CCTV37",
+          "DAEJEON_CCTV12",
+          "DAEJEON_CCTV75",
           "DAEJEON_CCTV26",
           "DAEJEON_CCTV21",
-          "DAEJEON_CCTV86"
+          "DAEJEON_CCTV42",
+          "DAEJEON_CCTV76"
         ],
         "failure_categories": {
-          "network_error": 8
+          "network_error": 11
         },
         "fallback_rate": 0.0,
         "fallback_used": 0,
         "key": "daejeon",
         "label": "대전",
         "min_ok": 2,
-        "passed": 4,
+        "passed": 1,
         "passed_ids": [
-          "E910199",
-          "E914680",
-          "E910159",
-          "E911026"
+          "E910295"
         ],
-        "recommended_action": "정상 후보가 확보되었습니다.",
+        "recommended_action": "대전은 소스 혼합 장애 가능성이 큽니다. UTIC, KBS, GITS를 분리 점검하고 정상 후보를 우선 노출하세요.",
         "recovery_plan": {
           "actions": [
             "catalog_preserve",
             "downrank_failed_candidates",
-            "prefer_recent_success_candidates"
+            "prefer_recent_success_candidates",
+            "run_daejeon_canary_recovery"
           ],
           "delete_policy": "never_delete_for_transient_failure",
           "failed_resolvers": {
-            "direct": 8
+            "direct": 11
           },
           "failed_sources": {
-            "DAEJEON_ITS": 8
+            "DAEJEON_ITS": 11
           },
           "primary_failure": "network_error",
-          "status": "OK"
+          "status": "IMPACT"
         },
         "results": [
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:44:43Z",
+            "checked_at": "2026-11-22T12:05:07Z",
             "content_type": null,
-            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0005/CTV0005_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
-            "distance_km": 3.967,
-            "elapsed_ms": 2886,
+            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0040/CTV0040_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
+            "distance_km": 2.412,
+            "elapsed_ms": 2802,
             "http_status": null,
-            "id": "DAEJEON_CCTV05",
+            "id": "DAEJEON_CCTV40",
             "issue_type": "upstream_outage",
             "meta": {
               "resolver": "direct",
               "source": "DAEJEON_ITS"
             },
-            "name": "서대전네거리",
+            "name": "갑천대교네거리",
             "ok": false,
             "probe_url": "https://tportal.daejeon.go.kr:37084/01/…",
             "reason": "request_error",
@@ -111,19 +113,19 @@
           },
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:44:50Z",
+            "checked_at": "2026-11-22T12:05:16Z",
             "content_type": null,
-            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0022/CTV0022_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
-            "distance_km": 2.759,
-            "elapsed_ms": 2774,
+            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0009/CTV0009_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
+            "distance_km": 2.12,
+            "elapsed_ms": 3056,
             "http_status": null,
-            "id": "DAEJEON_CCTV22",
+            "id": "DAEJEON_CCTV09",
             "issue_type": "upstream_outage",
             "meta": {
               "resolver": "direct",
               "source": "DAEJEON_ITS"
             },
-            "name": "과학공원네거리",
+            "name": "안골네거리",
             "ok": false,
             "probe_url": "https://tportal.daejeon.go.kr:37084/01/…",
             "reason": "request_error",
@@ -135,11 +137,35 @@
           },
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:45:00Z",
+            "checked_at": "2026-11-22T12:05:26Z",
+            "content_type": null,
+            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0015/CTV0015_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
+            "distance_km": 2.504,
+            "elapsed_ms": 2516,
+            "http_status": null,
+            "id": "DAEJEON_CCTV15",
+            "issue_type": "upstream_outage",
+            "meta": {
+              "resolver": "direct",
+              "source": "DAEJEON_ITS"
+            },
+            "name": "가장교오거리",
+            "ok": false,
+            "probe_url": "https://tportal.daejeon.go.kr:37084/01/…",
+            "reason": "request_error",
+            "region_key": "daejeon",
+            "region_label": "대전",
+            "resolver": "direct",
+            "source": "DAEJEON_ITS",
+            "status": "active"
+          },
+          {
+            "category": "network_error",
+            "checked_at": "2026-11-22T12:05:30Z",
             "content_type": null,
             "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0001/CTV0001_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
             "distance_km": 4.807,
-            "elapsed_ms": 2773,
+            "elapsed_ms": 2670,
             "http_status": null,
             "id": "DAEJEON_CCTV01",
             "issue_type": "upstream_outage",
@@ -159,19 +185,19 @@
           },
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:45:04Z",
+            "checked_at": "2026-11-22T12:05:40Z",
             "content_type": null,
-            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0083/CTV0083_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
-            "distance_km": 3.613,
-            "elapsed_ms": 2782,
+            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0037/CTV0037_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
+            "distance_km": 2.916,
+            "elapsed_ms": 2984,
             "http_status": null,
-            "id": "DAEJEON_CCTV83",
+            "id": "DAEJEON_CCTV37",
             "issue_type": "upstream_outage",
             "meta": {
               "resolver": "direct",
               "source": "DAEJEON_ITS"
             },
-            "name": "삼성오거리",
+            "name": "오정네거리",
             "ok": false,
             "probe_url": "https://tportal.daejeon.go.kr:37084/01/…",
             "reason": "request_error",
@@ -183,19 +209,19 @@
           },
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:45:13Z",
+            "checked_at": "2026-11-22T12:05:44Z",
             "content_type": null,
-            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0061/CTV0061_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
-            "distance_km": 3.823,
-            "elapsed_ms": 2883,
+            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0012/CTV0012_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
+            "distance_km": 3.199,
+            "elapsed_ms": 2507,
             "http_status": null,
-            "id": "DAEJEON_CCTV61",
+            "id": "DAEJEON_CCTV12",
             "issue_type": "upstream_outage",
             "meta": {
               "resolver": "direct",
               "source": "DAEJEON_ITS"
             },
-            "name": "충대정문오거리",
+            "name": "중촌네거리",
             "ok": false,
             "probe_url": "https://tportal.daejeon.go.kr:37084/01/…",
             "reason": "request_error",
@@ -207,11 +233,35 @@
           },
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:45:20Z",
+            "checked_at": "2026-11-22T12:05:49Z",
+            "content_type": null,
+            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0075/CTV0075_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
+            "distance_km": 4.128,
+            "elapsed_ms": 2937,
+            "http_status": null,
+            "id": "DAEJEON_CCTV75",
+            "issue_type": "upstream_outage",
+            "meta": {
+              "resolver": "direct",
+              "source": "DAEJEON_ITS"
+            },
+            "name": "원골네거리",
+            "ok": false,
+            "probe_url": "https://tportal.daejeon.go.kr:37084/01/…",
+            "reason": "request_error",
+            "region_key": "daejeon",
+            "region_label": "대전",
+            "resolver": "direct",
+            "source": "DAEJEON_ITS",
+            "status": "active"
+          },
+          {
+            "category": "network_error",
+            "checked_at": "2026-11-22T12:05:53Z",
             "content_type": null,
             "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0026/CTV0026_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
             "distance_km": 4.646,
-            "elapsed_ms": 2865,
+            "elapsed_ms": 2784,
             "http_status": null,
             "id": "DAEJEON_CCTV26",
             "issue_type": "upstream_outage",
@@ -231,11 +281,11 @@
           },
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:45:24Z",
+            "checked_at": "2026-11-22T12:06:02Z",
             "content_type": null,
             "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0021/CTV0021_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
             "distance_km": 5.174,
-            "elapsed_ms": 2780,
+            "elapsed_ms": 2823,
             "http_status": null,
             "id": "DAEJEON_CCTV21",
             "issue_type": "upstream_outage",
@@ -255,19 +305,19 @@
           },
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:45:33Z",
+            "checked_at": "2026-11-22T12:06:11Z",
             "content_type": null,
-            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0086/CTV0086_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
-            "distance_km": 5.855,
-            "elapsed_ms": 2781,
+            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0042/CTV0042_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
+            "distance_km": 5.499,
+            "elapsed_ms": 2829,
             "http_status": null,
-            "id": "DAEJEON_CCTV86",
+            "id": "DAEJEON_CCTV42",
             "issue_type": "upstream_outage",
             "meta": {
               "resolver": "direct",
               "source": "DAEJEON_ITS"
             },
-            "name": "충렬사삼거리",
+            "name": "월드컵네거리",
             "ok": false,
             "probe_url": "https://tportal.daejeon.go.kr:37084/01/…",
             "reason": "request_error",
@@ -279,15 +329,15 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:45:38Z",
+            "checked_at": "2026-11-22T12:06:15Z",
             "content_type": "text/plain",
-            "distance_km": 5.595,
-            "elapsed_ms": 648,
+            "distance_km": 5.233,
+            "elapsed_ms": 445,
             "http_status": 200,
-            "id": "E910199",
+            "id": "E910295",
             "issue_type": "healthy",
             "meta": {
-              "cctvip": "2434",
+              "cctvip": "307",
               "hls_segment": {
                 "bytes": 4096,
                 "content_type": "application/octet-stream",
@@ -295,9 +345,9 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5434812338888889
+              "z3_cache_age_hours": 0.4166919511111111
             },
-            "name": "[경부선]송촌",
+            "name": "[경부선]읍내",
             "ok": true,
             "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
             "reason": "HLS playlist and recent media segment reachable",
@@ -308,125 +358,59 @@
             "status": "active"
           },
           {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:45:40Z",
-            "content_type": "text/plain",
-            "distance_km": 5.684,
-            "elapsed_ms": 674,
-            "http_status": 200,
-            "id": "E914680",
-            "issue_type": "healthy",
+            "category": "network_error",
+            "checked_at": "2026-11-22T12:06:19Z",
+            "content_type": null,
+            "detail": "HTTPSConnectionPool(host='tportal.daejeon.go.kr', port=37084): Max retries exceeded with url: /01/media/CTV0076/CTV0076_20261116.095400.000.mp4 (Caused by ConnectTimeoutError(<HTTP",
+            "distance_km": 6.149,
+            "elapsed_ms": 2823,
+            "http_status": null,
+            "id": "DAEJEON_CCTV76",
+            "issue_type": "upstream_outage",
             "meta": {
-              "cctvip": "2235",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "application/octet-stream",
-                "depth": 1
-              },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5441633777777778
+              "resolver": "direct",
+              "source": "DAEJEON_ITS"
             },
-            "name": "[호남지선]유성분기점",
-            "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
-            "reason": "HLS playlist and recent media segment reachable",
+            "name": "금성골네거리",
+            "ok": false,
+            "probe_url": "https://tportal.daejeon.go.kr:37084/01/…",
+            "reason": "request_error",
             "region_key": "daejeon",
             "region_label": "대전",
-            "resolver": "worker_z3_cache",
-            "source": "UTIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:45:43Z",
-            "content_type": "text/plain",
-            "distance_km": 5.992,
-            "elapsed_ms": 450,
-            "http_status": 200,
-            "id": "E910159",
-            "issue_type": "healthy",
-            "meta": {
-              "cctvip": "2051",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "application/octet-stream",
-                "depth": 1
-              },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5448522291666666
-            },
-            "name": "[경부선]부산영업소",
-            "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "daejeon",
-            "region_label": "대전",
-            "resolver": "worker_z3_cache",
-            "source": "UTIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:45:45Z",
-            "content_type": "text/plain",
-            "distance_km": 8.453,
-            "elapsed_ms": 246,
-            "http_status": 200,
-            "id": "E911026",
-            "issue_type": "healthy",
-            "meta": {
-              "cctvip": "3936",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "application/octet-stream",
-                "depth": 1
-              },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5455184066666666
-            },
-            "name": "[대전남부순환선]무수2교",
-            "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "daejeon",
-            "region_label": "대전",
-            "resolver": "worker_z3_cache",
-            "source": "UTIC",
+            "resolver": "direct",
+            "source": "DAEJEON_ITS",
             "status": "active"
           }
         ],
-        "severity": "ok",
+        "severity": "danger",
         "shared_incident": null,
-        "status": "OK",
-        "success_rate": 0.333
+        "status": "IMPACT",
+        "success_rate": 0.083
       },
       "dokdo": {
         "avg_ok_ms": null,
         "candidate_ids": [
           "KBS_9957",
+          "ULLEUNG_56",
           "ULLEUNG_47",
           "ULLEUNG_48",
-          "ULLEUNG_56",
           "KBS_9987",
-          "ULLEUNG_52",
-          "ULLEUNG_222",
-          "ULLEUNG_44"
+          "ULLEUNG_53",
+          "ULLEUNG_54",
+          "ULLEUNG_45"
         ],
         "checked": 8,
         "dominant_failure": "html_or_frame",
         "failed": 8,
         "failed_ids": [
           "KBS_9957",
+          "ULLEUNG_56",
           "ULLEUNG_47",
           "ULLEUNG_48",
-          "ULLEUNG_56",
           "KBS_9987",
-          "ULLEUNG_52",
-          "ULLEUNG_222",
-          "ULLEUNG_44"
+          "ULLEUNG_53",
+          "ULLEUNG_54",
+          "ULLEUNG_45"
         ],
         "failure_categories": {
           "auth_or_token": 2,
@@ -463,10 +447,10 @@
         "results": [
           {
             "category": "auth_or_token",
-            "checked_at": "2026-11-22T01:48:11Z",
+            "checked_at": "2026-11-22T12:08:50Z",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 0.0,
-            "elapsed_ms": 1797,
+            "elapsed_ms": 1811,
             "http_status": 403,
             "id": "KBS_9957",
             "issue_type": "upstream_outage",
@@ -487,10 +471,33 @@
           },
           {
             "category": "html_or_frame",
-            "checked_at": "2026-11-22T01:48:16Z",
+            "checked_at": "2026-11-22T12:08:55Z",
             "content_type": "text/html",
             "distance_km": 0.425,
-            "elapsed_ms": 988,
+            "elapsed_ms": 865,
+            "http_status": 200,
+            "id": "ULLEUNG_56",
+            "issue_type": "upstream_outage",
+            "meta": {
+              "resolver": "direct",
+              "source": "ULLEUNG"
+            },
+            "name": "울릉군 독도전망대",
+            "ok": false,
+            "probe_url": "https://www.ulleung.go.kr/wowza/…",
+            "reason": "HTML/frame content, not a direct stream",
+            "region_key": "dokdo",
+            "region_label": "독도",
+            "resolver": "direct",
+            "source": "ULLEUNG",
+            "status": "active"
+          },
+          {
+            "category": "html_or_frame",
+            "checked_at": "2026-11-22T12:08:56Z",
+            "content_type": "text/html",
+            "distance_km": 0.425,
+            "elapsed_ms": 887,
             "http_status": 200,
             "id": "ULLEUNG_47",
             "issue_type": "upstream_outage",
@@ -510,10 +517,10 @@
           },
           {
             "category": "html_or_frame",
-            "checked_at": "2026-11-22T01:48:17Z",
+            "checked_at": "2026-11-22T12:08:57Z",
             "content_type": "text/html",
             "distance_km": 0.425,
-            "elapsed_ms": 979,
+            "elapsed_ms": 880,
             "http_status": 200,
             "id": "ULLEUNG_48",
             "issue_type": "upstream_outage",
@@ -532,34 +539,11 @@
             "status": "active"
           },
           {
-            "category": "html_or_frame",
-            "checked_at": "2026-11-22T01:48:18Z",
-            "content_type": "text/html",
-            "distance_km": 0.425,
-            "elapsed_ms": 1669,
-            "http_status": 200,
-            "id": "ULLEUNG_56",
-            "issue_type": "upstream_outage",
-            "meta": {
-              "resolver": "direct",
-              "source": "ULLEUNG"
-            },
-            "name": "울릉군 독도전망대",
-            "ok": false,
-            "probe_url": "https://www.ulleung.go.kr/wowza/…",
-            "reason": "HTML/frame content, not a direct stream",
-            "region_key": "dokdo",
-            "region_label": "독도",
-            "resolver": "direct",
-            "source": "ULLEUNG",
-            "status": "active"
-          },
-          {
             "category": "auth_or_token",
-            "checked_at": "2026-11-22T01:48:20Z",
+            "checked_at": "2026-11-22T12:08:57Z",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 89.045,
-            "elapsed_ms": 1061,
+            "elapsed_ms": 1028,
             "http_status": 403,
             "id": "KBS_9987",
             "issue_type": "upstream_outage",
@@ -580,18 +564,18 @@
           },
           {
             "category": "html_or_frame",
-            "checked_at": "2026-11-22T01:48:24Z",
+            "checked_at": "2026-11-22T12:09:01Z",
             "content_type": "text/html",
-            "distance_km": 88.437,
-            "elapsed_ms": 964,
+            "distance_km": 89.178,
+            "elapsed_ms": 842,
             "http_status": 200,
-            "id": "ULLEUNG_52",
+            "id": "ULLEUNG_53",
             "issue_type": "upstream_outage",
             "meta": {
               "resolver": "direct",
               "source": "ULLEUNG"
             },
-            "name": "울릉군 행남전망대",
+            "name": "울릉군 도동소공원",
             "ok": false,
             "probe_url": "https://www.ulleung.go.kr/wowza/…",
             "reason": "HTML/frame content, not a direct stream",
@@ -603,18 +587,18 @@
           },
           {
             "category": "html_or_frame",
-            "checked_at": "2026-11-22T01:48:25Z",
+            "checked_at": "2026-11-22T12:09:02Z",
             "content_type": "text/html",
-            "distance_km": 87.933,
-            "elapsed_ms": 878,
+            "distance_km": 89.454,
+            "elapsed_ms": 864,
             "http_status": 200,
-            "id": "ULLEUNG_222",
+            "id": "ULLEUNG_54",
             "issue_type": "upstream_outage",
             "meta": {
               "resolver": "direct",
               "source": "ULLEUNG"
             },
-            "name": "울릉군 내수전전망대",
+            "name": "울릉군 석포전망대",
             "ok": false,
             "probe_url": "https://www.ulleung.go.kr/wowza/…",
             "reason": "HTML/frame content, not a direct stream",
@@ -626,18 +610,18 @@
           },
           {
             "category": "html_or_frame",
-            "checked_at": "2026-11-22T01:48:26Z",
+            "checked_at": "2026-11-22T12:09:03Z",
             "content_type": "text/html",
-            "distance_km": 96.444,
-            "elapsed_ms": 882,
+            "distance_km": 91.297,
+            "elapsed_ms": 896,
             "http_status": 200,
-            "id": "ULLEUNG_44",
+            "id": "ULLEUNG_45",
             "issue_type": "upstream_outage",
             "meta": {
               "resolver": "direct",
               "source": "ULLEUNG"
             },
-            "name": "울릉군 남서전망대",
+            "name": "울릉군 사동해안가",
             "ok": false,
             "probe_url": "https://www.ulleung.go.kr/wowza/…",
             "reason": "HTML/frame content, not a direct stream",
@@ -654,18 +638,18 @@
         "success_rate": 0.0
       },
       "guri": {
-        "avg_ok_ms": 1296,
+        "avg_ok_ms": 2102,
         "candidate_ids": [
           "GITS_6741",
           "GITS_7356",
           "GITS_6740",
           "GITS_9608",
-          "E910535",
-          "SPATIC_264",
-          "SPATIC_204",
-          "SPATIC_113",
-          "SPATIC_553",
-          "SPATIC_265"
+          "SPATIC_498",
+          "SPATIC_233",
+          "L180227",
+          "SPATIC_514",
+          "SPATIC_443",
+          "TOPIS_1044"
         ],
         "checked": 10,
         "dominant_failure": null,
@@ -683,12 +667,12 @@
           "GITS_7356",
           "GITS_6740",
           "GITS_9608",
-          "E910535",
-          "SPATIC_264",
-          "SPATIC_204",
-          "SPATIC_113",
-          "SPATIC_553",
-          "SPATIC_265"
+          "SPATIC_498",
+          "SPATIC_233",
+          "L180227",
+          "SPATIC_514",
+          "SPATIC_443",
+          "TOPIS_1044"
         ],
         "recommended_action": "정상 후보가 확보되었습니다.",
         "recovery_plan": {
@@ -706,10 +690,10 @@
         "results": [
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:45:47Z",
+            "checked_at": "2026-11-22T12:06:28Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.454,
-            "elapsed_ms": 1323,
+            "elapsed_ms": 3903,
             "http_status": 200,
             "id": "GITS_6741",
             "issue_type": "healthy",
@@ -735,10 +719,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:45:53Z",
+            "checked_at": "2026-11-22T12:06:43Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.703,
-            "elapsed_ms": 1165,
+            "elapsed_ms": 4697,
             "http_status": 200,
             "id": "GITS_7356",
             "issue_type": "healthy",
@@ -764,10 +748,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:45:57Z",
+            "checked_at": "2026-11-22T12:06:54Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.719,
-            "elapsed_ms": 1252,
+            "elapsed_ms": 2997,
             "http_status": 200,
             "id": "GITS_6740",
             "issue_type": "healthy",
@@ -793,10 +777,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:02Z",
+            "checked_at": "2026-11-22T12:07:00Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.897,
-            "elapsed_ms": 1081,
+            "elapsed_ms": 1704,
             "http_status": 200,
             "id": "GITS_9608",
             "issue_type": "healthy",
@@ -822,42 +806,12 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:05Z",
-            "content_type": "text/plain",
-            "distance_km": 1.783,
-            "elapsed_ms": 265,
-            "http_status": 200,
-            "id": "E910535",
-            "issue_type": "healthy",
-            "meta": {
-              "cctvip": "3684",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "application/octet-stream",
-                "depth": 1
-              },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5510499944444445
-            },
-            "name": "[구리포천선]구리터널구리터널관리사무소",
-            "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "guri",
-            "region_label": "구리",
-            "resolver": "worker_z3_cache",
-            "source": "UTIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:07Z",
+            "checked_at": "2026-11-22T12:07:05Z",
             "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 3.18,
-            "elapsed_ms": 1536,
+            "distance_km": 3.588,
+            "elapsed_ms": 1384,
             "http_status": 200,
-            "id": "SPATIC_264",
+            "id": "SPATIC_498",
             "issue_type": "healthy",
             "meta": {
               "hls_segment": {
@@ -868,91 +822,7 @@
               "resolver": "direct",
               "source": "SPATIC"
             },
-            "name": "[SPATIC] 중화중교",
-            "ok": true,
-            "probe_url": "https://strm3.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "guri",
-            "region_label": "구리",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:14Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 3.914,
-            "elapsed_ms": 1545,
-            "http_status": 200,
-            "id": "SPATIC_204",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 강일IC",
-            "ok": true,
-            "probe_url": "https://strm2.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "guri",
-            "region_label": "구리",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:19Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 4.637,
-            "elapsed_ms": 1549,
-            "http_status": 200,
-            "id": "SPATIC_113",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 장안교",
-            "ok": true,
-            "probe_url": "https://strm1.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "guri",
-            "region_label": "구리",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:25Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 5.231,
-            "elapsed_ms": 2060,
-            "http_status": 200,
-            "id": "SPATIC_553",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 삼육대교차로",
+            "name": "[SPATIC] 고덕근린공원",
             "ok": true,
             "probe_url": "https://strm4.spatic.go.kr/live/…",
             "reason": "HLS playlist and recent media segment reachable",
@@ -964,12 +834,12 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:31Z",
+            "checked_at": "2026-11-22T12:07:10Z",
             "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 5.643,
-            "elapsed_ms": 1188,
+            "distance_km": 4.377,
+            "elapsed_ms": 1262,
             "http_status": 200,
-            "id": "SPATIC_265",
+            "id": "SPATIC_233",
             "issue_type": "healthy",
             "meta": {
               "hls_segment": {
@@ -980,12 +850,461 @@
               "resolver": "direct",
               "source": "SPATIC"
             },
-            "name": "[SPATIC] 배봉초교",
+            "name": "[SPATIC] 선사사거리",
+            "ok": true,
+            "probe_url": "https://strm2.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "guri",
+            "region_label": "구리",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:07:15Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 3.324,
+            "elapsed_ms": 776,
+            "http_status": 200,
+            "id": "L180227",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "text/vnd.trolltech.linguist",
+                "depth": 0
+              },
+              "resolver": "direct",
+              "source": "UTIC"
+            },
+            "name": "현대아울렛사거리",
+            "ok": true,
+            "probe_url": "https://211.57.45.101/media/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "guri",
+            "region_label": "구리",
+            "resolver": "direct",
+            "source": "UTIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:07:17Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 4.796,
+            "elapsed_ms": 1204,
+            "http_status": 200,
+            "id": "SPATIC_514",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 장안교(동남측)",
+            "ok": true,
+            "probe_url": "https://strm4.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "guri",
+            "region_label": "구리",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:07:23Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 4.802,
+            "elapsed_ms": 1334,
+            "http_status": 200,
+            "id": "SPATIC_443",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 화랑대사거리",
             "ok": true,
             "probe_url": "https://strm3.spatic.go.kr/live/…",
             "reason": "HLS playlist and recent media segment reachable",
             "region_key": "guri",
             "region_label": "구리",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:07:28Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 3.638,
+            "elapsed_ms": 1760,
+            "http_status": 200,
+            "id": "TOPIS_1044",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "TOPIS"
+            },
+            "name": "고덕토평대교 남단",
+            "ok": true,
+            "probe_url": "https://topiscctv1.eseoul.go.kr/edge6/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "guri",
+            "region_label": "구리",
+            "resolver": "direct",
+            "source": "TOPIS",
+            "status": "active"
+          }
+        ],
+        "severity": "ok",
+        "shared_incident": null,
+        "status": "OK",
+        "success_rate": 1.0
+      },
+      "highway_seoul": {
+        "avg_ok_ms": 1187,
+        "candidate_ids": [
+          "SPATIC_458",
+          "SPATIC_334",
+          "SPATIC_193",
+          "SPATIC_187",
+          "SPATIC_224",
+          "SPATIC_529",
+          "SPATIC_548",
+          "SPATIC_77",
+          "SPATIC_240",
+          "SPATIC_460"
+        ],
+        "checked": 10,
+        "dominant_failure": null,
+        "failed": 0,
+        "failed_ids": [],
+        "failure_categories": {},
+        "fallback_rate": 0.0,
+        "fallback_used": 0,
+        "key": "highway_seoul",
+        "label": "수도권 고속도로",
+        "min_ok": 2,
+        "passed": 10,
+        "passed_ids": [
+          "SPATIC_458",
+          "SPATIC_334",
+          "SPATIC_193",
+          "SPATIC_187",
+          "SPATIC_224",
+          "SPATIC_529",
+          "SPATIC_548",
+          "SPATIC_77",
+          "SPATIC_240",
+          "SPATIC_460"
+        ],
+        "recommended_action": "정상 후보가 확보되었습니다.",
+        "recovery_plan": {
+          "actions": [
+            "catalog_preserve",
+            "downrank_failed_candidates",
+            "prefer_recent_success_candidates"
+          ],
+          "delete_policy": "never_delete_for_transient_failure",
+          "failed_resolvers": {},
+          "failed_sources": {},
+          "primary_failure": null,
+          "status": "OK"
+        },
+        "results": [
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:02Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 1.507,
+            "elapsed_ms": 1189,
+            "http_status": 200,
+            "id": "SPATIC_458",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 우면교",
+            "ok": true,
+            "probe_url": "https://strm3.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:07Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 1.523,
+            "elapsed_ms": 1257,
+            "http_status": 200,
+            "id": "SPATIC_334",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 염곡IC",
+            "ok": true,
+            "probe_url": "https://strm4.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:12Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 2.518,
+            "elapsed_ms": 984,
+            "http_status": 200,
+            "id": "SPATIC_193",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 서초IC",
+            "ok": true,
+            "probe_url": "https://strm2.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:17Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 2.989,
+            "elapsed_ms": 1243,
+            "http_status": 200,
+            "id": "SPATIC_187",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 매봉터널",
+            "ok": true,
+            "probe_url": "https://strm2.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:21Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 4.518,
+            "elapsed_ms": 1286,
+            "http_status": 200,
+            "id": "SPATIC_224",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 영동전화국",
+            "ok": true,
+            "probe_url": "https://strm2.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:26Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 5.546,
+            "elapsed_ms": 1193,
+            "http_status": 200,
+            "id": "SPATIC_529",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 잠원IC(2)",
+            "ok": true,
+            "probe_url": "https://strm4.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:30Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 6.198,
+            "elapsed_ms": 910,
+            "http_status": 200,
+            "id": "SPATIC_548",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 신사역사거리",
+            "ok": true,
+            "probe_url": "https://strm4.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:34Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 6.235,
+            "elapsed_ms": 1487,
+            "http_status": 200,
+            "id": "SPATIC_77",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 이수교",
+            "ok": true,
+            "probe_url": "https://strm1.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:39Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 6.337,
+            "elapsed_ms": 1088,
+            "http_status": 200,
+            "id": "SPATIC_240",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 삼전사거리",
+            "ok": true,
+            "probe_url": "https://strm2.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
+            "resolver": "direct",
+            "source": "SPATIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:08:44Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 6.494,
+            "elapsed_ms": 1235,
+            "http_status": 200,
+            "id": "SPATIC_460",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "video/MP2T",
+                "depth": 1
+              },
+              "resolver": "direct",
+              "source": "SPATIC"
+            },
+            "name": "[SPATIC] 반포-한남대교3",
+            "ok": true,
+            "probe_url": "https://strm3.spatic.go.kr/live/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "highway_seoul",
+            "region_label": "수도권 고속도로",
             "resolver": "direct",
             "source": "SPATIC",
             "status": "active"
@@ -996,393 +1315,51 @@
         "status": "OK",
         "success_rate": 1.0
       },
-      "highway_seoul": {
-        "avg_ok_ms": 1277,
-        "candidate_ids": [
-          "SPATIC_243",
-          "SPATIC_297",
-          "SPATIC_74",
-          "SPATIC_226",
-          "SPATIC_229",
-          "SPATIC_223",
-          "SPATIC_522",
-          "GITS_5763",
-          "SPATIC_73",
-          "GITS_5136"
-        ],
-        "checked": 10,
-        "dominant_failure": "network_error",
-        "failed": 1,
-        "failed_ids": [
-          "GITS_5763"
-        ],
-        "failure_categories": {
-          "network_error": 1
-        },
-        "fallback_rate": 0.0,
-        "fallback_used": 0,
-        "key": "highway_seoul",
-        "label": "수도권 고속도로",
-        "min_ok": 2,
-        "passed": 9,
-        "passed_ids": [
-          "SPATIC_243",
-          "SPATIC_297",
-          "SPATIC_74",
-          "SPATIC_226",
-          "SPATIC_229",
-          "SPATIC_223",
-          "SPATIC_522",
-          "SPATIC_73",
-          "GITS_5136"
-        ],
-        "recommended_action": "정상 후보가 확보되었습니다.",
-        "recovery_plan": {
-          "actions": [
-            "catalog_preserve",
-            "downrank_failed_candidates",
-            "prefer_recent_success_candidates"
-          ],
-          "delete_policy": "never_delete_for_transient_failure",
-          "failed_resolvers": {
-            "oracle_gits": 1
-          },
-          "failed_sources": {
-            "GITS": 1
-          },
-          "primary_failure": "network_error",
-          "status": "OK"
-        },
-        "results": [
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:17Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 3.536,
-            "elapsed_ms": 1000,
-            "http_status": 200,
-            "id": "SPATIC_243",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 경남아파트",
-            "ok": true,
-            "probe_url": "https://strm2.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:22Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 4.459,
-            "elapsed_ms": 1444,
-            "http_status": 200,
-            "id": "SPATIC_297",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 센터필드사거리",
-            "ok": true,
-            "probe_url": "https://strm3.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:27Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 4.46,
-            "elapsed_ms": 1374,
-            "http_status": 200,
-            "id": "SPATIC_74",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 남태령",
-            "ok": true,
-            "probe_url": "https://strm1.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:33Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 5.134,
-            "elapsed_ms": 1249,
-            "http_status": 200,
-            "id": "SPATIC_226",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 탄천2교",
-            "ok": true,
-            "probe_url": "https://strm2.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:38Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 5.48,
-            "elapsed_ms": 1348,
-            "http_status": 200,
-            "id": "SPATIC_229",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 탄천1교",
-            "ok": true,
-            "probe_url": "https://strm2.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:44Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 5.537,
-            "elapsed_ms": 1239,
-            "http_status": 200,
-            "id": "SPATIC_223",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 삼성역",
-            "ok": true,
-            "probe_url": "https://strm2.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:49Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 5.54,
-            "elapsed_ms": 1176,
-            "http_status": 200,
-            "id": "SPATIC_522",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 강남면허시험장",
-            "ok": true,
-            "probe_url": "https://strm4.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "network_error",
-            "checked_at": "2026-11-22T01:47:55Z",
-            "content_type": null,
-            "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
-            "distance_km": 5.216,
-            "elapsed_ms": 7035,
-            "http_status": null,
-            "id": "GITS_5763",
-            "issue_type": "upstream_outage",
-            "meta": {
-              "cctvid": "5763",
-              "resolver": "oracle_gits",
-              "source": "GITS"
-            },
-            "name": "심곡터널 출구 서울",
-            "ok": false,
-            "probe_url": "https://158.179.194.163.sslip.io/gits/…",
-            "reason": "request_error",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "oracle_gits",
-            "source": "GITS",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:48:02Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 6.446,
-            "elapsed_ms": 1361,
-            "http_status": 200,
-            "id": "SPATIC_73",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 낙성대고개",
-            "ok": true,
-            "probe_url": "https://strm1.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:48:07Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 5.291,
-            "elapsed_ms": 1306,
-            "http_status": 200,
-            "id": "GITS_5136",
-            "issue_type": "healthy",
-            "meta": {
-              "cctvid": "5136",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/m2ts",
-                "depth": 1
-              },
-              "resolver": "oracle_gits",
-              "source": "GITS"
-            },
-            "name": "고등교",
-            "ok": true,
-            "probe_url": "https://158.179.194.163.sslip.io/gits/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "highway_seoul",
-            "region_label": "수도권 고속도로",
-            "resolver": "oracle_gits",
-            "source": "GITS",
-            "status": "active"
-          }
-        ],
-        "severity": "ok",
-        "shared_incident": null,
-        "status": "OK",
-        "success_rate": 0.9
-      },
       "jeju": {
-        "avg_ok_ms": 2652,
+        "avg_ok_ms": 2106,
         "candidate_ids": [
           "NOWJEJU_10",
-          "NOWJEJU_12",
-          "NOWJEJU_13",
-          "NOWJEJU_1",
-          "NOWJEJU_2",
-          "NOWJEJU_9",
           "NOWJEJU_11",
           "NOWJEJU_14",
-          "NOWJEJU_7",
           "NOWJEJU_4",
           "NOWJEJU_5",
-          "KBS_9954"
+          "NOWJEJU_1",
+          "NOWJEJU_6",
+          "NOWJEJU_12",
+          "NOWJEJU_13",
+          "KBS_9954",
+          "NOWJEJU_16",
+          "NOWJEJU_15"
         ],
         "checked": 12,
         "dominant_failure": "hls_playlist_error",
-        "failed": 8,
+        "failed": 9,
         "failed_ids": [
           "NOWJEJU_10",
-          "NOWJEJU_12",
-          "NOWJEJU_13",
           "NOWJEJU_11",
           "NOWJEJU_14",
-          "NOWJEJU_7",
           "NOWJEJU_4",
+          "NOWJEJU_5",
+          "NOWJEJU_6",
+          "NOWJEJU_12",
+          "NOWJEJU_13",
           "KBS_9954"
         ],
         "failure_categories": {
           "auth_or_token": 1,
           "hls_playlist_error": 5,
-          "network_error": 2
+          "network_error": 3
         },
         "fallback_rate": 0.0,
         "fallback_used": 0,
         "key": "jeju",
         "label": "제주",
         "min_ok": 2,
-        "passed": 4,
+        "passed": 3,
         "passed_ids": [
           "NOWJEJU_1",
-          "NOWJEJU_2",
-          "NOWJEJU_9",
-          "NOWJEJU_5"
+          "NOWJEJU_16",
+          "NOWJEJU_15"
         ],
         "recommended_action": "정상 후보가 확보되었습니다.",
         "recovery_plan": {
@@ -1395,11 +1372,11 @@
           "delete_policy": "never_delete_for_transient_failure",
           "failed_resolvers": {
             "direct_kbs_signed": 1,
-            "oracle_proxy": 7
+            "oracle_proxy": 8
           },
           "failed_sources": {
             "KBS": 1,
-            "NOWJEJU": 7
+            "NOWJEJU": 8
           },
           "primary_failure": "hls_playlist_error",
           "status": "OK"
@@ -1407,10 +1384,10 @@
         "results": [
           {
             "category": "hls_playlist_error",
-            "checked_at": "2026-11-22T01:44:03Z",
+            "checked_at": "2026-11-22T12:04:15Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 0.381,
-            "elapsed_ms": 711,
+            "elapsed_ms": 1295,
             "http_status": 404,
             "id": "NOWJEJU_10",
             "issue_type": "upstream_outage",
@@ -1434,148 +1411,10 @@
           },
           {
             "category": "hls_playlist_error",
-            "checked_at": "2026-11-22T01:44:04Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 1.744,
-            "elapsed_ms": 668,
-            "http_status": 404,
-            "id": "NOWJEJU_12",
-            "issue_type": "upstream_outage",
-            "meta": {
-              "hls_segment": {
-                "depth": 0,
-                "http_status": 404
-              },
-              "resolver": "oracle_proxy",
-              "source": "NOWJEJU"
-            },
-            "name": "[NOWJEJU] 윗세오름",
-            "ok": false,
-            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
-            "reason": "HLS playlist HTTP 404",
-            "region_key": "jeju",
-            "region_label": "제주",
-            "resolver": "oracle_proxy",
-            "source": "NOWJEJU",
-            "status": "active"
-          },
-          {
-            "category": "hls_playlist_error",
-            "checked_at": "2026-11-22T01:44:05Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 4.555,
-            "elapsed_ms": 669,
-            "http_status": 404,
-            "id": "NOWJEJU_13",
-            "issue_type": "upstream_outage",
-            "meta": {
-              "hls_segment": {
-                "depth": 0,
-                "http_status": 404
-              },
-              "resolver": "oracle_proxy",
-              "source": "NOWJEJU"
-            },
-            "name": "[NOWJEJU] 어승생악",
-            "ok": false,
-            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
-            "reason": "HLS playlist HTTP 404",
-            "region_key": "jeju",
-            "region_label": "제주",
-            "resolver": "oracle_proxy",
-            "source": "NOWJEJU",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:44:07Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 17.295,
-            "elapsed_ms": 3242,
-            "http_status": 200,
-            "id": "NOWJEJU_1",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 0
-              },
-              "resolver": "oracle_proxy",
-              "source": "NOWJEJU"
-            },
-            "name": "[NOWJEJU] 용두암 해안",
-            "ok": true,
-            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "jeju",
-            "region_label": "제주",
-            "resolver": "oracle_proxy",
-            "source": "NOWJEJU",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:44:11Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 17.456,
-            "elapsed_ms": 616,
-            "http_status": 200,
-            "id": "NOWJEJU_2",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 0
-              },
-              "resolver": "oracle_proxy",
-              "source": "NOWJEJU"
-            },
-            "name": "[NOWJEJU] 탑동 해안",
-            "ok": true,
-            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "jeju",
-            "region_label": "제주",
-            "resolver": "oracle_proxy",
-            "source": "NOWJEJU",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:44:13Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 22.465,
-            "elapsed_ms": 628,
-            "http_status": 200,
-            "id": "NOWJEJU_9",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 0
-              },
-              "resolver": "oracle_proxy",
-              "source": "NOWJEJU"
-            },
-            "name": "[NOWJEJU] 화순 해안",
-            "ok": true,
-            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "jeju",
-            "region_label": "제주",
-            "resolver": "oracle_proxy",
-            "source": "NOWJEJU",
-            "status": "active"
-          },
-          {
-            "category": "hls_playlist_error",
-            "checked_at": "2026-11-22T01:44:15Z",
+            "checked_at": "2026-11-22T12:04:17Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 3.082,
-            "elapsed_ms": 695,
+            "elapsed_ms": 1280,
             "http_status": 404,
             "id": "NOWJEJU_11",
             "issue_type": "upstream_outage",
@@ -1599,10 +1438,10 @@
           },
           {
             "category": "hls_playlist_error",
-            "checked_at": "2026-11-22T01:44:16Z",
+            "checked_at": "2026-11-22T12:04:19Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 6.21,
-            "elapsed_ms": 674,
+            "elapsed_ms": 1503,
             "http_status": 404,
             "id": "NOWJEJU_14",
             "issue_type": "upstream_outage",
@@ -1626,35 +1465,11 @@
           },
           {
             "category": "network_error",
-            "checked_at": "2026-11-22T01:44:18Z",
-            "content_type": null,
-            "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
-            "distance_km": 35.845,
-            "elapsed_ms": 6475,
-            "http_status": null,
-            "id": "NOWJEJU_7",
-            "issue_type": "upstream_outage",
-            "meta": {
-              "resolver": "oracle_proxy",
-              "source": "NOWJEJU"
-            },
-            "name": "[NOWJEJU] 온평 해안",
-            "ok": false,
-            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
-            "reason": "request_error",
-            "region_key": "jeju",
-            "region_label": "제주",
-            "resolver": "oracle_proxy",
-            "source": "NOWJEJU",
-            "status": "active"
-          },
-          {
-            "category": "network_error",
-            "checked_at": "2026-11-22T01:44:25Z",
+            "checked_at": "2026-11-22T12:04:23Z",
             "content_type": null,
             "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
             "distance_km": 14.019,
-            "elapsed_ms": 6396,
+            "elapsed_ms": 6397,
             "http_status": null,
             "id": "NOWJEJU_4",
             "issue_type": "upstream_outage",
@@ -1673,13 +1488,37 @@
             "status": "active"
           },
           {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:44:31Z",
-            "content_type": "application/vnd.apple.mpegurl",
+            "category": "network_error",
+            "checked_at": "2026-11-22T12:04:29Z",
+            "content_type": null,
+            "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
             "distance_km": 14.095,
-            "elapsed_ms": 6122,
-            "http_status": 200,
+            "elapsed_ms": 6602,
+            "http_status": null,
             "id": "NOWJEJU_5",
+            "issue_type": "upstream_outage",
+            "meta": {
+              "resolver": "oracle_proxy",
+              "source": "NOWJEJU"
+            },
+            "name": "[NOWJEJU] 법환 해안",
+            "ok": false,
+            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
+            "reason": "request_error",
+            "region_key": "jeju",
+            "region_label": "제주",
+            "resolver": "oracle_proxy",
+            "source": "NOWJEJU",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:04:36Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 17.295,
+            "elapsed_ms": 4678,
+            "http_status": 200,
+            "id": "NOWJEJU_1",
             "issue_type": "healthy",
             "meta": {
               "hls_segment": {
@@ -1690,7 +1529,7 @@
               "resolver": "oracle_proxy",
               "source": "NOWJEJU"
             },
-            "name": "[NOWJEJU] 법환 해안",
+            "name": "[NOWJEJU] 용두암 해안",
             "ok": true,
             "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
             "reason": "HLS playlist and recent media segment reachable",
@@ -1701,11 +1540,89 @@
             "status": "active"
           },
           {
+            "category": "network_error",
+            "checked_at": "2026-11-22T12:04:42Z",
+            "content_type": null,
+            "detail": "HTTPSConnectionPool(host='158.179.194.163.sslip.io', port=443): Read timed out. (read timeout=6.0)",
+            "distance_km": 17.754,
+            "elapsed_ms": 6502,
+            "http_status": null,
+            "id": "NOWJEJU_6",
+            "issue_type": "upstream_outage",
+            "meta": {
+              "resolver": "oracle_proxy",
+              "source": "NOWJEJU"
+            },
+            "name": "[NOWJEJU] 중문 해안",
+            "ok": false,
+            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
+            "reason": "request_error",
+            "region_key": "jeju",
+            "region_label": "제주",
+            "resolver": "oracle_proxy",
+            "source": "NOWJEJU",
+            "status": "active"
+          },
+          {
+            "category": "hls_playlist_error",
+            "checked_at": "2026-11-22T12:04:49Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 1.744,
+            "elapsed_ms": 1019,
+            "http_status": 404,
+            "id": "NOWJEJU_12",
+            "issue_type": "upstream_outage",
+            "meta": {
+              "hls_segment": {
+                "depth": 0,
+                "http_status": 404
+              },
+              "resolver": "oracle_proxy",
+              "source": "NOWJEJU"
+            },
+            "name": "[NOWJEJU] 윗세오름",
+            "ok": false,
+            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
+            "reason": "HLS playlist HTTP 404",
+            "region_key": "jeju",
+            "region_label": "제주",
+            "resolver": "oracle_proxy",
+            "source": "NOWJEJU",
+            "status": "active"
+          },
+          {
+            "category": "hls_playlist_error",
+            "checked_at": "2026-11-22T12:04:51Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 4.555,
+            "elapsed_ms": 1117,
+            "http_status": 404,
+            "id": "NOWJEJU_13",
+            "issue_type": "upstream_outage",
+            "meta": {
+              "hls_segment": {
+                "depth": 0,
+                "http_status": 404
+              },
+              "resolver": "oracle_proxy",
+              "source": "NOWJEJU"
+            },
+            "name": "[NOWJEJU] 어승생악",
+            "ok": false,
+            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
+            "reason": "HLS playlist HTTP 404",
+            "region_key": "jeju",
+            "region_label": "제주",
+            "resolver": "oracle_proxy",
+            "source": "NOWJEJU",
+            "status": "active"
+          },
+          {
             "category": "auth_or_token",
-            "checked_at": "2026-11-22T01:44:39Z",
+            "checked_at": "2026-11-22T12:04:54Z",
             "content_type": "text/html; charset=utf-8",
             "distance_km": 14.19,
-            "elapsed_ms": 1456,
+            "elapsed_ms": 1598,
             "http_status": 403,
             "id": "KBS_9954",
             "issue_type": "upstream_outage",
@@ -1723,26 +1640,82 @@
             "resolver": "direct_kbs_signed",
             "source": "KBS",
             "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:04:58Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 39.817,
+            "elapsed_ms": 848,
+            "http_status": 200,
+            "id": "NOWJEJU_16",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "text/html; charset=utf-8",
+                "depth": 1
+              },
+              "resolver": "oracle_proxy",
+              "source": "NOWJEJU"
+            },
+            "name": "[NOWJEJU] 성산일출봉",
+            "ok": true,
+            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "jeju",
+            "region_label": "제주",
+            "resolver": "oracle_proxy",
+            "source": "NOWJEJU",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:05:03Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 16.952,
+            "elapsed_ms": 793,
+            "http_status": 200,
+            "id": "NOWJEJU_15",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "text/html; charset=utf-8",
+                "depth": 1
+              },
+              "resolver": "oracle_proxy",
+              "source": "NOWJEJU"
+            },
+            "name": "[NOWJEJU] 제주국제공항",
+            "ok": true,
+            "probe_url": "https://158.179.194.163.sslip.io/proxy/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "jeju",
+            "region_label": "제주",
+            "resolver": "oracle_proxy",
+            "source": "NOWJEJU",
+            "status": "active"
           }
         ],
         "severity": "ok",
         "shared_incident": null,
         "status": "OK",
-        "success_rate": 0.333
+        "success_rate": 0.25
       },
       "jindo": {
-        "avg_ok_ms": 754,
+        "avg_ok_ms": 512,
         "candidate_ids": [
-          "E900987",
-          "E900975",
           "E900985",
           "E900986",
           "E900982",
+          "E900987",
           "E900981",
           "E900980",
           "E900984",
           "E900965",
-          "E900978"
+          "E900978",
+          "E900966"
         ],
         "checked": 10,
         "dominant_failure": null,
@@ -1756,16 +1729,16 @@
         "min_ok": 1,
         "passed": 10,
         "passed_ids": [
-          "E900987",
-          "E900975",
           "E900985",
           "E900986",
           "E900982",
+          "E900987",
           "E900981",
           "E900980",
           "E900984",
           "E900965",
-          "E900978"
+          "E900978",
+          "E900966"
         ],
         "recommended_action": "정상 후보가 확보되었습니다.",
         "recovery_plan": {
@@ -1783,70 +1756,10 @@
         "results": [
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:18Z",
-            "content_type": "text/plain",
-            "distance_km": 2.814,
-            "elapsed_ms": 1507,
-            "http_status": 200,
-            "id": "E900987",
-            "issue_type": "healthy",
-            "meta": {
-              "cctvip": "73604",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "text/vnd.trolltech.linguist",
-                "depth": 1
-              },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5046345880555555
-            },
-            "name": "[국도18호선]포산삼거리",
-            "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "jindo",
-            "region_label": "진도",
-            "resolver": "worker_z3_cache",
-            "source": "UTIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:23Z",
-            "content_type": "text/plain",
-            "distance_km": 16.915,
-            "elapsed_ms": 1438,
-            "http_status": 200,
-            "id": "E900975",
-            "issue_type": "healthy",
-            "meta": {
-              "cctvip": "73589",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "text/vnd.trolltech.linguist",
-                "depth": 1
-              },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5059562313888889
-            },
-            "name": "[국도18호선]선두육교인근",
-            "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "jindo",
-            "region_label": "진도",
-            "resolver": "worker_z3_cache",
-            "source": "UTIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:27Z",
+            "checked_at": "2026-11-22T12:03:33Z",
             "content_type": "text/plain",
             "distance_km": 3.005,
-            "elapsed_ms": 265,
+            "elapsed_ms": 1416,
             "http_status": 200,
             "id": "E900985",
             "issue_type": "healthy",
@@ -1859,7 +1772,7 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5069499925
+              "z3_cache_age_hours": 0.3718459138888889
             },
             "name": "[국도18호선]진도터미널인근",
             "ok": true,
@@ -1873,10 +1786,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:31Z",
+            "checked_at": "2026-11-22T12:03:39Z",
             "content_type": "text/plain",
             "distance_km": 3.626,
-            "elapsed_ms": 1462,
+            "elapsed_ms": 238,
             "http_status": 200,
             "id": "E900986",
             "issue_type": "healthy",
@@ -1889,7 +1802,7 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5081316022222222
+              "z3_cache_age_hours": 0.3733579255555555
             },
             "name": "[국도18호선]진도향토문화회관",
             "ok": true,
@@ -1903,10 +1816,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:35Z",
+            "checked_at": "2026-11-22T12:03:43Z",
             "content_type": "text/plain",
             "distance_km": 4.423,
-            "elapsed_ms": 238,
+            "elapsed_ms": 1331,
             "http_status": 200,
             "id": "E900982",
             "issue_type": "healthy",
@@ -1919,7 +1832,7 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5093576725
+              "z3_cache_age_hours": 0.37469322361111107
             },
             "name": "[국도18호선]진도고교앞교차로",
             "ok": true,
@@ -1933,10 +1846,40 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:41Z",
+            "checked_at": "2026-11-22T12:03:50Z",
+            "content_type": "text/plain",
+            "distance_km": 2.814,
+            "elapsed_ms": 269,
+            "http_status": 200,
+            "id": "E900987",
+            "issue_type": "healthy",
+            "meta": {
+              "cctvip": "73604",
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "text/vnd.trolltech.linguist",
+                "depth": 1
+              },
+              "resolver": "z3_cache",
+              "source": "UTIC",
+              "z3_cache_age_hours": 0.37660780027777774
+            },
+            "name": "[국도18호선]포산삼거리",
+            "ok": true,
+            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "jindo",
+            "region_label": "진도",
+            "resolver": "worker_z3_cache",
+            "source": "UTIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:03:53Z",
             "content_type": "text/plain",
             "distance_km": 5.337,
-            "elapsed_ms": 237,
+            "elapsed_ms": 246,
             "http_status": 200,
             "id": "E900981",
             "issue_type": "healthy",
@@ -1949,7 +1892,7 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5110841075
+              "z3_cache_age_hours": 0.3774431688888889
             },
             "name": "[국도18호선]정거럼재삼거리인근",
             "ok": true,
@@ -1963,10 +1906,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:44Z",
+            "checked_at": "2026-11-22T12:03:56Z",
             "content_type": "text/plain",
             "distance_km": 6.091,
-            "elapsed_ms": 1643,
+            "elapsed_ms": 640,
             "http_status": 200,
             "id": "E900980",
             "issue_type": "healthy",
@@ -1979,7 +1922,7 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5118802930555556
+              "z3_cache_age_hours": 0.3781896191666667
             },
             "name": "[국도18호선]월가리마을회관인근",
             "ok": true,
@@ -1993,10 +1936,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:50Z",
+            "checked_at": "2026-11-22T12:04:00Z",
             "content_type": "text/plain",
             "distance_km": 8.956,
-            "elapsed_ms": 249,
+            "elapsed_ms": 243,
             "http_status": 200,
             "id": "E900984",
             "issue_type": "healthy",
@@ -2009,7 +1952,7 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5134473247222222
+              "z3_cache_age_hours": 0.37933839416666665
             },
             "name": "[국도18호선]진도터널입구",
             "ok": true,
@@ -2023,10 +1966,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:53Z",
+            "checked_at": "2026-11-22T12:04:03Z",
             "content_type": "text/plain",
             "distance_km": 7.771,
-            "elapsed_ms": 250,
+            "elapsed_ms": 241,
             "http_status": 200,
             "id": "E900965",
             "issue_type": "healthy",
@@ -2039,7 +1982,7 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5142693280555556
+              "z3_cache_age_hours": 0.3802495933333333
             },
             "name": "[국도18호선]군내교차로인근",
             "ok": true,
@@ -2053,10 +1996,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:43:57Z",
+            "checked_at": "2026-11-22T12:04:06Z",
             "content_type": "text/plain",
             "distance_km": 10.966,
-            "elapsed_ms": 253,
+            "elapsed_ms": 244,
             "http_status": 200,
             "id": "E900978",
             "issue_type": "healthy",
@@ -2069,9 +2012,39 @@
               },
               "resolver": "z3_cache",
               "source": "UTIC",
-              "z3_cache_age_hours": 0.5155288947222222
+              "z3_cache_age_hours": 0.3810854894444445
             },
             "name": "[국도18호선]안농마을인근",
+            "ok": true,
+            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "jindo",
+            "region_label": "진도",
+            "resolver": "worker_z3_cache",
+            "source": "UTIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:04:10Z",
+            "content_type": "text/plain",
+            "distance_km": 11.29,
+            "elapsed_ms": 248,
+            "http_status": 200,
+            "id": "E900966",
+            "issue_type": "healthy",
+            "meta": {
+              "cctvip": "73609",
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "text/vnd.trolltech.linguist",
+                "depth": 1
+              },
+              "resolver": "z3_cache",
+              "source": "UTIC",
+              "z3_cache_age_hours": 0.3821108361111111
+            },
+            "name": "[국도18호선]금성마을인근",
             "ok": true,
             "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
             "reason": "HLS playlist and recent media segment reachable",
@@ -2088,18 +2061,18 @@
         "success_rate": 1.0
       },
       "namyangju": {
-        "avg_ok_ms": 914,
+        "avg_ok_ms": 922,
         "candidate_ids": [
           "L180076",
           "L180075",
           "L180196",
           "L180195",
-          "E912495",
-          "E912494",
-          "NTIC_[서울양양선] 서종_127.378",
-          "SPATIC_204",
-          "E910541",
-          "GITS_5001"
+          "L180237",
+          "L180182",
+          "L180079",
+          "L180203",
+          "L180164",
+          "NTIC_[서울양양선] 화도IC 진입로_127.312"
         ],
         "checked": 10,
         "dominant_failure": null,
@@ -2117,12 +2090,12 @@
           "L180075",
           "L180196",
           "L180195",
-          "E912495",
-          "E912494",
-          "NTIC_[서울양양선] 서종_127.378",
-          "SPATIC_204",
-          "E910541",
-          "GITS_5001"
+          "L180237",
+          "L180182",
+          "L180079",
+          "L180203",
+          "L180164",
+          "NTIC_[서울양양선] 화도IC 진입로_127.312"
         ],
         "recommended_action": "정상 후보가 확보되었습니다.",
         "recovery_plan": {
@@ -2140,10 +2113,10 @@
         "results": [
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:37Z",
+            "checked_at": "2026-11-22T12:07:33Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 11.952,
-            "elapsed_ms": 864,
+            "elapsed_ms": 793,
             "http_status": 200,
             "id": "L180076",
             "issue_type": "healthy",
@@ -2168,10 +2141,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:39Z",
+            "checked_at": "2026-11-22T12:07:35Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 3.697,
-            "elapsed_ms": 902,
+            "elapsed_ms": 773,
             "http_status": 200,
             "id": "L180075",
             "issue_type": "healthy",
@@ -2196,10 +2169,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:42Z",
+            "checked_at": "2026-11-22T12:07:38Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 9.173,
-            "elapsed_ms": 899,
+            "elapsed_ms": 811,
             "http_status": 200,
             "id": "L180196",
             "issue_type": "healthy",
@@ -2224,10 +2197,10 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:46Z",
+            "checked_at": "2026-11-22T12:07:40Z",
             "content_type": "application/vnd.apple.mpegurl",
             "distance_km": 9.173,
-            "elapsed_ms": 819,
+            "elapsed_ms": 810,
             "http_status": 200,
             "id": "L180195",
             "issue_type": "healthy",
@@ -2252,75 +2225,155 @@
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:49Z",
-            "content_type": "text/plain",
-            "distance_km": 6.268,
-            "elapsed_ms": 436,
+            "checked_at": "2026-11-22T12:07:43Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 3.554,
+            "elapsed_ms": 752,
             "http_status": 200,
-            "id": "E912495",
+            "id": "L180237",
             "issue_type": "healthy",
             "meta": {
-              "cctvip": "95677",
               "hls_segment": {
                 "bytes": 4096,
-                "content_type": "application/octet-stream",
-                "depth": 1
+                "content_type": "text/vnd.trolltech.linguist",
+                "depth": 0
               },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5630819694444444
+              "resolver": "direct",
+              "source": "UTIC"
             },
-            "name": "[수도권제2순환선(파주양주)][양주]은현1터널(양주출구부)",
+            "name": "화도두산위브아파트",
             "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
+            "probe_url": "https://211.57.45.101/media/…",
             "reason": "HLS playlist and recent media segment reachable",
             "region_key": "namyangju",
             "region_label": "남양주",
-            "resolver": "worker_z3_cache",
+            "resolver": "direct",
             "source": "UTIC",
             "status": "active"
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:57Z",
-            "content_type": "text/plain",
-            "distance_km": 7.185,
-            "elapsed_ms": 252,
+            "checked_at": "2026-11-22T12:07:45Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 2.087,
+            "elapsed_ms": 783,
             "http_status": 200,
-            "id": "E912494",
+            "id": "L180182",
             "issue_type": "healthy",
             "meta": {
-              "cctvip": "95674",
               "hls_segment": {
                 "bytes": 4096,
-                "content_type": "application/octet-stream",
-                "depth": 1
+                "content_type": "text/vnd.trolltech.linguist",
+                "depth": 0
               },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5654024230555555
+              "resolver": "direct",
+              "source": "UTIC"
             },
-            "name": "[수도권제2순환선(파주양주)][양주]은현1터널(양주입구부)",
+            "name": "지산교삼거리",
             "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
+            "probe_url": "https://211.57.45.101/media/…",
             "reason": "HLS playlist and recent media segment reachable",
             "region_key": "namyangju",
             "region_label": "남양주",
-            "resolver": "worker_z3_cache",
+            "resolver": "direct",
             "source": "UTIC",
             "status": "active"
           },
           {
             "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:46:59Z",
-            "content_type": "text/plain",
-            "distance_km": 10.307,
-            "elapsed_ms": 1722,
+            "checked_at": "2026-11-22T12:07:48Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 2.277,
+            "elapsed_ms": 829,
             "http_status": 200,
-            "id": "NTIC_[서울양양선] 서종_127.378",
+            "id": "L180079",
             "issue_type": "healthy",
             "meta": {
-              "cctvip": "3162",
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "text/vnd.trolltech.linguist",
+                "depth": 0
+              },
+              "resolver": "direct",
+              "source": "UTIC"
+            },
+            "name": "마치교",
+            "ok": true,
+            "probe_url": "https://211.57.45.101/media/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "namyangju",
+            "region_label": "남양주",
+            "resolver": "direct",
+            "source": "UTIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:07:51Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 3.216,
+            "elapsed_ms": 1415,
+            "http_status": 200,
+            "id": "L180203",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "text/vnd.trolltech.linguist",
+                "depth": 0
+              },
+              "resolver": "direct",
+              "source": "UTIC"
+            },
+            "name": "창현A앞4",
+            "ok": true,
+            "probe_url": "https://211.57.45.101/media/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "namyangju",
+            "region_label": "남양주",
+            "resolver": "direct",
+            "source": "UTIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:07:54Z",
+            "content_type": "application/vnd.apple.mpegurl",
+            "distance_km": 3.784,
+            "elapsed_ms": 1642,
+            "http_status": 200,
+            "id": "L180164",
+            "issue_type": "healthy",
+            "meta": {
+              "hls_segment": {
+                "bytes": 4096,
+                "content_type": "text/vnd.trolltech.linguist",
+                "depth": 0
+              },
+              "resolver": "direct",
+              "source": "UTIC"
+            },
+            "name": "월문리고개(웹)",
+            "ok": true,
+            "probe_url": "https://211.57.45.101/media/…",
+            "reason": "HLS playlist and recent media segment reachable",
+            "region_key": "namyangju",
+            "region_label": "남양주",
+            "resolver": "direct",
+            "source": "UTIC",
+            "status": "active"
+          },
+          {
+            "category": "ok_hls_segment",
+            "checked_at": "2026-11-22T12:07:57Z",
+            "content_type": "text/plain",
+            "distance_km": 5.029,
+            "elapsed_ms": 617,
+            "http_status": 200,
+            "id": "NTIC_[서울양양선] 화도IC 진입로_127.312",
+            "issue_type": "healthy",
+            "meta": {
+              "cctvip": "94820",
               "hls_segment": {
                 "bytes": 4096,
                 "content_type": "application/octet-stream",
@@ -2328,9 +2381,9 @@
               },
               "resolver": "z3_cache",
               "source": "NTIC",
-              "z3_cache_age_hours": 0.5660283297222222
+              "z3_cache_age_hours": 0.44523780583333333
             },
-            "name": "[서울양양선] 서종",
+            "name": "[서울양양선] 화도IC 진입로",
             "ok": true,
             "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
             "reason": "HLS playlist and recent media segment reachable",
@@ -2338,93 +2391,6 @@
             "region_label": "남양주",
             "resolver": "worker_z3_cache",
             "source": "NTIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:03Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 12.716,
-            "elapsed_ms": 1187,
-            "http_status": 200,
-            "id": "SPATIC_204",
-            "issue_type": "healthy",
-            "meta": {
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/MP2T",
-                "depth": 1
-              },
-              "resolver": "direct",
-              "source": "SPATIC"
-            },
-            "name": "[SPATIC] 강일IC",
-            "ok": true,
-            "probe_url": "https://strm2.spatic.go.kr/live/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "namyangju",
-            "region_label": "남양주",
-            "resolver": "direct",
-            "source": "SPATIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:08Z",
-            "content_type": "text/plain",
-            "distance_km": 11.534,
-            "elapsed_ms": 479,
-            "http_status": 200,
-            "id": "E910541",
-            "issue_type": "healthy",
-            "meta": {
-              "cctvip": "3689",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "application/octet-stream",
-                "depth": 1
-              },
-              "resolver": "z3_cache",
-              "source": "UTIC",
-              "z3_cache_age_hours": 0.5685897286111111
-            },
-            "name": "[구리포천선]별내2교",
-            "ok": true,
-            "probe_url": "https://cctv-proxy.pyw213.workers.dev/z3/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "namyangju",
-            "region_label": "남양주",
-            "resolver": "worker_z3_cache",
-            "source": "UTIC",
-            "status": "active"
-          },
-          {
-            "category": "ok_hls_segment",
-            "checked_at": "2026-11-22T01:47:11Z",
-            "content_type": "application/vnd.apple.mpegurl",
-            "distance_km": 12.4,
-            "elapsed_ms": 1580,
-            "http_status": 200,
-            "id": "GITS_5001",
-            "issue_type": "healthy",
-            "meta": {
-              "cctvid": "5001",
-              "hls_segment": {
-                "bytes": 4096,
-                "content_type": "video/m2ts",
-                "depth": 1
-              },
-              "resolver": "oracle_gits",
-              "source": "GITS"
-            },
-            "name": "불암산TG",
-            "ok": true,
-            "probe_url": "https://158.179.194.163.sslip.io/gits/…",
-            "reason": "HLS playlist and recent media segment reachable",
-            "region_key": "namyangju",
-            "region_label": "남양주",
-            "resolver": "oracle_gits",
-            "source": "GITS",
             "status": "active"
           }
         ],
@@ -2438,32 +2404,32 @@
     "severity": "danger",
     "status": "SERVICE_IMPACT"
   },
-  "generated_at": "2026-11-22T01:48:26Z",
+  "generated_at": "2026-11-22T12:09:04Z",
   "policy": {
     "catalog_preservation": "카메라는 삭제하지 않고 품질/카나리/실사용 데이터로 후순위 처리합니다.",
     "green_confidence": "녹색은 카메라 단위 실사용 성공 또는 카나리/품질 데이터가 충분할 때만 강하게 표시합니다.",
     "workflow_failure_definition": "GitHub Actions 실패는 스크립트/데이터 보존/커밋 실패입니다. 외부 CCTV 장애는 canary_status/ops_status에 서비스 영향으로 기록합니다."
   },
   "quality_summary": {
-    "camera_count": 21749,
-    "generated_at": "2026-11-21T20:15:08Z",
+    "camera_count": 21758,
+    "generated_at": "2026-11-22T08:15:41Z",
     "region_count": 30,
     "source_count": 20
   },
   "regional_health": {
     "camera_failures": 500,
-    "last_updated": "2026-11-21T20:15:08Z",
+    "last_updated": "2026-11-22T08:15:41Z",
     "regions_total": 31
   },
   "service_status": "SERVICE_IMPACT",
   "severity": "danger",
   "time": {
-    "generated_at": "2026-11-22T01:48:26Z",
-    "normalized_at": "2026-11-22T01:48:27Z",
+    "generated_at": "2026-11-22T12:09:04Z",
+    "normalized_at": "2026-11-22T12:09:04Z",
     "schema": "cctv-quality-time-v1",
-    "served_at": "2026-11-22T01:48:27Z",
+    "served_at": "2026-11-22T12:09:04Z",
     "source": "github-canary",
-    "source_age_minutes_at_normalization": 0.02,
-    "source_updated_at": "2026-11-22T01:48:26Z"
+    "source_age_minutes_at_normalization": 0.01,
+    "source_updated_at": "2026-11-22T12:09:04Z"
   }
 }
